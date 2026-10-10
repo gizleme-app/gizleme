@@ -63,6 +63,9 @@
   #join .hint{color:#8d88a3}
   #join .ghost{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.13);color:#e8e6f0}
   #join .ghost.bio{border-color:rgba(168,85,247,.5);color:#d8b4fe;font-weight:600}
+  .share-row{display:flex;gap:8px}
+  .share-row .ghost{flex:1;margin:0}
+  #join .ghost.wa{flex:0 0 auto;border-color:rgba(37,211,102,.5);color:#25d366;font-weight:600}
   #join .remember{align-items:center;gap:8px;font-size:.78rem;color:#b9b4cc;cursor:pointer;margin-top:-4px}
   #join .remember input{width:16px;height:16px;accent-color:#a855f7}
   .brandhero{display:flex;justify-content:center;margin-bottom:4px}
@@ -173,6 +176,9 @@
   .sb-list{flex:1;overflow-y:auto;padding:4px 8px 12px;display:flex;flex-direction:column;gap:2px}
   .ct{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;cursor:pointer;color:var(--fg);text-align:left}
   .ct:hover{background:var(--surface-2)}
+  .ct.active{background:color-mix(in srgb, var(--accent) 16%, transparent)}
+  .ct.active .cn{color:var(--accent)}
+  .ct.active .cm{color:var(--accent)}
   .ct .ava{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}
   .ct .ci{min-width:0;flex:1}
   .ct .cn{font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -219,7 +225,10 @@
     <button class="ghost" id="backBtn" type="button" style="display:none">← Back to chats</button>
     <button class="ghost bio" id="bioBtn" type="button" hidden>🙂 Face ID / Touch ID</button>
     <p class="hint">Two people open Gizleme with the <b>same room code</b> to chat. A PIN (or Face ID) keeps an encrypted history on this device; leave both empty for a chat that vanishes when you close the page.</p>
-    <button class="ghost" id="copyLink" type="button">📤 Share invite</button>
+    <div class="share-row">
+      <button class="ghost" id="copyLink" type="button">📤 Share invite</button>
+      <button class="ghost wa" id="waShare" type="button">WhatsApp</button>
+    </div>
   </div>
 </div>
 
@@ -348,32 +357,27 @@ function rid(){ return [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.t
 function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...crypto.getRandomValues(new Uint8Array(6))].map(b=>A[b%A.length]).join(""); }
 
 // ---------- contacts (saved peers -> secret, daily-rotating rendezvous room) ----------
-const LS_CONTACTS="gz-contacts", LS_SEED="gz-seed";
+// The per-contact key is derived from the FIRST ECDH shared secret with that peer
+// (which the relay never sees) — computed locally on both sides at pairing, so the
+// contact + name appear immediately and identically, with no extra round-trip.
+const LS_CONTACTS="gz-contacts";
 const B32="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-function myDeviceSeed(){ let s=null; try{ s=localStorage.getItem(LS_SEED); }catch(e){}
-  if(!s){ s=b64(crypto.getRandomValues(new Uint8Array(32))); try{ localStorage.setItem(LS_SEED,s); }catch(e){} }
-  return unb64(s); }
 function contactsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_CONTACTS)||"[]")||[]; }catch(e){ return []; } }
 function contactsSave(list){ try{ localStorage.setItem(LS_CONTACTS, JSON.stringify(list)); }catch(e){} renderContacts(); }
+function realName(n){ return n && n!=="Peer" && n!=="Contact" && n!=="Anon" && n!=="Waiting for peer…" ? n : ""; }
 function contactUpsert(name, ckB64){
-  const list=contactsLoad(); const i=list.findIndex(c=>c.ck===ckB64);
-  if(i>=0){ if(name) list[i].name=name; list[i].ts=Date.now(); }
-  else list.push({name:name||"Contact", ck:ckB64, ts:Date.now()});
+  const list=contactsLoad(); const i=list.findIndex(c=>c.ck===ckB64); const nm=realName(name);
+  if(i>=0){ if(nm) list[i].name=nm; list[i].ts=Date.now(); }
+  else list.push({name:nm||name||"Contact", ck:ckB64, ts:Date.now()});
   contactsSave(list);
 }
 function contactRemove(ckB64){ contactsSave(contactsLoad().filter(c=>c.ck!==ckB64)); }
-async function contactCK(peerSeedB64){      // combine both device seeds deterministically
-  const mine=myDeviceSeed(), theirs=unb64(peerSeedB64), mineB=b64(mine);
-  const [x,y]= mineB < peerSeedB64 ? [mine,theirs] : [theirs,mine];
-  const joined=new Uint8Array(x.length+y.length); joined.set(x,0); joined.set(y,x.length);
-  return b64(await hkdf(joined,"gz-contact/v1"));
-}
+async function ckFromSecret(secret){ return b64(await hkdf(secret,"gz-contact/v1")); }  // ECDH secret -> stable contact key
 async function rvCodeFromCK(ckB64){         // secret room code for today's window
   const day=Math.floor(Date.now()/86400000);
   const u=new Uint8Array(await hkdf(unb64(ckB64),"gz-rv/v1|"+day, 10));
   let s=""; for(let i=0;i<7;i++) s+=B32[u[i]%B32.length]; return s;
 }
-async function sendHello(R){ try{ await broadcast(R,{t:"hello",seed:b64(myDeviceSeed()),name:myName}); }catch(e){} }
 async function openContact(ckB64, name){
   closeSidebar();
   const code=await rvCodeFromCK(ckB64);
@@ -381,17 +385,19 @@ async function openContact(ckB64, name){
   await doJoin(code,{fromContact:ckB64,title:name});
 }
 function closeSidebar(){ const s=$("sidebar"); if(s) s.classList.remove("open"); const b=$("sbBackdrop"); if(b) b.classList.remove("show"); }
+function activeCK(){ const R=A(); return R&&R.fromContact||null; }
 function renderContacts(){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
   const list=contactsLoad().sort((a,b)=>(b.ts||0)-(a.ts||0));
   if(!list.length){ const e=document.createElement("div"); e.className="sb-empty";
     e.textContent="No contacts yet. Start a chat with a room code — once you connect, that person is saved here and one tap reconnects you with fresh keys."; el.appendChild(e); return; }
+  const cur=activeCK();
   list.forEach(c=>{
-    const row=document.createElement("div"); row.className="ct";
+    const row=document.createElement("div"); row.className="ct"+(c.ck===cur?" active":"");
     const ava=document.createElement("div"); ava.className="ava"; ava.textContent=(c.name&&c.name[0]||"?").toUpperCase();
     const ci=document.createElement("div"); ci.className="ci";
     const cn=document.createElement("div"); cn.className="cn"; cn.textContent=c.name||"Contact";
-    const cm=document.createElement("div"); cm.className="cm"; cm.textContent="tap to reconnect";
+    const cm=document.createElement("div"); cm.className="cm"; cm.textContent=c.ck===cur?"● connected here":"tap to reconnect";
     ci.appendChild(cn); ci.appendChild(cm);
     const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title="Remove contact"; x.setAttribute("aria-label","Remove contact");
     x.addEventListener("click",ev=>{ ev.stopPropagation(); contactRemove(c.ck); });
@@ -617,12 +623,24 @@ function setStatus(R, t, secure){ R.statusText=t; R.secure=!!secure; if(R.code==
 const CANONICAL="https://gizleme.com";
 function inviteLink(){ const u=new URL(CANONICAL); if(active) u.searchParams.set("room",active); return u.toString(); }
 function localRoomUrl(code){ const u=new URL(location.href); u.searchParams.set("room",code||active||""); u.hash=""; return u.toString(); }
-async function shareInvite(){
+function inviteParts(){
   const room=((active||$("roomInput").value||"").trim()).toUpperCase();
   const u=new URL(CANONICAL); if(room) u.searchParams.set("room",room); const url=u.toString();
-  const text="Join me on Gizleme 🔒 (encrypted chat). Room code: "+room;
-  if(navigator.share){ try{ await navigator.share({title:"Gizleme",text,url}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
+  const msg="Join me on Gizleme 🔒 encrypted chat — room code "+room+"\n"+url;
+  return {room,url,msg};
+}
+async function shareInvite(){
+  const {url,msg}=inviteParts();
+  // One combined text field is handled most consistently across targets (WhatsApp included).
+  if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
   try{ await navigator.clipboard.writeText(url); toast("Link copied"); }catch(e){ prompt("Copy this link:",url); }
+}
+function shareWhatsApp(){
+  const {msg}=inviteParts();
+  // wa.me opens WhatsApp directly (foregrounds it) with the message ready; the person
+  // still taps Send inside WhatsApp — no app can send on your behalf.
+  const wa="https://wa.me/?text="+encodeURIComponent(msg);
+  window.open(wa,"_blank","noopener");
 }
 function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!on; $("attachBtn").disabled=!on; }
 
@@ -634,12 +652,16 @@ async function establish(R, other){
   const changed=rootFp!==R.rootFp;
   R.peer=other; R.root=root; R.rootFp=rootFp; if(changed) R.sendI=0; R.paired=true;
   const nm=other.name||"Peer"; R.peerName=nm; R.avatar=(nm[0]||"?").toUpperCase();
+  if(realName(nm)) R.title=nm;                         // show the person's name in the tab/header
   setStatus(R,"🔒 secure · key "+rootFp,true);
-  if(R.code===active){ $("peerName").textContent=nm; $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
+  if(R.code===active){ $("peerName").textContent=nm; $("peerAvatar").textContent=R.avatar; if(R.title) $("roomTag").textContent=R.title; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
   if(changed){
     sysline(R.logEl,"🔒 secure channel established with "+nm);
-    if(!R.fromContact) sendHello(R);                 // exchange contact seed on first (manual) meetings
-    else contactUpsert(nm, R.fromContact);           // bump recency when reconnecting via a contact
+    // Derive a stable per-contact key from the first shared secret (relay never sees it),
+    // then save/refresh the contact — identical on both sides, no extra round-trip.
+    if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){} }
+    if(R.fromContact) contactUpsert(nm, R.fromContact);
+    renderTabs(); renderContacts();
   }
 }
 function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.peerName="Waiting for peer…"; R.avatar="?";
@@ -663,7 +685,6 @@ async function onMsg(R, {payload:p}){
     const key=await aesKey(mk);
     const pt=await aesDec(key,p.iv,p.ct);
     const env=JSON.parse(dec.decode(pt));
-    if(env.t==="hello"){ try{ const ck=await contactCK(env.seed); contactUpsert(env.name||R.peerName, ck); if(!R.fromContact) R.fromContact=ck; }catch(e){} return; }
     const tag="decrypted · key "+await fp(mk);
     const now=Date.now();
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, tag, now); }
@@ -741,7 +762,7 @@ function switchTo(code){
   $("roomTag").textContent=R.title?R.title:("#"+R.code);
   $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
   $("msgInput").disabled=!R.paired; $("sendBtn").disabled=!R.paired; $("attachBtn").disabled=!R.paired;
-  renderTabs();
+  renderTabs(); renderContacts();
 }
 function leaveRoom(code){
   const R=rooms.get(code); if(!R) return;
@@ -832,6 +853,7 @@ async function rekey(){
   $("roomInput").addEventListener("keydown",e=>{ if(e.key==="Enter") join(); });
   $("nameInput").addEventListener("keydown",e=>{ if(e.key==="Enter") join(); });
   $("copyLink").addEventListener("click",shareInvite);
+  $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
   $("msgInput").addEventListener("keydown",e=>{ if(e.key==="Enter") sendText(); });
