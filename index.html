@@ -162,6 +162,33 @@
   .set-sel{flex:0 0 auto;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 9px;cursor:pointer}
   .set-sel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   #settingsClose{margin-top:16px}
+  /* contacts sidebar */
+  #app{flex-direction:row;height:100dvh;overflow:hidden}
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%}
+  .sidebar{width:236px;flex:none;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);min-height:0}
+  .sb-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:13px 12px 4px;font-weight:700;font-size:.95rem}
+  .sb-head button{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:9px;width:30px;height:30px;font-size:1.15rem;line-height:1;cursor:pointer}
+  .sb-head button:hover{border-color:var(--accent);color:var(--accent)}
+  .sb-sub{padding:0 12px 8px;color:var(--muted);font-size:.72rem}
+  .sb-list{flex:1;overflow-y:auto;padding:4px 8px 12px;display:flex;flex-direction:column;gap:2px}
+  .ct{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;cursor:pointer;color:var(--fg);text-align:left}
+  .ct:hover{background:var(--surface-2)}
+  .ct .ava{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}
+  .ct .ci{min-width:0;flex:1}
+  .ct .cn{font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ct .cm{color:var(--muted);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ct .cx{border:none;background:none;color:var(--muted);font-size:1rem;cursor:pointer;opacity:0;padding:0 2px}
+  .ct:hover .cx{opacity:1}
+  .ct .cx:hover{color:var(--bad)}
+  .sb-empty{color:var(--muted);font-size:.8rem;padding:10px 12px;line-height:1.55}
+  .sb-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:35}
+  #ctToggle{display:none}
+  @media (max-width:720px){
+    .sidebar{position:fixed;left:0;top:0;bottom:0;width:82%;max-width:300px;transform:translateX(-100%);transition:transform .22s ease;z-index:40;box-shadow:0 0 40px rgba(0,0,0,.45)}
+    .sidebar.open{transform:none}
+    .sb-backdrop.show{display:block}
+    #ctToggle{display:inline-flex}
+  }
   @media (prefers-reduced-motion:reduce){*{transition:none!important} #join .glow{animation:none!important}}
 </style>
 </head>
@@ -198,7 +225,15 @@
 
 <!-- CHAT -->
 <div class="screen" id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-head">Chats <button id="sbNew" title="New chat" aria-label="New chat">＋</button></div>
+    <div class="sb-sub">People you've talked to</div>
+    <div class="sb-list" id="contactList"></div>
+  </aside>
+  <div class="sb-backdrop" id="sbBackdrop"></div>
+  <div class="main">
   <div class="bar" id="bar">
+    <button class="icon" id="ctToggle" title="Contacts" aria-label="Contacts">👥</button>
     <span class="avatar" id="peerAvatar">?</span>
     <div class="meta">
       <div class="peer-name" id="peerName">Waiting for peer…</div>
@@ -227,6 +262,7 @@
     <input type="text" id="msgInput" placeholder="Message…" autocomplete="off" maxlength="2000" disabled/>
     <button class="send" id="sendBtn" disabled aria-label="Send">➤</button>
   </div>
+  </div><!-- /.main -->
 </div>
 
 <!-- PIN unlock modal (returning device) -->
@@ -307,9 +343,63 @@ let gHistKey = null;       // device-level history key (shared across rooms)
 let myName = "";
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
-function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?" }; }
+function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null }; }
 function rid(){ return [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,"0")).join(""); }
 function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...crypto.getRandomValues(new Uint8Array(6))].map(b=>A[b%A.length]).join(""); }
+
+// ---------- contacts (saved peers -> secret, daily-rotating rendezvous room) ----------
+const LS_CONTACTS="gz-contacts", LS_SEED="gz-seed";
+const B32="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function myDeviceSeed(){ let s=null; try{ s=localStorage.getItem(LS_SEED); }catch(e){}
+  if(!s){ s=b64(crypto.getRandomValues(new Uint8Array(32))); try{ localStorage.setItem(LS_SEED,s); }catch(e){} }
+  return unb64(s); }
+function contactsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_CONTACTS)||"[]")||[]; }catch(e){ return []; } }
+function contactsSave(list){ try{ localStorage.setItem(LS_CONTACTS, JSON.stringify(list)); }catch(e){} renderContacts(); }
+function contactUpsert(name, ckB64){
+  const list=contactsLoad(); const i=list.findIndex(c=>c.ck===ckB64);
+  if(i>=0){ if(name) list[i].name=name; list[i].ts=Date.now(); }
+  else list.push({name:name||"Contact", ck:ckB64, ts:Date.now()});
+  contactsSave(list);
+}
+function contactRemove(ckB64){ contactsSave(contactsLoad().filter(c=>c.ck!==ckB64)); }
+async function contactCK(peerSeedB64){      // combine both device seeds deterministically
+  const mine=myDeviceSeed(), theirs=unb64(peerSeedB64), mineB=b64(mine);
+  const [x,y]= mineB < peerSeedB64 ? [mine,theirs] : [theirs,mine];
+  const joined=new Uint8Array(x.length+y.length); joined.set(x,0); joined.set(y,x.length);
+  return b64(await hkdf(joined,"gz-contact/v1"));
+}
+async function rvCodeFromCK(ckB64){         // secret room code for today's window
+  const day=Math.floor(Date.now()/86400000);
+  const u=new Uint8Array(await hkdf(unb64(ckB64),"gz-rv/v1|"+day, 10));
+  let s=""; for(let i=0;i<7;i++) s+=B32[u[i]%B32.length]; return s;
+}
+async function sendHello(R){ try{ await broadcast(R,{t:"hello",seed:b64(myDeviceSeed()),name:myName}); }catch(e){} }
+async function openContact(ckB64, name){
+  closeSidebar();
+  const code=await rvCodeFromCK(ckB64);
+  if(rooms.has(code)){ switchTo(code); return; }
+  await doJoin(code,{fromContact:ckB64,title:name});
+}
+function closeSidebar(){ const s=$("sidebar"); if(s) s.classList.remove("open"); const b=$("sbBackdrop"); if(b) b.classList.remove("show"); }
+function renderContacts(){
+  const el=$("contactList"); if(!el) return; el.innerHTML="";
+  const list=contactsLoad().sort((a,b)=>(b.ts||0)-(a.ts||0));
+  if(!list.length){ const e=document.createElement("div"); e.className="sb-empty";
+    e.textContent="No contacts yet. Start a chat with a room code — once you connect, that person is saved here and one tap reconnects you with fresh keys."; el.appendChild(e); return; }
+  list.forEach(c=>{
+    const row=document.createElement("div"); row.className="ct";
+    const ava=document.createElement("div"); ava.className="ava"; ava.textContent=(c.name&&c.name[0]||"?").toUpperCase();
+    const ci=document.createElement("div"); ci.className="ci";
+    const cn=document.createElement("div"); cn.className="cn"; cn.textContent=c.name||"Contact";
+    const cm=document.createElement("div"); cm.className="cm"; cm.textContent="tap to reconnect";
+    ci.appendChild(cn); ci.appendChild(cm);
+    const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title="Remove contact"; x.setAttribute("aria-label","Remove contact");
+    x.addEventListener("click",ev=>{ ev.stopPropagation(); contactRemove(c.ck); });
+    row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
+    row.addEventListener("click",()=>openContact(c.ck,c.name));
+    el.appendChild(row);
+  });
+}
 
 // ---------- master key: one history key, unlockable by PIN and/or Face ID ----------
 const LS_MKPIN="gz-mkpin", LS_MKBIO="gz-mkbio";
@@ -546,7 +636,11 @@ async function establish(R, other){
   const nm=other.name||"Peer"; R.peerName=nm; R.avatar=(nm[0]||"?").toUpperCase();
   setStatus(R,"🔒 secure · key "+rootFp,true);
   if(R.code===active){ $("peerName").textContent=nm; $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
-  if(changed) sysline(R.logEl,"🔒 secure channel established with "+nm);
+  if(changed){
+    sysline(R.logEl,"🔒 secure channel established with "+nm);
+    if(!R.fromContact) sendHello(R);                 // exchange contact seed on first (manual) meetings
+    else contactUpsert(nm, R.fromContact);           // bump recency when reconnecting via a contact
+  }
 }
 function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.peerName="Waiting for peer…"; R.avatar="?";
   setStatus(R,"waiting for peer…",false);
@@ -569,6 +663,7 @@ async function onMsg(R, {payload:p}){
     const key=await aesKey(mk);
     const pt=await aesDec(key,p.iv,p.ct);
     const env=JSON.parse(dec.decode(pt));
+    if(env.t==="hello"){ try{ const ck=await contactCK(env.seed); contactUpsert(env.name||R.peerName, ck); if(!R.fromContact) R.fromContact=ck; }catch(e){} return; }
     const tag="decrypted · key "+await fp(mk);
     const now=Date.now();
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, tag, now); }
@@ -605,8 +700,10 @@ async function sendImage(file){
 function showWire(R, ctB64){ if(R && R.code!==active) return; try{ $("wireCt").textContent=hex(unb64(ctB64)); }catch(e){} }
 
 // ---------- join ----------
-async function doJoin(code){
+async function doJoin(code, opts){
+  opts=opts||{};
   const R=newRoom(code);
+  R.fromContact=opts.fromContact||null; R.title=opts.title||null;
   R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp));
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none";
   $("logs").appendChild(logEl); R.logEl=logEl;
@@ -641,7 +738,7 @@ function switchTo(code){
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   R.unread=0;
   $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar;
-  $("roomTag").textContent="#"+R.code;
+  $("roomTag").textContent=R.title?R.title:("#"+R.code);
   $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
   $("msgInput").disabled=!R.paired; $("sendBtn").disabled=!R.paired; $("attachBtn").disabled=!R.paired;
   renderTabs();
@@ -662,7 +759,7 @@ function renderTabs(){
   const t=$("tabs"); if(!t) return; t.innerHTML="";
   rooms.forEach(R=>{
     const chip=document.createElement("div"); chip.className="tab"+(R.code===active?" active":"");
-    const nm=document.createElement("span"); nm.className="tname"; nm.textContent="#"+R.code; chip.appendChild(nm);
+    const nm=document.createElement("span"); nm.className="tname"; nm.textContent=R.title?R.title:("#"+R.code); chip.appendChild(nm);
     if(R.unread){ const b=document.createElement("span"); b.className="badge"; b.textContent=R.unread>9?"9+":R.unread; chip.appendChild(b); }
     const x=document.createElement("button"); x.className="tx"; x.textContent="×"; x.title="Leave room"; x.setAttribute("aria-label","Leave room");
     x.addEventListener("click",ev=>{ ev.stopPropagation(); leaveRoom(R.code); });
@@ -774,6 +871,12 @@ async function rekey(){
     toast("Open the browser menu → Install Gizleme");
   });
   if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }); }
+
+  // Contacts sidebar
+  renderContacts();
+  $("ctToggle").addEventListener("click",()=>{ const s=$("sidebar"); const open=s.classList.toggle("open"); $("sbBackdrop").classList.toggle("show",open); });
+  $("sbBackdrop").addEventListener("click",closeSidebar);
+  $("sbNew").addEventListener("click",()=>{ closeSidebar(); showAddRoom(); });
 
   $("settingsBtn").addEventListener("click",openSettings);
   $("settingsClose").addEventListener("click",()=>$("settingsModal").classList.remove("show"));
