@@ -94,7 +94,17 @@
   .bar .icon{background:none;border:none;color:var(--muted);font-size:1.1rem;padding:5px;line-height:1}
   .roomtag{font-family:var(--mono);font-size:.72rem;color:var(--accent);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px 9px;cursor:pointer;white-space:nowrap}
 
-  .log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px}
+  .logs{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .tabs{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface);flex:none}
+  .tab{display:flex;align-items:center;gap:6px;padding:5px 7px 5px 11px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);font-family:var(--mono);font-size:.74rem;white-space:nowrap;cursor:pointer;color:var(--fg)}
+  .tab.active{border-color:var(--accent);color:var(--accent)}
+  .tab .badge{background:var(--accent);color:#fff;border-radius:999px;font-size:.6rem;padding:1px 5px;font-family:var(--ui);font-weight:600}
+  .tab .tx{border:none;background:none;color:var(--muted);font-size:1.05rem;line-height:1;cursor:pointer;padding:0 1px}
+  .tab .tx:hover{color:var(--bad)}
+  .tabadd{flex:none;border:1px dashed var(--line);background:none;color:var(--muted);border-radius:50%;width:30px;height:30px;font-size:1.1rem;cursor:pointer}
+  .tabadd:hover{border-color:var(--accent);color:var(--accent)}
+  #join.adding #pinField,#join.adding #rememberWrap,#join.adding #bioBtn{display:none!important}
+  .log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;min-height:0}
   .bubble{max-width:82%;padding:9px 12px;border-radius:15px;font-size:.95rem;word-wrap:break-word;overflow-wrap:anywhere}
   .bubble .txt.scrambling{font-family:var(--mono);letter-spacing:.03em;color:var(--accent)}
   .bubble .tag{display:block;font-family:var(--mono);font-size:.6rem;margin-top:5px;opacity:.7}
@@ -160,12 +170,13 @@
         <button class="ghost" id="genRoom" type="button" title="New code">⟳</button>
       </div>
     </div>
-    <div class="field">
+    <div class="field" id="pinField">
       <label for="pinInput">PIN <span id="pinHint" style="font-weight:400">— keeps an encrypted history on this device (optional)</span></label>
       <input id="pinInput" type="password" inputmode="numeric" placeholder="••••" maxlength="32" autocomplete="off"/>
     </div>
     <label class="remember" id="rememberWrap" style="display:none"><input type="checkbox" id="rememberBio"/> Remember with Face ID / Touch ID</label>
     <button class="btn" id="joinBtn" type="button">Join securely</button>
+    <button class="ghost" id="backBtn" type="button" style="display:none">← Back to chats</button>
     <button class="ghost bio" id="bioBtn" type="button" hidden>🙂 Face ID / Touch ID</button>
     <p class="hint">Two people open Gizleme with the <b>same room code</b> to chat. A PIN (or Face ID) keeps an encrypted history on this device; leave both empty for a chat that vanishes when you close the page.</p>
     <button class="ghost" id="copyLink" type="button">📤 Share invite</button>
@@ -187,7 +198,8 @@
     <button class="icon" id="wireBtn" title="What the relay sees" aria-label="Relay view">👁</button>
   </div>
 
-  <div class="log" id="log" aria-live="polite"></div>
+  <div class="tabs" id="tabs"></div>
+  <div class="logs" id="logs" aria-live="polite"></div>
 
   <div class="wire" id="wire">
     <div class="wl">what the relay carries (ciphertext only)</div>
@@ -246,9 +258,13 @@ async function aesEnc(key,bytes){ const iv=crypto.getRandomValues(new Uint8Array
 async function aesDec(key,ivB64,ctB64){ return crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(ivB64)},key,unb64(ctB64)); }
 
 // ---------- state ----------
-const S = { id:rid(), name:"", room:"", kp:null, pubB64:"", channel:null,
-            peer:null, root:null, rootFp:"", sendI:0, paired:false,
-            histKey:null };          // histKey = CryptoKey for on-device history, or null (ephemeral)
+const rooms = new Map();   // room code -> room state
+let active = null;         // active room code
+let gHistKey = null;       // device-level history key (shared across rooms)
+let myName = "";
+let adding = false;        // join screen is being used to ADD a room
+function A(){ return active ? rooms.get(active) : null; }
+function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?" }; }
 function rid(){ return [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,"0")).join(""); }
 function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...crypto.getRandomValues(new Uint8Array(6))].map(b=>A[b%A.length]).join(""); }
 
@@ -308,21 +324,21 @@ function idb(){ return new Promise((res,rej)=>{ if(_db) return res(_db);
   r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("msgs")){ const os=db.createObjectStore("msgs",{keyPath:"id",autoIncrement:true}); os.createIndex("room","room"); } };
   r.onsuccess=()=>{ _db=r.result; res(_db); }; r.onerror=()=>rej(r.error); }); }
 async function histSave(room, rec){ // rec = {dir, env, ts}
-  if(!S.histKey) return;
+  if(!gHistKey) return;
   try{
-    const {iv,ct}=await aesEnc(S.histKey, enc.encode(JSON.stringify(rec)));
+    const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify(rec)));
     const db=await idb(); const tx=db.transaction("msgs","readwrite");
     tx.objectStore("msgs").add({room,iv,ct});
   }catch(e){}
 }
 async function histLoad(room){
-  if(!S.histKey) return [];
+  if(!gHistKey) return [];
   try{
     const db=await idb();
     const recs=await new Promise((res,rej)=>{ const out=[]; const idx=db.transaction("msgs").objectStore("msgs").index("room");
       const rq=idx.openCursor(IDBKeyRange.only(room)); rq.onsuccess=e=>{ const c=e.target.result; if(c){ out.push(c.value); c.continue(); } else res(out); }; rq.onerror=()=>rej(rq.error); });
     const out=[];
-    for(const r of recs){ try{ const pt=await aesDec(S.histKey,r.iv,r.ct); out.push(JSON.parse(dec.decode(pt))); }catch(e){} }
+    for(const r of recs){ try{ const pt=await aesDec(gHistKey,r.iv,r.ct); out.push(JSON.parse(dec.decode(pt))); }catch(e){} }
     return out;
   }catch(e){ return []; }
 }
@@ -348,7 +364,7 @@ async function uploadImage(file){
   const ck = await aesKey(key);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ctBuf = await crypto.subtle.encrypt({name:"AES-GCM",iv}, ck, bytes);
-  const path = S.room+"/"+rid()+".bin";
+  const path = (active||"x")+"/"+rid()+".bin";
   const { error } = await client.storage.from(BUCKET).upload(path, new Blob([ctBuf]), {contentType:"application/octet-stream", upsert:false});
   if(error) throw error;
   return { path, k:b64(key), iv:b64(iv), mime };
@@ -383,13 +399,13 @@ function beep(seq){ if(!soundOn||!audioCtx) return; const now=audioCtx.currentTi
 function soundSend(){ beep([{f:620,t0:0,dur:0.07,gain:0.05},{f:920,t0:0.045,dur:0.1,gain:0.06}]); }
 function soundRecv(){ beep([{f:800,t0:0,dur:0.1,gain:0.06},{f:540,t0:0.09,dur:0.16,gain:0.05}]); }
 function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1700); }
-function scrollLog(){ const l=$("log"); l.scrollTop=l.scrollHeight; }
-function addText(cls, body, tag, animate){
+function scrollEl(el){ try{ el.scrollTop=el.scrollHeight; }catch(e){} }
+function addText(logEl, cls, body, tag, animate){
   const d=document.createElement("div"); d.className="bubble "+cls;
   const t=document.createElement("span"); t.className="txt"; d.appendChild(t);
   if(tag){ const s=document.createElement("span"); s.className="tag"; s.textContent=tag; d.appendChild(s); }
-  $("log").appendChild(d); scrollLog();
-  if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollLog(); }); } else t.textContent=body;
+  logEl.appendChild(d); scrollEl(logEl);
+  if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
 }
 function openLightbox(url, opts){
   opts=opts||{};
@@ -410,21 +426,21 @@ function openLightbox(url, opts){
   document.body.appendChild(lb);
 }
 async function deleteBlob(path){ try{ await client.storage.from(BUCKET).remove([path]); }catch(e){} }
-function addImageSent(meta, localUrl, tag){
+function addImageSent(logEl, meta, localUrl, tag){
   const d=document.createElement("div"); d.className="bubble img-wrap sent";
   const img=new Image(); img.src=localUrl; img.style.maxWidth="160px"; img.style.cursor="pointer";
   img.addEventListener("click",()=>openLightbox(localUrl,{}));
   d.appendChild(img);
   const o=document.createElement("span"); o.className="once"; o.textContent="⦿ disappearing"; d.appendChild(o);
   if(tag){ const s=document.createElement("span"); s.className="tag"; s.textContent=tag; d.appendChild(s); }
-  $("log").appendChild(d); scrollLog();
+  logEl.appendChild(d); scrollEl(logEl);
 }
-function addImageRecvOnce(meta, tag){
+function addImageRecvOnce(logEl, meta, tag){
   const d=document.createElement("div"); d.className="bubble recv";
   const btn=document.createElement("div"); btn.className="tapview"; btn.innerHTML="📷 Disappearing photo<small>tap to view — once only</small>";
   d.appendChild(btn);
   if(tag){ const s=document.createElement("span"); s.className="tag"; s.textContent=tag; d.appendChild(s); }
-  $("log").appendChild(d); scrollLog();
+  logEl.appendChild(d); scrollEl(logEl);
   let opened=false;
   btn.addEventListener("click",async()=>{
     if(opened) return; opened=true; const prev=btn.innerHTML; btn.textContent="decrypting…";
@@ -435,13 +451,13 @@ function addImageRecvOnce(meta, tag){
     }catch(e){ opened=false; btn.innerHTML=prev; }
   });
 }
-function sysline(t,warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); d.textContent=t; $("log").appendChild(d); scrollLog(); }
-function setStatus(t,secure){ $("statusText").textContent=t; $("bar").classList.toggle("secure",!!secure); }
+function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); d.textContent=t; logEl.appendChild(d); scrollEl(logEl); }
+function setStatus(R, t, secure){ R.statusText=t; R.secure=!!secure; if(R.code===active){ $("statusText").textContent=t; $("bar").classList.toggle("secure",!!secure); } }
 const CANONICAL="https://gizleme.com";
-function inviteLink(){ const u=new URL(CANONICAL); u.searchParams.set("room",S.room); return u.toString(); }
-function localRoomUrl(){ const u=new URL(location.href); u.searchParams.set("room",S.room); u.hash=""; return u.toString(); }
+function inviteLink(){ const u=new URL(CANONICAL); if(active) u.searchParams.set("room",active); return u.toString(); }
+function localRoomUrl(code){ const u=new URL(location.href); u.searchParams.set("room",code||active||""); u.hash=""; return u.toString(); }
 async function shareInvite(){
-  const room=((S.room||$("roomInput").value||"").trim()).toUpperCase();
+  const room=((active||$("roomInput").value||"").trim()).toUpperCase();
   const u=new URL(CANONICAL); if(room) u.searchParams.set("room",room); const url=u.toString();
   const text="Join me on Gizleme 🔒 (encrypted chat). Room code: "+room;
   if(navigator.share){ try{ await navigator.share({title:"Gizleme",text,url}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
@@ -450,114 +466,170 @@ async function shareInvite(){
 function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!on; $("attachBtn").disabled=!on; }
 
 // ---------- session ----------
-async function establish(other){
+async function establish(R, other){
   const peerKey=await importPub(unb64(other.pub));
-  const secret=await sharedSecret(S.kp.privateKey,peerKey);
+  const secret=await sharedSecret(R.kp.privateKey,peerKey);
   const root=await hkdf(secret,"root"); const rootFp=await fp(root);
-  const changed=rootFp!==S.rootFp;
-  S.peer=other; S.root=root; S.rootFp=rootFp; if(changed) S.sendI=0; S.paired=true;
-  const nm=other.name||"Peer"; $("peerName").textContent=nm; $("peerAvatar").textContent=(nm[0]||"?").toUpperCase();
-  setStatus("🔒 secure · key "+rootFp,true); enableComposer(true);
-  if(changed) sysline("🔒 secure channel established with "+nm);
+  const changed=rootFp!==R.rootFp;
+  R.peer=other; R.root=root; R.rootFp=rootFp; if(changed) R.sendI=0; R.paired=true;
+  const nm=other.name||"Peer"; R.peerName=nm; R.avatar=(nm[0]||"?").toUpperCase();
+  setStatus(R,"🔒 secure · key "+rootFp,true);
+  if(R.code===active){ $("peerName").textContent=nm; $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
+  if(changed) sysline(R.logEl,"🔒 secure channel established with "+nm);
 }
-function unpair(){ S.paired=false; S.peer=null; S.root=null; S.rootFp="";
-  $("peerName").textContent="Waiting for peer…"; $("peerAvatar").textContent="?";
-  setStatus("waiting for someone to join "+S.room,false); enableComposer(false); }
-function onSync(){
-  const st=S.channel.presenceState(); const others=[];
-  for(const k in st) for(const m of st[k]) if(m.id&&m.id!==S.id) others.push(m);
-  if(others.length===0){ if(S.paired) unpair(); else setStatus("waiting for someone to join "+S.room,false); return; }
-  if(others.length>1) sysline("More than one other person is here — pairing with the first.",true);
+function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.peerName="Waiting for peer…"; R.avatar="?";
+  setStatus(R,"waiting for peer…",false);
+  if(R.code===active){ $("peerName").textContent="Waiting for peer…"; $("peerAvatar").textContent="?"; $("msgInput").disabled=true; $("sendBtn").disabled=true; $("attachBtn").disabled=true; } }
+function onSync(R){
+  const st=R.channel.presenceState(); const others=[];
+  for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
+  if(others.length===0){ if(R.paired) unpair(R); else setStatus(R,"waiting for peer…",false); return; }
+  if(others.length>1) sysline(R.logEl,"More than one other person is here — pairing with the first.",true);
   const o=others[0];
-  if(!S.paired||!S.peer||S.peer.id!==o.id||S.peer.pub!==o.pub) establish(o);
+  if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o);
 }
 
 // envelope: {t:'txt',body} | {t:'img',path,k,iv,mime,once}
-async function onMsg({payload:p}){
-  if(!p||p.from===S.id||!S.root) return;
-  showWire(p.ct);
+async function onMsg(R, {payload:p}){
+  if(!p||p.from===R.id||!R.root) return;
+  showWire(R,p.ct);
   try{
-    const mk=await hkdf(S.root,"msg|"+p.dir+"|"+p.i);
+    const mk=await hkdf(R.root,"msg|"+p.dir+"|"+p.i);
     const key=await aesKey(mk);
     const pt=await aesDec(key,p.iv,p.ct);
     const env=JSON.parse(dec.decode(pt));
     const tag="decrypted · key "+await fp(mk);
-    if(env.t==="img"){ addImageRecvOnce(env, tag); }
-    else { addText("recv",env.body,tag,true); histSave(S.room,{dir:"recv",env,ts:Date.now()}); }
+    if(env.t==="img"){ addImageRecvOnce(R.logEl,env, tag); }
+    else { addText(R.logEl,"recv",env.body,tag,true); histSave(R.code,{dir:"recv",env,ts:Date.now()}); }
+    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
     soundRecv();
-  }catch(e){ addText("fail","⚠ could not decrypt this message",""); }
+  }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
 }
-async function broadcast(env){
-  const dir=S.id+">"+S.peer.id; const i=S.sendI++;
-  const mk=await hkdf(S.root,"msg|"+dir+"|"+i); const key=await aesKey(mk);
+async function broadcast(R, env){
+  const dir=R.id+">"+R.peer.id; const i=R.sendI++;
+  const mk=await hkdf(R.root,"msg|"+dir+"|"+i); const key=await aesKey(mk);
   const {iv,ct}=await aesEnc(key, enc.encode(JSON.stringify(env)));
-  showWire(ct);
-  S.channel.send({type:"broadcast",event:"msg",payload:{from:S.id,name:S.name,dir,i,iv,ct}});
+  showWire(R,ct);
+  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,dir,i,iv,ct}});
   return await fp(mk);
 }
 async function sendText(){
-  const text=$("msgInput").value.trim(); if(!text||!S.paired) return; $("msgInput").value=""; initAudio();
+  const R=A(); if(!R||!R.paired) return;
+  const text=$("msgInput").value.trim(); if(!text) return; $("msgInput").value=""; initAudio();
   const env={t:"txt",body:text};
-  const kfp=await broadcast(env);
-  addText("sent",text,"key "+kfp,false); soundSend();
-  histSave(S.room,{dir:"sent",env,ts:Date.now()});
+  const kfp=await broadcast(R,env);
+  addText(R.logEl,"sent",text,"key "+kfp,false); soundSend();
+  histSave(R.code,{dir:"sent",env,ts:Date.now()});
 }
 async function sendImage(file){
-  if(!file||!S.paired) return; initAudio();
-  sysline("encrypting & sending photo…");
+  const R=A(); if(!file||!R||!R.paired) return; initAudio();
+  sysline(R.logEl,"encrypting & sending photo…");
   try{
     const meta=await uploadImage(file); meta.t="img"; meta.once=true;
-    const kfp=await broadcast(meta);
-    addImageSent(meta, URL.createObjectURL(file), "key "+kfp); soundSend();
-  }catch(e){ sysline("⚠ photo failed to send ("+(e.message||e)+")",true); }
+    const kfp=await broadcast(R,meta);
+    addImageSent(R.logEl,meta, URL.createObjectURL(file), "key "+kfp); soundSend();
+  }catch(e){ sysline(R.logEl,"⚠ photo failed to send ("+(e.message||e)+")",true); }
 }
-function showWire(ctB64){ try{ $("wireCt").textContent=hex(unb64(ctB64)); }catch(e){} }
+function showWire(R, ctB64){ if(R && R.code!==active) return; try{ $("wireCt").textContent=hex(unb64(ctB64)); }catch(e){} }
 
 // ---------- join ----------
-async function doJoin(histKey){
-  const name=$("nameInput").value.trim()||"Anon";
-  const room=($("roomInput").value.trim()||roomCode()).toUpperCase();
-  S.name=name; S.room=room; S.histKey=histKey||null;
-  try{ localStorage.setItem("vesper-name",name); }catch(e){}
-  S.kp=await genKP(); S.pubB64=b64(await pubRaw(S.kp));
-  $("join").style.display="none"; $("app").style.display="flex";
-  $("roomTag").textContent="#"+room; setStatus("connecting…",false);
-
-  if(S.histKey){
-    const past=await histLoad(room);
-    let shown=0;
-    for(const r of past){ if(r.env.t!=="img"){ addText(r.dir==="sent"?"sent":"recv",r.env.body,"saved",false); shown++; } }
-    if(shown) sysline("— "+shown+" saved message"+(shown>1?"s":"")+" unlocked —");
+async function doJoin(code){
+  const R=newRoom(code);
+  R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp));
+  const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none";
+  $("logs").appendChild(logEl); R.logEl=logEl;
+  rooms.set(code,R);
+  hideJoin();
+  switchTo(code);
+  if(gHistKey){
+    const past=await histLoad(code); let shown=0;
+    for(const r of past){ if(r.env.t!=="img"){ addText(R.logEl, r.dir==="sent"?"sent":"recv", r.env.body, "saved", false); shown++; } }
+    if(shown) sysline(R.logEl, "— "+shown+" saved message"+(shown>1?"s":"")+" unlocked —");
   }
-
-  const ch=client.channel("ratchet-"+room,{config:{private:true,presence:{key:S.id},broadcast:{self:false}}});
-  S.channel=ch;
-  ch.on("presence",{event:"sync"},onSync);
-  ch.on("broadcast",{event:"msg"},onMsg);
+  const ch=client.channel("ratchet-"+code,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
+  R.channel=ch;
+  ch.on("presence",{event:"sync"},()=>onSync(R));
+  ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
   ch.subscribe(async st=>{
-    if(st==="SUBSCRIBED"){ await ch.track({id:S.id,name:S.name,pub:S.pubB64}); setStatus("waiting for someone to join "+room,false); }
-    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus("connection problem — retrying…",false); }
+    if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName,pub:R.pubB64}); setStatus(R,"waiting for peer…",false); }
+    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); }
   });
-  try{ history.replaceState(null,"",localRoomUrl()); }catch(e){}
+  try{ history.replaceState(null,"",localRoomUrl(code)); }catch(e){}
+}
+function hideJoin(){ $("join").style.display="none"; $("app").style.display="flex"; $("join").classList.remove("adding"); $("pinInput").value=""; if($("rememberBio")) $("rememberBio").checked=false; $("backBtn").style.display="none"; $("joinBtn").textContent="Join securely"; }
+function switchTo(code){
+  const R=rooms.get(code); if(!R) return;
+  active=code;
+  rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
+  R.unread=0;
+  $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar;
+  $("roomTag").textContent="#"+R.code;
+  $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
+  $("msgInput").disabled=!R.paired; $("sendBtn").disabled=!R.paired; $("attachBtn").disabled=!R.paired;
+  renderTabs();
+}
+function leaveRoom(code){
+  const R=rooms.get(code); if(!R) return;
+  try{ R.channel && R.channel.unsubscribe(); }catch(e){}
+  if(R.logEl) R.logEl.remove();
+  rooms.delete(code);
+  if(active===code){
+    const n=rooms.keys().next();
+    if(!n.done){ switchTo(n.value); }
+    else { active=null; $("app").style.display="none"; $("join").style.display="flex"; adding=false; $("join").classList.remove("adding"); $("roomInput").value=roomCode(); $("backBtn").style.display="none"; $("joinBtn").textContent="Join securely"; }
+  }
+  renderTabs();
+}
+function renderTabs(){
+  const t=$("tabs"); if(!t) return; t.innerHTML="";
+  rooms.forEach(R=>{
+    const chip=document.createElement("div"); chip.className="tab"+(R.code===active?" active":"");
+    const nm=document.createElement("span"); nm.className="tname"; nm.textContent="#"+R.code; chip.appendChild(nm);
+    if(R.unread){ const b=document.createElement("span"); b.className="badge"; b.textContent=R.unread>9?"9+":R.unread; chip.appendChild(b); }
+    const x=document.createElement("button"); x.className="tx"; x.textContent="×"; x.title="Leave room"; x.setAttribute("aria-label","Leave room");
+    x.addEventListener("click",ev=>{ ev.stopPropagation(); leaveRoom(R.code); });
+    chip.appendChild(x);
+    chip.addEventListener("click",()=>switchTo(R.code));
+    t.appendChild(chip);
+  });
+  const add=document.createElement("button"); add.className="tabadd"; add.textContent="+"; add.title="New room"; add.setAttribute("aria-label","New room");
+  add.addEventListener("click",showAddRoom);
+  t.appendChild(add);
+}
+function showAddRoom(){
+  adding=true;
+  $("app").style.display="none"; $("join").style.display="flex";
+  $("join").classList.add("adding");
+  $("roomInput").value=roomCode();
+  if(myName) $("nameInput").value=myName;
+  $("joinBtn").textContent="Add room"; $("backBtn").style.display="block";
 }
 async function join(){
   initAudio();
-  const pin=$("pinInput").value;
-  if(!pin){ doJoin(null); return; }                 // ephemeral, no history
-  let mk;
-  try{ mk = pinSet() ? await unlockPin(pin) : await setupPin(pin); }
-  catch(e){ toast("Wrong PIN — saved history stays locked"); return; }
-  if($("rememberBio") && $("rememberBio").checked && bioSupported() && !bioSet()){
-    try{ await bioEnrollWrap(mk); toast("Face ID enabled 🙂"); }catch(e){ toast("Face ID not enabled — "+(e.message||"")); }
+  myName = $("nameInput").value.trim() || "Anon";
+  try{ localStorage.setItem("vesper-name",myName); }catch(e){}
+  const code = ($("roomInput").value.trim()||roomCode()).toUpperCase();
+  if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
+  if(!adding){
+    const pin=$("pinInput").value;
+    if(pin){
+      let mk;
+      try{ mk = pinSet() ? await unlockPin(pin) : await setupPin(pin); }
+      catch(e){ toast("Wrong PIN — saved history stays locked"); return; }
+      if($("rememberBio") && $("rememberBio").checked && bioSupported() && !bioSet()){
+        try{ await bioEnrollWrap(mk); toast("Face ID enabled 🙂"); }catch(e){ toast("Face ID not enabled — "+(e.message||"")); }
+      }
+      gHistKey = await histKeyFromMK(mk);
+    } else { gHistKey = null; }
   }
-  doJoin(await histKeyFromMK(mk));
+  await doJoin(code);
 }
 async function rekey(){
-  if(!S.channel) return;
-  S.kp=await genKP(); S.pubB64=b64(await pubRaw(S.kp)); S.rootFp="";
-  await S.channel.track({id:S.id,name:S.name,pub:S.pubB64});
-  if(S.peer) await establish(S.peer);
-  sysline("↻ new keys — channel re-secured"); toast("New keys generated");
+  const R=A(); if(!R||!R.channel) return;
+  R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); R.rootFp="";
+  await R.channel.track({id:R.id,name:myName,pub:R.pubB64});
+  if(R.peer) await establish(R,R.peer);
+  sysline(R.logEl,"↻ new keys — channel re-secured"); toast("New keys generated");
 }
 
 // ---------- wire-up ----------
@@ -572,9 +644,12 @@ async function rekey(){
   $("bioBtn").addEventListener("click", async ()=>{
     initAudio();
     if(!bioSet()){ toast("Set a PIN and tick 'Remember with Face ID' first"); return; }
-    try{ toast("Authenticating…"); const mk=await bioUnlock(); doJoin(await histKeyFromMK(mk)); }
+    try{ toast("Authenticating…"); const mk=await bioUnlock(); gHistKey=await histKeyFromMK(mk);
+      myName=$("nameInput").value.trim()||"Anon"; const code=($("roomInput").value.trim()||roomCode()).toUpperCase();
+      if(rooms.has(code)){ hideJoin(); switchTo(code); } else { await doJoin(code); } }
     catch(e){ toast("Face ID failed — use your PIN"); }
   });
+  $("backBtn").addEventListener("click",()=>{ if(rooms.size){ hideJoin(); const n=rooms.keys().next(); if(!n.done) switchTo(active||n.value); } });
 
   $("genRoom").addEventListener("click",()=>$("roomInput").value=roomCode());
   $("joinBtn").addEventListener("click",join);
