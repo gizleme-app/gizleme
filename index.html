@@ -165,6 +165,10 @@
   .set-sel{flex:0 0 auto;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 9px;cursor:pointer}
   .set-sel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   #settingsClose{margin-top:16px}
+  .set-group{margin-top:18px;border-top:1px solid var(--line);padding-top:4px}
+  .sect-t2{font-weight:700;font-size:.95rem;margin:8px 0 2px}
+  .pill{flex:0 0 auto;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:999px;padding:7px 15px;font-size:.85rem;font-weight:600;cursor:pointer}
+  .pill.off{background:transparent;color:var(--accent)}
   /* contacts sidebar */
   #app{flex-direction:row;height:100dvh;overflow:hidden}
   .main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%}
@@ -253,6 +257,7 @@
     <button class="icon" id="soundBtn" title="Notification sounds" aria-label="Sounds">🔔</button>
     <button class="icon" id="themeBtn" title="Theme" aria-label="Theme">◐</button>
     <button class="icon" id="wireBtn" title="What the relay sees" aria-label="Relay view">👁</button>
+    <button class="icon" id="notifyBtn" title="Notify this contact" aria-label="Notify contact" hidden>📣</button>
     <button class="icon" id="settingsBtn" title="Settings" aria-label="Settings">⚙</button>
     <button class="icon" id="installBtn" title="Install Gizleme" aria-label="Install app" hidden>⬇</button>
   </div>
@@ -308,6 +313,14 @@
         <option value="86400000">After 24 hours</option>
       </select>
     </label>
+    <div class="set-group">
+      <div class="sect-t2">Notifications</div>
+      <p class="set-note">Get alerted when a contact reconnects to reach you — even when Gizleme is closed. <span id="notifyHint"></span></p>
+      <div class="set-row">
+        <span id="notifyState">Off</span>
+        <button class="pill" id="notifyToggle" type="button">Enable</button>
+      </div>
+    </div>
     <button class="btn" id="settingsClose" type="button">Done</button>
   </div>
 </div>
@@ -405,6 +418,84 @@ function renderContacts(){
     row.addEventListener("click",()=>openContact(c.ck,c.name));
     el.appendChild(row);
   });
+}
+
+// ---------- push notifications (wake the other side even when the app is closed) ----------
+const PUSH_FN="gizleme-push";
+const LS_DEVID="gz-devid", LS_PUSH="gz-push-on", LS_NOTIFIED="gz-notified";
+let gPushSub=null, _vapid=null;
+function b64url(bytes){ return b64(bytes).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function urlB64ToU8(s){ const pad="=".repeat((4-s.length%4)%4); const b=(s+pad).replace(/-/g,"+").replace(/_/g,"/");
+  const raw=atob(b); const u=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)u[i]=raw.charCodeAt(i); return u; }
+function deviceId(){ let d=null; try{ d=localStorage.getItem(LS_DEVID); }catch(e){}
+  if(!d){ d=rid()+rid(); try{ localStorage.setItem(LS_DEVID,d); }catch(e){} } return d; }
+function pushOn(){ try{ return localStorage.getItem(LS_PUSH)==="1"; }catch(e){ return false; } }
+function pushSupported(){ return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
+async function notifyKeyFor(ckB64){ return b64url(new Uint8Array(await hkdf(unb64(ckB64),"gz-notify/v1"))); }
+async function fn(action, extra){ return client.functions.invoke(PUSH_FN,{body:Object.assign({action},extra||{})}); }
+async function vapidKey(){ if(_vapid) return _vapid; try{ const {data}=await fn("vapid"); _vapid=data&&data.publicKey||null; }catch(e){} return _vapid; }
+async function registerAllContacts(){
+  if(!pushOn()||!gPushSub) return;
+  const nks=[]; for(const c of contactsLoad()){ try{ nks.push(await notifyKeyFor(c.ck)); }catch(e){} }
+  // include any live contact rooms not yet saved
+  for(const R of rooms.values()){ if(R.fromContact){ try{ const nk=await notifyKeyFor(R.fromContact); if(nks.indexOf(nk)<0) nks.push(nk); }catch(e){} } }
+  if(!nks.length) return;
+  try{ await fn("register",{owner:deviceId(), notify_keys:nks, sub:gPushSub.toJSON(), name:myName||""}); }catch(e){}
+}
+async function enablePush(){
+  if(!pushSupported()){
+    if(/iphone|ipad|ipod/i.test(navigator.userAgent) && !(window.navigator.standalone))
+      toast("On iPhone: install Gizleme to your Home Screen first (⬇), then enable notifications");
+    else toast("Notifications aren't supported on this browser");
+    return false;
+  }
+  let perm=Notification.permission;
+  if(perm!=="granted") perm=await Notification.requestPermission();
+  if(perm!=="granted"){ toast("Notifications are blocked — allow them in your browser settings"); return false; }
+  try{
+    const reg=await navigator.serviceWorker.ready;
+    const pk=await vapidKey(); if(!pk){ toast("Notification service unavailable"); return false; }
+    gPushSub=await reg.pushManager.getSubscription();
+    if(!gPushSub) gPushSub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlB64ToU8(pk)});
+    try{ localStorage.setItem(LS_PUSH,"1"); }catch(e){}
+    await registerAllContacts();
+    toast("Notifications on 🔔"); updateNotifyUI(); return true;
+  }catch(e){ toast("Couldn't enable notifications"); return false; }
+}
+async function disablePush(){
+  try{ localStorage.setItem(LS_PUSH,"0"); }catch(e){}
+  try{ if(gPushSub){ await fn("unregister",{owner:deviceId()}); await gPushSub.unsubscribe(); } }catch(e){}
+  gPushSub=null; toast("Notifications off"); updateNotifyUI();
+}
+async function notifyPeer(ckB64){
+  if(!ckB64) return false;
+  const nk=await notifyKeyFor(ckB64);
+  let map={}; try{ map=JSON.parse(localStorage.getItem(LS_NOTIFIED)||"{}"); }catch(e){}
+  const now=Date.now(); if(map[nk]&&now-map[nk]<90000) return false;   // debounce 90s per contact
+  map[nk]=now; try{ localStorage.setItem(LS_NOTIFIED,JSON.stringify(map)); }catch(e){}
+  try{ await fn("notify",{notify_key:nk, from:deviceId(), title:"Gizleme",
+    body:(realName(myName)?myName+" wants to chat on Gizleme":"A contact wants to chat"), url:CANONICAL}); return true; }catch(e){ return false; }
+}
+async function nudgeContact(){           // manual "notify this contact" from the chat
+  const R=A(); if(!R||!R.fromContact) return;
+  if(!pushOn()){ const ok=await enablePush(); if(!ok) return; }
+  const sent=await notifyPeer(R.fromContact);
+  toast(sent?"Notification sent 📣":"Already notified — give them a moment");
+}
+async function pushInit(){               // restore subscription on load
+  if(!pushOn()||!pushSupported()) { updateNotifyUI(); return; }
+  try{ const reg=await navigator.serviceWorker.ready; gPushSub=await reg.pushManager.getSubscription();
+    if(gPushSub) await registerAllContacts(); }catch(e){}
+  updateNotifyUI();
+}
+function updateNotifyUI(){
+  const on=pushOn(), sup=pushSupported();
+  const st=$("notifyState"), tg=$("notifyToggle"), hint=$("notifyHint");
+  if(st) st.textContent = !sup ? "Not available on this browser" : (on?"On":"Off");
+  if(tg){ tg.textContent = on?"Turn off":"Enable"; tg.classList.toggle("off",on); tg.disabled=!sup; tg.style.opacity=sup?"1":".5"; }
+  if(hint){ const iOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+    hint.textContent = (iOS && !window.navigator.standalone) ? "On iPhone, install Gizleme to your Home Screen (⬇) first." : ""; }
+  const R=A(), nb=$("notifyBtn"); if(nb) nb.hidden = !(R && R.fromContact);
 }
 
 // ---------- master key: one history key, unlockable by PIN and/or Face ID ----------
@@ -661,7 +752,8 @@ async function establish(R, other){
     // then save/refresh the contact — identical on both sides, no extra round-trip.
     if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){} }
     if(R.fromContact) contactUpsert(nm, R.fromContact);
-    renderTabs(); renderContacts();
+    renderTabs(); renderContacts(); updateNotifyUI();
+    if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
 }
 function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.peerName="Waiting for peer…"; R.avatar="?";
@@ -750,6 +842,10 @@ async function doJoin(code, opts){
     if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName,pub:R.pubB64}); setStatus(R,"waiting for peer…",false); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); }
   });
+  // Reconnecting to a contact: if they're not online shortly, wake them with a push.
+  if(opts.fromContact && pushOn()){
+    setTimeout(()=>{ const r=rooms.get(code); if(r && !r.paired) notifyPeer(opts.fromContact); }, 6000);
+  }
   try{ history.replaceState(null,"",localRoomUrl(code)); }catch(e){}
 }
 function hideJoin(){ $("join").style.display="none"; $("app").style.display="flex"; $("join").classList.remove("adding"); $("pinInput").value=""; if($("rememberBio")) $("rememberBio").checked=false; $("backBtn").style.display="none"; $("joinBtn").textContent="Join securely"; }
@@ -762,7 +858,7 @@ function switchTo(code){
   $("roomTag").textContent=R.title?R.title:("#"+R.code);
   $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
   $("msgInput").disabled=!R.paired; $("sendBtn").disabled=!R.paired; $("attachBtn").disabled=!R.paired;
-  renderTabs(); renderContacts();
+  renderTabs(); renderContacts(); updateNotifyUI();
 }
 function leaveRoom(code){
   const R=rooms.get(code); if(!R) return;
@@ -878,6 +974,7 @@ async function rekey(){
       const m=expRoomsMap();
       $("expRoom").value=Object.prototype.hasOwnProperty.call(m,active)?String(m[active]===null?0:m[active]):"";
     }
+    updateNotifyUI();
     $("settingsModal").classList.add("show");
   }
   // PWA install
@@ -906,6 +1003,12 @@ async function rekey(){
   $("expGlobal").addEventListener("change",e=>{ setExpGlobal(+e.target.value||0); toast("Default updated"); });
   $("expRoom").addEventListener("change",e=>{ if(active){ setExpRoom(active,e.target.value); toast("Room setting updated"); } });
   setInterval(sweepEphemeral, 15000);
+
+  // Notifications
+  $("notifyToggle").addEventListener("click",async()=>{ if(pushOn()) await disablePush(); else await enablePush(); });
+  $("notifyBtn").addEventListener("click",nudgeContact);
+  if("serviceWorker" in navigator){ navigator.serviceWorker.ready.then(()=>pushInit()).catch(()=>updateNotifyUI()); }
+  else updateNotifyUI();
 })();
 })();
 </script>
