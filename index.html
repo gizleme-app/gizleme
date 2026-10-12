@@ -116,6 +116,11 @@
   .logs::before{content:"";position:absolute;inset:0;background:url(/watermark.png) center center/min(58%,300px) no-repeat;opacity:.06;pointer-events:none;z-index:0}
   :root[data-theme="dark"] .logs::before{opacity:.09}
   @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .logs::before{opacity:.09}}
+  /* the mask's eyes glow red for a moment when a new message arrives (same canvas as the watermark, so it lines up) */
+  .logs::after{content:"";position:absolute;inset:0;background:url(/watermark-eyes.png) center center/min(58%,300px) no-repeat;opacity:0;pointer-events:none;z-index:0;will-change:opacity;filter:drop-shadow(0 0 6px rgba(255,40,30,.5))}
+  .logs.blink::after{animation:eyeBlink 2.6s ease-in-out both}
+  @keyframes eyeBlink{0%{opacity:0}12%{opacity:.72}26%{opacity:.1}42%{opacity:.72}58%{opacity:.16}100%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){.logs.blink::after{animation:none!important}}
   .tabs{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface);flex:none}
   .tab{display:flex;align-items:center;gap:6px;padding:5px 7px 5px 11px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);font-family:var(--mono);font-size:.74rem;white-space:nowrap;cursor:pointer;color:var(--fg)}
   .tab.active{border-color:var(--accent);color:var(--accent)}
@@ -172,6 +177,9 @@
   .modal .card{max-width:360px;max-height:88vh;overflow-y:auto}
   .set-group.first{margin-top:6px;border-top:none;padding-top:0}
   .set-note{font-size:.82rem;color:var(--muted);margin:2px 0 14px;line-height:1.45}
+  .install-steps{margin:0 0 14px;padding-left:20px;font-size:.85rem;color:var(--fg);line-height:1.6}
+  .install-steps li{margin:5px 0}
+  #installLater{margin-top:8px}
   .set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid var(--line);font-size:.92rem;color:var(--fg)}
   .set-row span{min-width:0}
   .set-sel{flex:0 0 auto;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 9px;cursor:pointer}
@@ -454,6 +462,17 @@
   </div>
 </div>
 
+<!-- Install app prompt (shown once, after the first time you reach the app on this device) -->
+<div class="modal" id="installModal">
+  <div class="card">
+    <div class="logo"><span class="lock" style="background:transparent;padding:0"><img src="/watermark.png" alt="" style="width:38px;height:38px"/></span><div><h1 style="font-size:1.05rem">Install Gizleme</h1><p id="installSub">Add it to your device</p></div></div>
+    <p class="set-note" id="installBody">Open Gizleme straight from your home screen, full-screen, and get notified of new messages even when your browser is closed.</p>
+    <ol class="install-steps" id="installSteps" style="display:none"></ol>
+    <button class="btn" id="installNow" type="button">Install</button>
+    <button class="ghost" id="installLater" type="button">Maybe later</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
@@ -614,7 +633,7 @@ async function onMsgGroup(R,{payload:p}){
     const env=JSON.parse(dec.decode(pt)); const now=Date.now(); const who=(realName(p.name)||p.name||"Member");
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who, now); }
     else { addText(R.logEl,"recv",env.body, who, true, now); histSave(R.code,{dir:"recv",env,ts:now,who,mid:p.mid}); }
-    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
+    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
     soundRecv();
   }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
 }
@@ -665,7 +684,7 @@ async function fetchMailbox(R){
         if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
       }catch(e){}
     }
-    mbtsSet(id,maxTs); soundRecv();
+    mbtsSet(id,maxTs); soundRecv(); if(R.code===active) blinkEyes();
   }catch(e){}
 }
 function seedSeen(R, past){ R.seen=new Set(); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.add(r.mid); }); }
@@ -1075,7 +1094,7 @@ async function onMsg(R, {payload:p}){
     const now=Date.now();
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, tag, now); }
     else { addText(R.logEl,"recv",env.body,tag,true,now); histSave(R.code,{dir:"recv",env,ts:now,mid:p.mid}); }
-    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
+    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
     soundRecv();
   }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
 }
@@ -1122,6 +1141,8 @@ async function sendImage(file){
   }catch(e){ sysline(R.logEl,"⚠ photo failed to send ("+(e.message||e)+")",true); }
 }
 function showWire(R, ctB64){ if(R && R.code!==active) return; try{ $("wireCt").textContent=hex(unb64(ctB64)); }catch(e){} }
+let _blinkT=null;
+function blinkEyes(){ const l=$("logs"); if(!l) return; l.classList.remove("blink"); void l.offsetWidth; l.classList.add("blink"); clearTimeout(_blinkT); _blinkT=setTimeout(()=>l.classList.remove("blink"),2700); }
 
 // ---------- join ----------
 async function doJoin(code, opts){
@@ -1164,7 +1185,9 @@ async function doJoin(code, opts){
   // secret daily code that shouldn't linger in history, so reload lands on the chats list.
   try{ history.replaceState(null,"", opts.fromContact ? "/" : localRoomUrl(code)); }catch(e){}
 }
-function enterApp(){ $("join").style.display="none"; $("app").style.display="flex"; closeSidebar(); renderContacts(); updateNotifyUI(); }
+let _installChecked=false, _showInstallInvite=null;
+function enterApp(){ $("join").style.display="none"; $("app").style.display="flex"; closeSidebar(); renderContacts(); updateNotifyUI();
+  if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
 function goHome(){ active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home");
@@ -1430,14 +1453,51 @@ async function rekey(){
   const isStandalone = matchMedia("(display-mode: standalone)").matches || window.navigator.standalone===true;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
   function showInstall(on){ if($("installGroup")) $("installGroup").style.display=on?"block":"none"; }
-  window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; if(!isStandalone) showInstall(true); });
-  window.addEventListener("appinstalled",()=>{ showInstall(false); deferredPrompt=null; toast("Gizleme installed 🎉"); });
+  window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; if(!isStandalone) showInstall(true);
+    if(installModalPending && !installPrompted()){ installModalPending=false; openInstallModal(); } });
+  window.addEventListener("appinstalled",()=>{ showInstall(false); deferredPrompt=null; closeInstallModal(); markInstallPrompted(); toast("Gizleme installed 🎉"); });
   if(isIOS && !isStandalone) showInstall(true);
   $("installPill").addEventListener("click",async()=>{
     if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; showInstall(false); return; }
     if(isIOS){ toast("Tap Share then “Add to Home Screen”"); return; }
     toast("Open the browser menu → Install Gizleme");
   });
+
+  // ----- one-time install invitation, after the first time you reach the app on this device -----
+  const LS_INSTALL="gz-installPrompted";
+  let installModalPending=false;
+  function installPrompted(){ try{ return localStorage.getItem(LS_INSTALL)==="1"; }catch(e){ return false; } }
+  function markInstallPrompted(){ try{ localStorage.setItem(LS_INSTALL,"1"); }catch(e){} }
+  function closeInstallModal(){ const m=$("installModal"); if(m) m.classList.remove("show"); }
+  function openInstallModal(){
+    if(isStandalone || installPrompted()) return;
+    const steps=$("installSteps"), body=$("installBody"), now=$("installNow"), sub=$("installSub");
+    if(deferredPrompt){
+      sub.textContent="Add it to your device";
+      body.textContent="Open Gizleme straight from your home screen, full-screen, and get notified of new messages even when your browser is closed.";
+      steps.style.display="none"; now.style.display="block";
+    } else if(isIOS){
+      sub.textContent="Add it to your Home Screen";
+      body.textContent="Install Gizleme for a full-screen app and message notifications:";
+      steps.innerHTML="<li>Tap the <b>Share</b> icon in Safari’s toolbar</li><li>Scroll to <b>Add to Home Screen</b></li><li>Tap <b>Add</b></li>";
+      steps.style.display="block"; now.style.display="none";
+    } else { return; }     // no install path on this browser yet — try again next session
+    markInstallPrompted();
+    $("installModal").classList.add("show");
+  }
+  function maybeShowInstallModal(){
+    if(isStandalone || installPrompted()) return;
+    if(deferredPrompt || isIOS) openInstallModal();
+    else installModalPending=true;     // wait for beforeinstallprompt to fire, then show
+  }
+  _showInstallInvite = maybeShowInstallModal;   // expose to enterApp (top-level scope)
+  $("installNow").addEventListener("click",async()=>{
+    closeInstallModal();
+    if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; showInstall(false); }
+  });
+  $("installLater").addEventListener("click",closeInstallModal);
+  $("installModal").addEventListener("click",e=>{ if(e.target.id==="installModal") closeInstallModal(); });
+
   if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }); }
 
   // ----- overflow menu (⋮) -----
