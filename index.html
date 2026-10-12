@@ -205,6 +205,7 @@
   .verify-status{font-size:.82rem;color:var(--muted)}
   .verify-status.ok{color:#16a34a;font-weight:600}
   .vbadge{color:#16a34a;font-size:.8em;margin-left:4px}
+  .ubadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 6px;border-radius:999px;background:var(--accent);color:#fff;font-size:.7em;font-weight:700;line-height:18px;text-align:center;vertical-align:middle}
   #verifyClose{margin-top:14px}
   /* contacts sidebar */
   #app{flex-direction:row;height:100dvh;overflow:hidden;align-items:stretch}
@@ -424,7 +425,7 @@
 
     <div class="set-group">
       <div class="sect-t2">Disappearing messages</div>
-      <p class="set-note">Messages auto-delete from this device after the chosen time. Nothing is kept on the relay.</p>
+      <p class="set-note">Messages auto-delete from your devices after the chosen time. The relay only ever holds ciphertext it cannot read, kept briefly for delivery to offline devices and then expired.</p>
       <label class="set-row"><span>All chats (default)</span>
         <select id="expGlobal" class="set-sel">
           <option value="0">Off</option>
@@ -526,12 +527,16 @@ async function aesDec(key,ivB64,ctB64){ return crypto.subtle.decrypt({name:"AES-
 
 // ---------- state ----------
 const rooms = new Map();   // room code -> room state
+const _joining = new Set(); // room codes mid-join (guards a double tap creating two channels for one room)
 let active = null;         // active room code
 let gHistKey = null;       // device-level history key (shared across rooms)
 let myName = "";
 let gABK = null;           // account backup key (follows the account; recovers synced contacts)
 let gContactsKey = null;   // AES key derived from gABK, encrypts the synced contacts/groups blob
 let gVaultCver = 0;        // last-seen server version of the contacts blob (optimistic concurrency)
+let gEpoch = 0;            // bumped on logout so an in-flight sync from the previous account can't write into the next
+let gRestoring = false;    // true while the first vault pull on an empty device is in flight (sidebar shows "Restoring…")
+let _pendingNotify = null; // a ?n= notification deep link that arrived before contacts were restored; retried after sync
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
 function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null }; }
@@ -553,7 +558,9 @@ function contactUpsert(name, ckB64){
   else list.push({name:nm||name||"Contact", ck:ckB64, ts:Date.now()});
   contactsSave(list);
 }
-function contactRemove(ckB64){ contactsSave(contactsLoad().filter(c=>c.ck!==ckB64)); }
+function contactRemove(ckB64){
+  [...rooms.values()].filter(R=>R.fromContact===ckB64).forEach(R=>leaveRoom(R.code));   // or the next presence sync re-saves them
+  contactsSave(contactsLoad().filter(c=>c.ck!==ckB64)); }
 async function ckFromSecret(secret){ return b64(await hkdf(secret,"gz-contact/v1")); }  // ECDH secret -> stable contact key
 async function rvCodeFromCK(ckB64){         // secret room code for today's window
   const day=Math.floor(Date.now()/86400000);
@@ -574,7 +581,9 @@ function renderContacts(){
     .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,name:c.name,v:c.v,ts:c.ts||0})))
     .sort((a,b)=>(b.ts||0)-(a.ts||0));
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
-    const e=document.createElement("p"); e.style.margin="0 0 14px"; e.textContent="No chats yet. Start a secure chat or create a group — people you connect with are saved here.";
+    const e=document.createElement("p"); e.style.margin="0 0 14px";
+    if(gRestoring){ e.textContent="Restoring your chats…"; wrap.appendChild(e); el.appendChild(wrap); return; }
+    e.textContent="No chats yet. Start a secure chat or create a group — people you connect with are saved here.";
     const btn=document.createElement("button"); btn.className="btn"; btn.textContent="＋ New chat"; btn.style.maxWidth="200px"; btn.addEventListener("click",showAddRoom);
     wrap.appendChild(e); wrap.appendChild(btn); el.appendChild(wrap); return; }
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
@@ -584,7 +593,11 @@ function renderContacts(){
     const ci=document.createElement("div"); ci.className="ci";
     const cn=document.createElement("div"); cn.className="cn"; cn.textContent=it.name||(it.t==="g"?"Group":"Contact");
     if(it.t==="c"&&it.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title="Verified"; cn.appendChild(vb); }
-    const cm=document.createElement("div"); cm.className="cm"; cm.textContent=it.id===activeId?"● open here":(it.t==="g"?"group · tap to open":"tap to reconnect");
+    let openR=null; rooms.forEach(x=>{ if(it.t==="g" ? x.rid===it.rid : x.fromContact===it.ck) openR=x; });
+    const unread=openR&&openR.unread||0;
+    if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=unread+" unread"; cn.appendChild(ub); }
+    const cm=document.createElement("div"); cm.className="cm";
+    cm.textContent= it.id===activeId ? "● open here" : unread ? (unread+" new message"+(unread>1?"s":"")) : (it.t==="g"?"group · tap to open":"tap to reconnect");
     ci.appendChild(cn); ci.appendChild(cm);
     const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?"Leave group":"Remove contact"; x.setAttribute("aria-label",x.title);
     x.addEventListener("click",ev=>{ ev.stopPropagation(); if(it.t==="g") groupRemove(it.rid); else contactRemove(it.ck); });
@@ -612,8 +625,11 @@ async function doJoinGroup(rid, gkBytes, name){
   const code=rid;
   groupUpsert(rid, b64(gkBytes), name);
   if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
+  if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
-  R.group=true; R.rid=rid; R.gk=gkBytes; R.gkMsg=await gkMsgKey(gkBytes); R.title=name||"Group"; R.peerName=name||"Group"; R.avatar="👥"; R.secure=true; R.paired=true;
+  R.group=true; R.rid=rid; R.gk=gkBytes; R.title=name||"Group"; R.peerName=name||"Group"; R.avatar="👥"; R.paired=true;
+  try{ R.gkMsg=await gkMsgKey(gkBytes); } finally { _joining.delete(code); }
+  if(rooms.has(code)){ switchTo(code); return; }
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl;
   rooms.set(code,R); hideJoin(); switchTo(code);
   if(gHistKey){ const past=await histLoad(code); const dur=expFor(code); const cut=dur?Date.now()-dur:0; if(dur) histSweep(code,cut);
@@ -653,7 +669,7 @@ async function onMsgGroup(R,{payload:p}){
     const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)}, R.gkMsg, unb64(p.ct));
     const env=JSON.parse(dec.decode(pt)); const now=Date.now(); const who=(realName(p.name)||p.name||"Member");
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who, now); }
-    else { addText(R.logEl,"recv",env.body, who, true, now); histSave(R.code,{dir:"recv",env,ts:now,who,mid:p.mid}); }
+    else { addText(R.logEl,"recv",env.body, who, true, now); histSave(histKeyOf(R),{dir:"recv",env,ts:now,who,mid:p.mid}); }
     if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
     soundRecv();
   }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
@@ -681,32 +697,41 @@ function mbtsSet(id,ts){ const m=mbtsLoad(); if(ts>(m[id]||0)){ m[id]=ts; try{ l
 async function depositMailbox(R, mid, env){
   try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return false;
     const iv=crypto.getRandomValues(new Uint8Array(12));
-    const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(JSON.stringify(env)));
-    await mboxFn("put",{mbox:id, mid, from:myUsername(), data:{iv:b64(iv),ct:b64(ct),name:myName}});
-    return true;
+    // the sender's display name travels inside the ciphertext, not beside it
+    const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(JSON.stringify(Object.assign({},env,{n:myName}))));
+    const r=await mboxFn("put",{mbox:id, mid, from:myUsername(), data:{iv:b64(iv),ct:b64(ct)}});
+    return !!(r && r.data && r.data.ok);
   }catch(e){ return false; }
 }
 async function fetchMailbox(R){
   if(!R) return;
-  try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return;
-    const since=mbtsGet(id);
-    const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
-    const items=(data&&data.items)||[]; if(!items.length) return;
-    if(!R.seen) R.seen=new Set();
-    let maxTs=since; const mine=myUsername();
-    for(const it of items){ const ts=Date.parse(it.ts)||Date.now(); if(ts>maxTs) maxTs=ts;
-      if(it.from_user && it.from_user===mine) continue;
-      if(it.mid && R.seen.has(it.mid)) continue;
-      try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
-        const env=JSON.parse(dec.decode(pt)); const who=realName(it.data.name)||(R.group?"Member":"");
-        R.seen.add(it.mid);
-        if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who||"delivered", ts); }
-        else { addText(R.logEl,"recv",env.body, who, false, ts); histSave(R.code,{dir:"recv",env,ts,who,mid:it.mid}); }
-        if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
-      }catch(e){}
-    }
-    mbtsSet(id,maxTs); soundRecv(); if(R.code===active) blinkEyes();
-  }catch(e){}
+  if(R.fetching) return R.fetching;          // coalesce overlapping fetches (open + subscribe + poll)
+  R.fetching=(async()=>{
+    try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return;
+      const since=mbtsGet(id);
+      const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
+      const items=(data&&data.items)||[]; if(!items.length) return;
+      if(!R.seen) R.seen=new Set();
+      let maxTs=since, delivered=0; const mine=myUsername();
+      const dur=expFor(histKeyOf(R)); const cut=dur?Date.now()-dur:0;
+      for(const it of items){ const ts=Date.parse(it.ts)||Date.now(); if(ts>maxTs) maxTs=ts;
+        if(it.from_user && it.from_user===mine) continue;
+        if(it.mid && R.seen.has(it.mid)) continue;
+        if(dur && ts<=cut) continue;                             // already past this chat's disappearing window
+        if(it.mid) R.seen.add(it.mid);                           // claim it before awaiting so a parallel pass can't show it too
+        try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
+          const env=JSON.parse(dec.decode(pt)); const who=realName(env.n||it.data.name)||(R.group?"Member":"");
+          if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who||"delivered", ts); }
+          else { addText(R.logEl,"recv",env.body, who, false, ts); histSave(histKeyOf(R),{dir:"recv",env,ts,who,mid:it.mid}); }
+          if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); renderContacts(); }
+          delivered++;
+        }catch(e){ if(it.mid) R.seen.delete(it.mid); }
+      }
+      mbtsSet(id,maxTs);
+      if(delivered){ soundRecv(); if(R.code===active) blinkEyes(); }
+    }catch(e){}
+  })();
+  try{ await R.fetching; } finally { R.fetching=null; }
 }
 function seedSeen(R, past){ R.seen=new Set(); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.add(r.mid); }); }
 
@@ -878,6 +903,9 @@ function idb(){ return new Promise((res,rej)=>{ if(_db) return res(_db);
   const r=indexedDB.open("vesper",1);
   r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("msgs")){ const os=db.createObjectStore("msgs",{keyPath:"id",autoIncrement:true}); os.createIndex("room","room"); } };
   r.onsuccess=()=>{ _db=r.result; res(_db); }; r.onerror=()=>rej(r.error); }); }
+// Saved history and per-chat settings are keyed by a stable id: the contact key for 1:1 contact chats
+// (their live room code rotates daily and would otherwise hide yesterday's messages), the rid for groups.
+function histKeyOf(R){ return R && R.fromContact ? "c:"+R.fromContact : (R?R.code:""); }
 async function histSave(room, rec){ // rec = {dir, env, ts}
   if(!gHistKey) return;
   try{
@@ -983,9 +1011,9 @@ function setExpGlobal(ms){ try{ localStorage.setItem(EXP_G,String(ms||0)); }catc
 function setExpRoom(code,val){ const m=expRoomsMap(); if(val==="") delete m[code]; else m[code]=(+val||0); try{ localStorage.setItem(EXP_R,JSON.stringify(m)); }catch(e){} sweepEphemeral(); }
 function sweepEphemeral(){
   const now=Date.now();
-  rooms.forEach(R=>{ const dur=expFor(R.code); if(!dur||!R.logEl) return; const cut=now-dur;
+  rooms.forEach(R=>{ const k=histKeyOf(R); const dur=expFor(k); if(!dur||!R.logEl) return; const cut=now-dur;
     [...R.logEl.children].forEach(el=>{ const ts=+(el.dataset&&el.dataset.ts||0); if(ts&&ts<=cut) el.remove(); });
-    histSweep(R.code,cut);
+    histSweep(k,cut);
   });
 }
 function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1700); }
@@ -1047,7 +1075,11 @@ const CANONICAL="https://gizleme.com";
 function inviteLink(){ const u=new URL(CANONICAL); if(active) u.searchParams.set("room",active); return u.toString(); }
 function localRoomUrl(code){ const u=new URL(location.href); u.searchParams.set("room",code||active||""); u.hash=""; return u.toString(); }
 function inviteParts(){
-  const room=((active||$("roomInput").value||"").trim()).toUpperCase();
+  // Only ever share a room the user is explicitly creating: the code in the New-chat field, or a plain
+  // manual room that's open. Never a contact's secret daily rendezvous code or a group id.
+  const R=active?rooms.get(active):null; const manual=!!(R&&!R.fromContact&&!R.group);
+  const inNew=$("join").dataset.mode==="newchat";
+  const room=((inNew ? $("roomInput").value : (manual ? active : ""))||"").trim().toUpperCase();
   const u=new URL(CANONICAL); if(room) u.searchParams.set("room",room); const url=u.toString();
   const msg="Join me on Gizleme 🔒 encrypted chat — room code "+room+"\n"+url;
   return {room,url,msg};
@@ -1068,10 +1100,16 @@ function shareWhatsApp(){
 function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!on; $("attachBtn").disabled=!on; }
 
 // ---------- session ----------
+function idleStatus(R){ return R&&R.fromContact ? "offline — messages will be delivered when they reconnect" : "waiting for peer…"; }
 async function establish(R, other){
-  const peerKey=await importPub(unb64(other.pub));
-  const secret=await sharedSecret(R.kp.privateKey,peerKey);
-  const root=await hkdf(secret,"root"); const rootFp=await fp(root);
+  if(R.establishing) return; R.establishing=true;          // back-to-back presence syncs must not pair twice
+  let peerKey, secret, root, rootFp;
+  try{
+    peerKey=await importPub(unb64(other.pub));
+    secret=await sharedSecret(R.kp.privateKey,peerKey);
+    root=await hkdf(secret,"root"); rootFp=await fp(root);
+  }catch(e){ R.establishing=false; return; }
+  R.establishing=false;
   const changed=rootFp!==R.rootFp;
   R.peer=other; R.root=root; R.rootFp=rootFp; if(changed) R.sendI=0; R.paired=true;
   const nm=other.name||"Peer"; R.peerName=nm; R.avatar=(nm[0]||"?").toUpperCase();
@@ -1089,13 +1127,16 @@ async function establish(R, other){
     if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
 }
-function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.peerName="Waiting for peer…"; R.avatar="?";
-  setStatus(R,"waiting for peer…",false);
-  if(R.code===active){ $("peerName").textContent="Waiting for peer…"; $("peerAvatar").textContent="?"; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
+function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp="";
+  // A saved contact keeps their name in the header while offline; only an anonymous manual room shows "Waiting for peer…".
+  const known=!!(R.fromContact && realName(R.title));
+  R.peerName=known?R.title:"Waiting for peer…"; R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
+  setStatus(R,idleStatus(R),false);
+  if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
 function onSync(R){
   const st=R.channel.presenceState(); const others=[];
   for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
-  if(others.length===0){ if(R.paired) unpair(R); else setStatus(R,"waiting for peer…",false); return; }
+  if(others.length===0){ if(R.paired) unpair(R); else setStatus(R,idleStatus(R),false); return; }
   if(others.length>1) sysline(R.logEl,"More than one other person is here — pairing with the first.",true);
   const o=others[0];
   if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o);
@@ -1114,7 +1155,7 @@ async function onMsg(R, {payload:p}){
     const tag="decrypted · key "+await fp(mk);
     const now=Date.now();
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, tag, now); }
-    else { addText(R.logEl,"recv",env.body,tag,true,now); histSave(R.code,{dir:"recv",env,ts:now,mid:p.mid}); }
+    else { addText(R.logEl,"recv",env.body,tag,true,now); histSave(histKeyOf(R),{dir:"recv",env,ts:now,mid:p.mid}); }
     if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
     soundRecv();
   }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
@@ -1135,19 +1176,23 @@ async function sendText(){
   if(R.group){ $("msgInput").value=""; initAudio();
     await broadcastGroup(R,env,mid);
     depositMailbox(R,mid,env);                 // always, so members who are offline get it on connect
-    addText(R.logEl,"sent",text,"",false,now); soundSend(); histSave(R.code,{dir:"sent",env,ts:now,mid}); return; }
+    addText(R.logEl,"sent",text,"",false,now); soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid}); return; }
   if(!R.fromContact && !R.paired) return;       // manual room with no one here yet: nothing to send to
   $("msgInput").value=""; initAudio();
   if(R.paired){
     const kfp=await broadcast(R,env,mid);
     addText(R.logEl,"sent",text,"key "+kfp,false,now);
+    // Also leave an encrypted copy in the mailbox (deduped by mid on the other side): covers a peer whose
+    // socket was mid-reconnect, and lets their second device pick it up too.
+    if(R.fromContact) depositMailbox(R,mid,env);
   } else {
-    // peer offline → drop it in the encrypted server mailbox and wake them with a push
+    // peer offline → the encrypted server mailbox, then wake them with a push
     const ok=await depositMailbox(R,mid,env);
-    addText(R.logEl,"sent",text,ok?"delivered when online":"queued",false,now);
+    if(!ok){ R.seen.delete(mid); $("msgInput").value=text; addText(R.logEl,"fail","⚠ Couldn't send — check your connection and try again",""); return; }
+    addText(R.logEl,"sent",text,"delivered when they're back",false,now);
     if(R.fromContact && pushOn()) notifyPeer(R.fromContact);
   }
-  soundSend(); histSave(R.code,{dir:"sent",env,ts:now,mid});
+  soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
 }
 async function sendImage(file){
   const R=A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
@@ -1156,8 +1201,8 @@ async function sendImage(file){
     const meta=await uploadImage(file); meta.t="img"; meta.once=true;
     const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
     if(R.group){ await broadcastGroup(R,meta,mid); depositMailbox(R,mid,meta); }
-    else if(R.paired){ await broadcast(R,meta,mid); }
-    else { await depositMailbox(R,mid,meta); if(R.fromContact && pushOn()) notifyPeer(R.fromContact); }
+    else if(R.paired){ await broadcast(R,meta,mid); if(R.fromContact) depositMailbox(R,mid,meta); }
+    else { const ok=await depositMailbox(R,mid,meta); if(!ok){ R.seen.delete(mid); throw new Error("no connection"); } if(R.fromContact && pushOn()) notifyPeer(R.fromContact); }
     addImageSent(R.logEl,meta, URL.createObjectURL(file), R.group?"":"sent", Date.now()); soundSend();
   }catch(e){ sysline(R.logEl,"⚠ photo failed to send ("+(e.message||e)+")",true); }
 }
@@ -1168,18 +1213,27 @@ function blinkEyes(){ const l=$("logs"); if(!l) return; l.classList.remove("blin
 // ---------- join ----------
 async function doJoin(code, opts){
   opts=opts||{};
+  if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
+  if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
   R.fromContact=opts.fromContact||null; R.title=opts.title||null;
-  R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp));
+  if(R.fromContact && realName(R.title)){ R.peerName=R.title; R.avatar=(R.title[0]||"?").toUpperCase(); }   // a known contact: show their name right away
+  try{ R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); } finally { _joining.delete(code); }
+  if(rooms.has(code)){ switchTo(code); return; }          // someone joined it while we were generating keys
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none";
   $("logs").appendChild(logEl); R.logEl=logEl;
   rooms.set(code,R);
   hideJoin();
   switchTo(code);
   if(gHistKey){
-    const past=await histLoad(code); let shown=0;
-    const dur=expFor(code); const cut=dur?Date.now()-dur:0;
-    if(dur) histSweep(code,cut);
+    const hk=histKeyOf(R);
+    let past=await histLoad(hk); let shown=0;
+    if(hk!==code){ // contact chat: also pick up records saved under today's daily code by older builds, then de-dupe
+      const legacy=await histLoad(code); if(legacy.length){ const seenK=new Set(past.map(r=>r.mid||(r.ts+"|"+r.dir)));
+        legacy.forEach(r=>{ const k=r.mid||(r.ts+"|"+r.dir); if(!seenK.has(k)){ past.push(r); seenK.add(k); } });
+        past.sort((a,b)=>(a.ts||0)-(b.ts||0)); } }
+    const dur=expFor(hk); const cut=dur?Date.now()-dur:0;
+    if(dur){ histSweep(hk,cut); if(hk!==code) histSweep(code,cut); }
     for(const r of past){
       if(r.env.t==="img") continue;
       if(dur && (r.ts||0)<=cut) continue;
@@ -1194,7 +1248,7 @@ async function doJoin(code, opts){
   ch.on("presence",{event:"sync"},()=>onSync(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
   ch.subscribe(async st=>{
-    if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName,pub:R.pubB64}); setStatus(R, opts.fromContact?"offline — messages will be delivered when they reconnect":"waiting for peer…",false); fetchMailbox(R); }
+    if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName,pub:R.pubB64}); if(!R.paired) setStatus(R,idleStatus(R),false); fetchMailbox(R); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); }
   });
   fetchMailbox(R);   // pull anything that was queued while we were away
@@ -1230,7 +1284,7 @@ function showAuth(mode){
   if(reg){ $("joinHint").textContent="Choose a username and a strong password (8+ characters)."; sl.style.display="block"; sl.textContent="Already have an account? Log in"; }
   else if(login){ $("joinHint").textContent="Log in to your Gizleme account from any device."; sl.style.display="block"; sl.textContent="New here? Create an account"; }
   else if(unlock){ const s=sessLoad(); $("joinHint").textContent=(s&&s.display)?("Welcome back, "+s.display+"."):"Welcome back."; sl.style.display="block"; sl.textContent="Log out / switch account"; }
-  else { sl.style.display="none"; ncSet("direct"); }
+  else { sl.style.display="none"; $("roomInput").value=""; ncSet("direct"); }   // a fresh code each time New chat is opened
   if(login){ const s=sessLoad(); if(s&&s.display) $("userInput").value=s.display; }
 }
 function ncSet(nc){
@@ -1246,7 +1300,7 @@ function ncSet(nc){
     : group ? "Create a named, encrypted group. Only people you invite with the link can join — the name alone gives no access."
     : "Paste an invite link a group member shared with you to join their group.";
   [...document.querySelectorAll(".nctab")].forEach(b=>b.classList.toggle("on",b.dataset.nc===nc));
-  if(direct) $("roomInput").value=roomCode();
+  if(direct && !$("roomInput").value.trim()) $("roomInput").value=roomCode();   // keep a code the user may already have shared
 }
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
@@ -1301,7 +1355,7 @@ async function applyDeepLink(){
   const p=window.__pending||{}; window.__pending=null;
   if(p.group && p.group.rid && p.group.gk){ try{ await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name); return; }catch(e){} }
   if(p.room){ if(rooms.has(p.room)) switchTo(p.room); else await doJoin(p.room); return; }
-  if(p.n){ const ok=await openByNotifyKey(p.n); if(ok) return; }
+  if(p.n){ const ok=await openByNotifyKey(p.n); if(ok) return; _pendingNotify=p.n; }   // contacts may still be restoring — retried after sync
   goHome();
 }
 async function connectRoom(){
@@ -1341,24 +1395,44 @@ function abkCacheClear(){ try{ localStorage.removeItem(LS_ABK); }catch(e){} }
 // Recover the ABK: local cache first (Face ID / PIN, no round-trip), else the password-wrapped copy on the server.
 async function recoverABK(AK){
   if(gABK) return true;
+  const ep=gEpoch;
   if(await abkCacheLoad()) return true;
   if(!AK) return false;
   try{
     const wrapKey=await abkWrapKeyFromAK(AK);
-    const {data}=await vaultFn("pull"); if(!data||!data.ok) return false;
+    const {data}=await vaultFn("pull"); if(ep!==gEpoch) return false; if(!data||!data.ok) return false;
     gVaultCver=data.cver||0;
+    const unwrap=async a=>new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(a.iv)},wrapKey,unb64(a.ct)));
     if(data.abk && data.abk.ct){
-      const abk=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(data.abk.iv)},wrapKey,unb64(data.abk.ct)));
-      await setABK(abk);
+      await setABK(await unwrap(data.abk));
     } else {
-      const abk=crypto.getRandomValues(new Uint8Array(32)); await setABK(abk);
+      // First device for this account: mint an ABK, but only adopt it once the server confirms it stored it,
+      // otherwise two devices could end up encrypting the vault under different keys.
+      const abk=crypto.getRandomValues(new Uint8Array(32));
       const iv=crypto.getRandomValues(new Uint8Array(12));
       const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},wrapKey,abk);
-      await vaultFn("pushAbk",{abk:{iv:b64(iv),ct:b64(ct)}});
+      const res=await vaultFn("pushAbk",{abk:{iv:b64(iv),ct:b64(ct)}}); if(ep!==gEpoch) return false;
+      if(!res.data || !res.data.ok) return false;
+      if(res.data.already){                       // another device won the race — use the one the server holds
+        const again=await vaultFn("pull"); if(ep!==gEpoch) return false;
+        const a=again.data&&again.data.abk; if(!a||!a.ct) return false;
+        await setABK(await unwrap(a));
+      } else { await setABK(abk); }
     }
+    if(ep!==gEpoch){ gABK=null; gContactsKey=null; return false; }
     await abkCacheSave();
     return true;
   }catch(e){ return false; }
+}
+// Before any account's data is shown: if this browser last synced a *different* account, drop its local
+// contacts/groups so they are never displayed to, or merged into the vault of, the account logging in now.
+function vaultOwnerCheck(me){
+  let owner=null; try{ owner=localStorage.getItem(LS_VAULTOWNER); }catch(e){}
+  if(owner && me && owner!==me){
+    try{ [LS_CONTACTS,LS_GROUPS,LS_NOTIFIED,LS_MBTS].forEach(k=>localStorage.removeItem(k)); }catch(e){}
+    renderContacts();
+  }
+  if(me){ try{ localStorage.setItem(LS_VAULTOWNER,me); }catch(e){} }
 }
 // First login on a device: derive AK from the password + account salt, then recover the ABK.
 async function recoverABKWithPassword(pw){
@@ -1386,36 +1460,42 @@ async function vaultDecrypt(cipher){ if(!gContactsKey||!cipher||!cipher.ct) retu
 async function vaultEncrypt(blob){ const iv=crypto.getRandomValues(new Uint8Array(12));
   const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},gContactsKey,enc.encode(JSON.stringify(blob))); return {iv:b64(iv),ct:b64(ct)}; }
 async function pullMerge(){
-  const {data}=await vaultFn("pull"); if(!data||!data.ok) return false; gVaultCver=data.cver||0;
-  if(data.contacts){ const remote=await vaultDecrypt(data.contacts);
+  const ep=gEpoch;
+  const {data}=await vaultFn("pull"); if(ep!==gEpoch) return false; if(!data||!data.ok) return false; gVaultCver=data.cver||0;
+  if(data.contacts){ const remote=await vaultDecrypt(data.contacts); if(ep!==gEpoch) return false;
     if(remote){ const m=mergeContacts(remote);
       try{ localStorage.setItem(LS_CONTACTS,JSON.stringify(m.contacts)); }catch(e){}
       try{ localStorage.setItem(LS_GROUPS,JSON.stringify(m.groups)); }catch(e){}
-      renderContacts(); } }
+      renderContacts();
+      if(pushOn()) registerAllContacts();                       // restored contacts must be reachable by push too
+    } }
+  // A notification tap that arrived before contacts were restored can be honoured now.
+  if(_pendingNotify){ const n=_pendingNotify; _pendingNotify=null; openByNotifyKey(n).catch(()=>{}); }
   return true;
 }
 async function pushBlob(){
   if(!gContactsKey) return false;
+  const ep=gEpoch;
   const cipher=await vaultEncrypt({ contacts:contactsLoad(), groups:groupsLoad(), ts:Date.now() });
-  let res=await vaultFn("pushContacts",{contacts:cipher, cver:gVaultCver});
+  let res=await vaultFn("pushContacts",{contacts:cipher, cver:gVaultCver}); if(ep!==gEpoch) return false;
   if(res.data && res.data.conflict){            // another device advanced it — merge then retry once
-    gVaultCver=res.data.cver||gVaultCver; try{ await pullMerge(); }catch(e){}
+    gVaultCver=res.data.cver||gVaultCver; try{ await pullMerge(); }catch(e){} if(ep!==gEpoch) return false;
     const c2=await vaultEncrypt({ contacts:contactsLoad(), groups:groupsLoad(), ts:Date.now() });
-    res=await vaultFn("pushContacts",{contacts:c2, cver:gVaultCver});
+    res=await vaultFn("pushContacts",{contacts:c2, cver:gVaultCver}); if(ep!==gEpoch) return false;
   }
   if(res.data && res.data.ok){ gVaultCver=res.data.cver||gVaultCver; return true; }
   return false;
 }
 async function syncPull(){ if(!gContactsKey) return; try{
-    // On a shared browser, don't fold a previous account's local contacts into this account's vault.
-    const me=(sessLoad()||{}).username||""; let owner=null; try{ owner=localStorage.getItem(LS_VAULTOWNER); }catch(e){}
-    if(owner && owner!==me){ try{ localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} renderContacts(); }
-    try{ localStorage.setItem(LS_VAULTOWNER,me); }catch(e){}
-    await pullMerge(); await pushBlob();
-  }catch(e){} }
+    vaultOwnerCheck((sessLoad()||{}).username||"");   // fallback; the main check runs synchronously at login
+    const empty=!contactsLoad().length && !groupsLoad().length;
+    if(empty){ gRestoring=true; renderContacts(); }
+    try{ await pullMerge(); } finally { gRestoring=false; renderContacts(); }
+    await pushBlob();
+  }catch(e){ gRestoring=false; renderContacts(); } }
 let _syncT=null;
 function syncPushSoon(){ if(!gContactsKey) return; clearTimeout(_syncT); _syncT=setTimeout(()=>{ pushBlob().catch(()=>{}); }, 1500); }
-function vaultClear(){ gABK=null; gContactsKey=null; gVaultCver=0; abkCacheClear(); }
+function vaultClear(){ gEpoch++; gABK=null; gContactsKey=null; gVaultCver=0; gRestoring=false; _pendingNotify=null; abkCacheClear(); }
 
 async function checkUsername(){
   const u=$("userInput").value.trim().toLowerCase(), h=$("userHint"); if(!h) return;
@@ -1437,6 +1517,7 @@ async function doRegister(){
     const {data}=await authFn("register",{username:u,display:raw,salt,verifier});
     if(!data||!data.ok){ authMsg(data&&data.error==="taken"?"That username is already taken":"Couldn't create account — try again"); authBusy(false); return; }
     sessSave({token:data.token,username:data.username,display:data.display}); myName=data.display;
+    vaultOwnerCheck(data.username);
     const mk=await setupPin(pw);
     if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){} }
     gHistKey=await histKeyFromMK(mk);
@@ -1456,6 +1537,7 @@ async function doLoginAccount(){
     const {data}=await authFn("login",{username:u,av});
     if(!data||!data.ok){ authMsg("Wrong username or password"); authBusy(false); return; }
     sessSave({token:data.token,username:data.username,display:data.display}); myName=data.display;
+    vaultOwnerCheck(data.username);
     let mk; try{ mk= pinSet()? await unlockPin(pw) : await setupPin(pw); }catch(e){ mk=await setupPin(pw); }
     if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){} }
     gHistKey=await histKeyFromMK(mk);
@@ -1482,15 +1564,20 @@ async function logoutAccount(){
   const s=sessLoad();
   let flushed=false;
   try{ clearTimeout(_syncT); if(gContactsKey) flushed=await pushBlob(); }catch(e){}   // flush pending changes before the token dies
+  // This device's push subscriptions belong to the outgoing account — drop them so its contacts can't wake the next user.
+  try{ if(pushOn() && gPushSub) await fn("unregister",{owner:deviceId()}); }catch(e){}
   if(s&&s.token){ try{ await authFn("logout",{token:s.token}); }catch(e){} }
+  // Always record who last used this browser, so a *different* account logging in later starts clean
+  // even if the flush above failed (vaultOwnerCheck at login does the clearing).
+  if(s&&s.username){ try{ localStorage.setItem(LS_VAULTOWNER,s.username); }catch(e){} }
   sessClear(); gHistKey=null; vaultClear();
   // Leave a clean device only when we've confirmed the contacts are safely in the vault (they restore on next login).
   try{ localStorage.removeItem(LS_MKPIN); localStorage.removeItem(LS_MKBIO);
-    if(flushed){ localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); } }catch(e){}
+    if(flushed){ [LS_CONTACTS,LS_GROUPS,LS_NOTIFIED,LS_MBTS].forEach(k=>localStorage.removeItem(k)); } }catch(e){}
   renderContacts();
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
   rooms.clear(); active=null;
-  showAuth("register");
+  showAuth("login");
 }
 async function createGroupFromInput(){ initAudio(); await createGroup($("gnameInput").value.trim()); if($("gnameInput")) $("gnameInput").value=""; }
 async function joinFromInviteInput(){ initAudio(); const inv=parseInvite($("invInput").value);
@@ -1521,11 +1608,13 @@ async function rekey(){
   const deepRoom=(params.get("room")||"").toUpperCase();
   let pendGroup=null; try{ const h=location.hash||""; if(h.indexOf("#g=")===0){ pendGroup=JSON.parse(dec.decode(unb64url(h.slice(3)))); } }catch(e){}
   window.__pending={ n:params.get("n")||"", room:deepRoom, group:(pendGroup&&pendGroup.rid&&pendGroup.gk)?pendGroup:null };
-  if(pendGroup){ try{ history.replaceState(null,"","/"); }catch(e){} }
+  // The #g= fragment is left in place until doJoinGroup consumes it (it strips it then): an in-app
+  // browser's "Open in Safari/browser" and a reload before login both need it to still be there.
 
   $("bioBtn").addEventListener("click",doUnlockBio);
   $("switchLink").addEventListener("click",()=>{ const m=$("join").dataset.mode;
-    if(m==="register") showAuth("login"); else if(m==="login") showAuth("register"); else if(m==="unlock") logoutAccount(); });
+    if(m==="register") showAuth("login"); else if(m==="login") showAuth("register");
+    else if(m==="unlock"){ if(confirm("Log out of this device?\n\nYour contacts stay safe in your account. Saved message history on this device will no longer be readable.")) logoutAccount(); } });
   $("backBtn").addEventListener("click",()=>{ enterApp(); if(active) switchTo(active); else goHome(); });
   $("homeNew").addEventListener("click",showAddRoom);
 
@@ -1556,7 +1645,7 @@ async function rekey(){
     $("expGlobal").value=String(expGlobal());
     const hasRoom=!!active;
     $("expRoomRow").style.display=hasRoom?"flex":"none";
-    if(hasRoom){ const m=expRoomsMap(); $("expRoom").value=Object.prototype.hasOwnProperty.call(m,active)?String(m[active]===null?0:m[active]):""; }
+    if(hasRoom){ const m=expRoomsMap(), k=histKeyOf(A()); $("expRoom").value=Object.prototype.hasOwnProperty.call(m,k)?String(m[k]===null?0:m[k]):""; }
     refreshThemeUI(); refreshSoundUI(); updateNotifyUI();
     const s=sessLoad(); if($("acctUser")) $("acctUser").textContent=(s&&(s.display||s.username))||"—";
     $("settingsModal").classList.add("show");
@@ -1565,12 +1654,12 @@ async function rekey(){
   $("settingsClose").addEventListener("click",()=>$("settingsModal").classList.remove("show"));
   $("settingsModal").addEventListener("click",e=>{ if(e.target.id==="settingsModal") $("settingsModal").classList.remove("show"); });
   $("expGlobal").addEventListener("change",e=>{ setExpGlobal(+e.target.value||0); toast("Default updated"); });
-  $("expRoom").addEventListener("change",e=>{ if(active){ setExpRoom(active,e.target.value); toast("Updated for this chat"); } });
+  $("expRoom").addEventListener("change",e=>{ const R=A(); if(R){ setExpRoom(histKeyOf(R),e.target.value); toast("Updated for this chat"); } });
   setInterval(sweepEphemeral, 15000);
-  // poll the encrypted mailbox for the open chat so offline-sent messages arrive even without a push
-  setInterval(()=>{ const R=A(); if(R) fetchMailbox(R); }, 20000);
+  // poll the encrypted mailbox for every open chat so offline-sent messages arrive (and count as unread) even without a push
+  setInterval(()=>{ rooms.forEach(R=>fetchMailbox(R)); }, 20000);
   // when the app comes back to the foreground (e.g. tapped a push), pull right away
-  document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ const R=A(); if(R) fetchMailbox(R); } });
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ rooms.forEach(R=>fetchMailbox(R)); } });
 
   // ----- PWA install (surfaced in Settings) -----
   let deferredPrompt=null;
@@ -1611,6 +1700,8 @@ async function rekey(){
   }
   function maybeShowInstallModal(){
     if(isStandalone || installPrompted()) return;
+    if(isInAppBrowser()) return;       // can't install from inside WhatsApp/Messenger — don't show or consume the prompt here
+    if(document.querySelector(".modal.show")) { setTimeout(maybeShowInstallModal, 4000); return; }   // don't stack on an open dialog
     if(deferredPrompt || isIOS) openInstallModal();
     else installModalPending=true;     // wait for beforeinstallprompt to fire, then show
   }
@@ -1636,7 +1727,7 @@ async function rekey(){
     // Query + path only — a #g= group invite carries the group key in its fragment, which must never be
     // placed where it could be sent to a server, so those links fall back to the manual "open in browser" route.
     const host=location.host, pq=location.pathname+location.search;
-    const fallback=encodeURIComponent(location.href);
+    const fallback=encodeURIComponent(location.origin+pq);     // never includes a fragment
     return "intent://"+host+pq+"#Intent;scheme=https;S.browser_fallback_url="+fallback+";end";
   }
   function showIabBar(){

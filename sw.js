@@ -1,12 +1,38 @@
-// Service worker — installability + Web Push. Network-first, no stale caching of
-// the app shell (the app must always load the latest encrypted build).
-const CACHE = "gizleme-v2";
-self.addEventListener("install", e => { self.skipWaiting(); });
-self.addEventListener("activate", e => { e.waitUntil(self.clients.claim()); });
+// Service worker — installability, offline shell, Web Push.
+// Network-first for everything (the app must always load the latest encrypted build); the precached
+// shell is only served when the network fails, so the installed app opens offline instead of erroring.
+const CACHE = "gizleme-v3";
+const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/watermark.png", "/watermark-eyes.png",
+               "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
+
+self.addEventListener("install", e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));
+  self.skipWaiting();
+});
+self.addEventListener("activate", e => {
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
+});
 self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
-  e.respondWith(fetch(req).catch(() => caches.match(req)));
+  const url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;          // let the CDN / Supabase requests pass straight through
+  e.respondWith((async () => {
+    try {
+      const res = await fetch(req);
+      if (res && res.ok && (req.mode === "navigate" || SHELL.includes(url.pathname))) {
+        try { const c = await caches.open(CACHE); c.put(req.mode === "navigate" ? "/index.html" : req, res.clone()); } catch (_) {}
+      }
+      return res;
+    } catch (_) {
+      const cached = await caches.match(req.mode === "navigate" ? "/index.html" : req);
+      return cached || Response.error();
+    }
+  })());
 });
 
 // A push wakes the device even when the app is closed, and shows a notification.
