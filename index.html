@@ -170,6 +170,16 @@
 
   .toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);font-size:.8rem;padding:8px 14px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20}
   .toast.show{opacity:.95}
+  /* nudge shown only inside in-app browsers (WhatsApp/Messenger/etc.), where the installed app can't be reached */
+  #iabBar{position:fixed;top:0;left:0;right:0;z-index:70;display:flex;align-items:center;gap:10px;
+    padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top,0px));
+    background:var(--accent);color:#fff;font-size:.82rem;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,.28)}
+  #iabBar[hidden]{display:none}
+  #iabBar .iab-logo{width:22px;height:22px;flex:none}
+  #iabBar #iabHint{flex:1;min-width:0}
+  #iabBar #iabOpen{flex:none;background:#fff;color:var(--accent);border:none;border-radius:999px;padding:6px 14px;font-weight:700;font-size:.82rem;cursor:pointer}
+  #iabBar #iabClose{flex:none;background:transparent;border:none;color:#fff;font-size:1.1rem;line-height:1;padding:4px 6px;cursor:pointer;opacity:.85}
+  body.has-iab #app, body.has-iab #join{padding-top:58px}
 
   /* pin unlock modal */
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:20px;z-index:30}
@@ -474,6 +484,14 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Shown only inside in-app browsers (WhatsApp, Messenger, Instagram…), which can't open the installed Gizleme app. -->
+<div id="iabBar" hidden role="status">
+  <img class="iab-logo" src="/watermark.png" alt=""/>
+  <span id="iabHint">Open Gizleme in your browser or installed app.</span>
+  <button id="iabOpen" type="button">Open</button>
+  <button id="iabClose" type="button" aria-label="Dismiss">×</button>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
@@ -1605,6 +1623,42 @@ async function rekey(){
   $("installModal").addEventListener("click",e=>{ if(e.target.id==="installModal") closeInstallModal(); });
 
   if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }); }
+
+  // ----- in-app browser nudge -----
+  // A link tapped inside WhatsApp/Messenger/Instagram opens in their embedded webview, which cannot
+  // hand off to the installed Gizleme app. We detect that and offer a way out: one tap on Android
+  // (an Android intent that opens the installed app if set, otherwise the default browser), and a short
+  // instruction on iPhone (where tapping "Open in Safari" from the in-app menu is the only route).
+  function isInAppBrowser(){ const ua=navigator.userAgent||"";
+    return /(FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Line\/|Messenger|MicroMessenger|Snapchat|TikTok|Twitter|Pinterest)/i.test(ua)
+        || (/Android/i.test(ua) && /; wv\)/.test(ua)); }
+  function iabIntentUrl(){
+    // Query + path only — a #g= group invite carries the group key in its fragment, which must never be
+    // placed where it could be sent to a server, so those links fall back to the manual "open in browser" route.
+    const host=location.host, pq=location.pathname+location.search;
+    const fallback=encodeURIComponent(location.href);
+    return "intent://"+host+pq+"#Intent;scheme=https;S.browser_fallback_url="+fallback+";end";
+  }
+  function showIabBar(){
+    if(isStandalone || !isInAppBrowser()) return;
+    try{ if(sessionStorage.getItem("gz-iab-dismiss")==="1") return; }catch(e){}
+    const bar=$("iabBar"); if(!bar) return;
+    const ua=navigator.userAgent||"", isAndroid=/Android/i.test(ua), iOS=/iPhone|iPad|iPod/i.test(ua);
+    const hasGroupFrag=(location.hash||"").indexOf("#g=")===0;
+    if(isAndroid && !hasGroupFrag){
+      $("iabHint").textContent="Gizleme works best in your browser or app.";
+      $("iabOpen").style.display="inline-block";
+      $("iabOpen").onclick=()=>{ try{ location.href=iabIntentUrl(); }catch(e){} };
+    } else {
+      $("iabHint").textContent = iOS
+        ? "Open this link in Safari for the full app: tap the ⋯ menu, then “Open in Safari”."
+        : "Open this link in your browser for the full app: use this page’s ⋯ menu, then “Open in browser”.";
+      $("iabOpen").style.display="none";
+    }
+    document.body.classList.add("has-iab"); bar.hidden=false;
+  }
+  $("iabClose").addEventListener("click",()=>{ $("iabBar").hidden=true; document.body.classList.remove("has-iab"); try{ sessionStorage.setItem("gz-iab-dismiss","1"); }catch(e){} });
+  showIabBar();
 
   // ----- overflow menu (⋮) -----
   function closeMenu(){ $("barMenu").hidden=true; }
