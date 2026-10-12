@@ -511,6 +511,9 @@ const rooms = new Map();   // room code -> room state
 let active = null;         // active room code
 let gHistKey = null;       // device-level history key (shared across rooms)
 let myName = "";
+let gABK = null;           // account backup key (follows the account; recovers synced contacts)
+let gContactsKey = null;   // AES key derived from gABK, encrypts the synced contacts/groups blob
+let gVaultCver = 0;        // last-seen server version of the contacts blob (optimistic concurrency)
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
 function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null }; }
@@ -524,7 +527,7 @@ function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...cryp
 const LS_CONTACTS="gz-contacts";
 const B32="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function contactsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_CONTACTS)||"[]")||[]; }catch(e){ return []; } }
-function contactsSave(list){ try{ localStorage.setItem(LS_CONTACTS, JSON.stringify(list)); }catch(e){} renderContacts(); }
+function contactsSave(list){ try{ localStorage.setItem(LS_CONTACTS, JSON.stringify(list)); }catch(e){} renderContacts(); syncPushSoon(); }
 function realName(n){ return n && n!=="Peer" && n!=="Contact" && n!=="Anon" && n!=="Waiting for peer…" ? n : ""; }
 function contactUpsert(name, ckB64){
   const list=contactsLoad(); const i=list.findIndex(c=>c.ck===ckB64); const nm=realName(name);
@@ -576,7 +579,7 @@ function renderContacts(){
 // ---------- group chats (named, invite-only, shared group key) ----------
 const LS_GROUPS="gz-groups";
 function groupsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_GROUPS)||"[]")||[]; }catch(e){ return []; } }
-function groupsSave(l){ try{ localStorage.setItem(LS_GROUPS,JSON.stringify(l)); }catch(e){} renderContacts(); }
+function groupsSave(l){ try{ localStorage.setItem(LS_GROUPS,JSON.stringify(l)); }catch(e){} renderContacts(); syncPushSoon(); }
 function groupUpsert(rid,gkB64,name){ const l=groupsLoad(); const i=l.findIndex(g=>g.rid===rid);
   if(i>=0){ if(name) l[i].name=name; l[i].ts=Date.now(); } else l.push({rid,gk:gkB64,name:name||"Group",ts:Date.now()}); groupsSave(l); }
 function groupRemove(rid){ const R=rooms.get(rid); if(R){ try{ R.channel&&R.channel.unsubscribe(); }catch(e){} if(R.logEl) R.logEl.remove(); rooms.delete(rid); if(active===rid) goHome(); }
@@ -1303,6 +1306,99 @@ async function pbkdf2bits(pw,saltBytes){ const base=await crypto.subtle.importKe
 function authMsg(t,ok){ const m=$("authMsg"); if(m){ m.textContent=t||""; m.classList.toggle("ok",!!ok); } }
 function authBusy(on){ const b=$("joinBtn"); if(b){ b.disabled=on; b.style.opacity=on?".6":"1"; } }
 function clearAuthInputs(){ ["pwInput","pw2Input"].forEach(id=>{ if($(id)) $(id).value=""; }); }
+
+// ---------- encrypted account vault: your contacts + groups follow your account across devices ----------
+// The server only ever holds ciphertext: an Account Backup Key (ABK) wrapped by a key derived from your
+// password, and the contact/group list encrypted under the ABK. A new device recovers everything with
+// your password; the same device recovers it via Face ID / PIN from a locally cached copy of the ABK.
+const VAULT_FN="gizleme-vault", LS_ABK="gz-abk", LS_VAULTOWNER="gz-vaultowner";
+async function vaultFn(action,extra){ return client.functions.invoke(VAULT_FN,{body:Object.assign({action,token:(sessLoad()||{}).token},extra||{})}); }
+async function abkWrapKeyFromAK(AK){ return aesKey(await hkdf(AK,"gz-abk-wrap/v1")); }
+async function setABK(abkBytes){ gABK=abkBytes; gContactsKey=await aesKey(await hkdf(abkBytes,"gz-contacts/v1")); }
+async function abkCacheSave(){ try{ if(!gABK||!gHistKey) return; const iv=crypto.getRandomValues(new Uint8Array(12));
+    const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},gHistKey,gABK); localStorage.setItem(LS_ABK,JSON.stringify({iv:b64(iv),ct:b64(ct)})); }catch(e){} }
+async function abkCacheLoad(){ try{ const r=JSON.parse(localStorage.getItem(LS_ABK)||"null"); if(!r||!gHistKey) return false;
+    const mk=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(r.iv)},gHistKey,unb64(r.ct))); await setABK(mk); return true; }catch(e){ return false; } }
+function abkCacheClear(){ try{ localStorage.removeItem(LS_ABK); }catch(e){} }
+// Recover the ABK: local cache first (Face ID / PIN, no round-trip), else the password-wrapped copy on the server.
+async function recoverABK(AK){
+  if(gABK) return true;
+  if(await abkCacheLoad()) return true;
+  if(!AK) return false;
+  try{
+    const wrapKey=await abkWrapKeyFromAK(AK);
+    const {data}=await vaultFn("pull"); if(!data||!data.ok) return false;
+    gVaultCver=data.cver||0;
+    if(data.abk && data.abk.ct){
+      const abk=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(data.abk.iv)},wrapKey,unb64(data.abk.ct)));
+      await setABK(abk);
+    } else {
+      const abk=crypto.getRandomValues(new Uint8Array(32)); await setABK(abk);
+      const iv=crypto.getRandomValues(new Uint8Array(12));
+      const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},wrapKey,abk);
+      await vaultFn("pushAbk",{abk:{iv:b64(iv),ct:b64(ct)}});
+    }
+    await abkCacheSave();
+    return true;
+  }catch(e){ return false; }
+}
+// First login on a device: derive AK from the password + account salt, then recover the ABK.
+async function recoverABKWithPassword(pw){
+  if(gABK) return true;
+  if(await abkCacheLoad()) return true;
+  try{ const u=(sessLoad()||{}).username; if(!u) return false;
+    const s=await authFn("salt",{username:u}); if(!s.data||!s.data.salt) return false;
+    const AK=await pbkdf2bits(pw,unb64(s.data.salt));
+    return await recoverABK(AK);
+  }catch(e){ return false; }
+}
+function mergeContacts(remote){
+  const lc=contactsLoad(), byCk={}; lc.forEach(c=>byCk[c.ck]=Object.assign({},c));
+  (remote.contacts||[]).forEach(rc=>{ if(!rc||!rc.ck) return; const e=byCk[rc.ck];
+    if(!e){ byCk[rc.ck]=Object.assign({},rc); }
+    else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1; } });
+  const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
+  (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];
+    if(!e){ byRid[rg.rid]=Object.assign({},rg); }
+    else if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk) e.gk=rg.gk; } });
+  return { contacts:Object.values(byCk), groups:Object.values(byRid) };
+}
+async function vaultDecrypt(cipher){ if(!gContactsKey||!cipher||!cipher.ct) return null;
+  try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(cipher.iv)},gContactsKey,unb64(cipher.ct)); return JSON.parse(dec.decode(pt)); }catch(e){ return null; } }
+async function vaultEncrypt(blob){ const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},gContactsKey,enc.encode(JSON.stringify(blob))); return {iv:b64(iv),ct:b64(ct)}; }
+async function pullMerge(){
+  const {data}=await vaultFn("pull"); if(!data||!data.ok) return false; gVaultCver=data.cver||0;
+  if(data.contacts){ const remote=await vaultDecrypt(data.contacts);
+    if(remote){ const m=mergeContacts(remote);
+      try{ localStorage.setItem(LS_CONTACTS,JSON.stringify(m.contacts)); }catch(e){}
+      try{ localStorage.setItem(LS_GROUPS,JSON.stringify(m.groups)); }catch(e){}
+      renderContacts(); } }
+  return true;
+}
+async function pushBlob(){
+  if(!gContactsKey) return false;
+  const cipher=await vaultEncrypt({ contacts:contactsLoad(), groups:groupsLoad(), ts:Date.now() });
+  let res=await vaultFn("pushContacts",{contacts:cipher, cver:gVaultCver});
+  if(res.data && res.data.conflict){            // another device advanced it — merge then retry once
+    gVaultCver=res.data.cver||gVaultCver; try{ await pullMerge(); }catch(e){}
+    const c2=await vaultEncrypt({ contacts:contactsLoad(), groups:groupsLoad(), ts:Date.now() });
+    res=await vaultFn("pushContacts",{contacts:c2, cver:gVaultCver});
+  }
+  if(res.data && res.data.ok){ gVaultCver=res.data.cver||gVaultCver; return true; }
+  return false;
+}
+async function syncPull(){ if(!gContactsKey) return; try{
+    // On a shared browser, don't fold a previous account's local contacts into this account's vault.
+    const me=(sessLoad()||{}).username||""; let owner=null; try{ owner=localStorage.getItem(LS_VAULTOWNER); }catch(e){}
+    if(owner && owner!==me){ try{ localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} renderContacts(); }
+    try{ localStorage.setItem(LS_VAULTOWNER,me); }catch(e){}
+    await pullMerge(); await pushBlob();
+  }catch(e){} }
+let _syncT=null;
+function syncPushSoon(){ if(!gContactsKey) return; clearTimeout(_syncT); _syncT=setTimeout(()=>{ pushBlob().catch(()=>{}); }, 1500); }
+function vaultClear(){ gABK=null; gContactsKey=null; gVaultCver=0; abkCacheClear(); }
+
 async function checkUsername(){
   const u=$("userInput").value.trim().toLowerCase(), h=$("userHint"); if(!h) return;
   if(!u){ h.textContent=""; h.className=""; return; }
@@ -1327,6 +1423,7 @@ async function doRegister(){
     if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){} }
     gHistKey=await histKeyFromMK(mk);
     clearAuthInputs(); enterApp(); applyDeepLink();
+    recoverABK(AK).then(ok=>{ if(ok) syncPull(); }).catch(()=>{});
   }catch(e){ authMsg("Network error — try again"); }
   authBusy(false);
 }
@@ -1345,25 +1442,34 @@ async function doLoginAccount(){
     if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){} }
     gHistKey=await histKeyFromMK(mk);
     clearAuthInputs(); enterApp(); applyDeepLink();
+    recoverABK(AK).then(ok=>{ if(ok) syncPull(); }).catch(()=>{});
   }catch(e){ authMsg("Network error — try again"); }
   authBusy(false);
 }
 async function doUnlockPw(){
   initAudio(); const pw=$("pwInput").value; if(!pw){ authMsg("Enter your password"); return; }
   authBusy(true); authMsg("");
-  try{ const mk=await unlockPin(pw); gHistKey=await histKeyFromMK(mk); const s=sessLoad(); myName=(s&&s.display)||myName; clearAuthInputs(); enterApp(); applyDeepLink(); }
+  try{ const mk=await unlockPin(pw); gHistKey=await histKeyFromMK(mk); const s=sessLoad(); myName=(s&&s.display)||myName; clearAuthInputs(); enterApp(); applyDeepLink();
+    recoverABKWithPassword(pw).then(ok=>{ if(ok) syncPull(); }).catch(()=>{}); }
   catch(e){ authMsg("Wrong password"); }
   authBusy(false);
 }
 async function doUnlockBio(){
   initAudio(); authMsg("");
-  try{ const mk=await bioUnlock(); gHistKey=await histKeyFromMK(mk); const s=sessLoad(); myName=(s&&s.display)||myName; clearAuthInputs(); enterApp(); applyDeepLink(); }
+  try{ const mk=await bioUnlock(); gHistKey=await histKeyFromMK(mk); const s=sessLoad(); myName=(s&&s.display)||myName; clearAuthInputs(); enterApp(); applyDeepLink();
+    recoverABK(null).then(ok=>{ if(ok) syncPull(); }).catch(()=>{}); }
   catch(e){ authMsg("Face ID failed — use your password"); }
 }
 async function logoutAccount(){
-  const s=sessLoad(); if(s&&s.token){ try{ await authFn("logout",{token:s.token}); }catch(e){} }
-  sessClear(); gHistKey=null;
-  try{ localStorage.removeItem(LS_MKPIN); localStorage.removeItem(LS_MKBIO); }catch(e){}
+  const s=sessLoad();
+  let flushed=false;
+  try{ clearTimeout(_syncT); if(gContactsKey) flushed=await pushBlob(); }catch(e){}   // flush pending changes before the token dies
+  if(s&&s.token){ try{ await authFn("logout",{token:s.token}); }catch(e){} }
+  sessClear(); gHistKey=null; vaultClear();
+  // Leave a clean device only when we've confirmed the contacts are safely in the vault (they restore on next login).
+  try{ localStorage.removeItem(LS_MKPIN); localStorage.removeItem(LS_MKBIO);
+    if(flushed){ localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); } }catch(e){}
+  renderContacts();
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
   rooms.clear(); active=null;
   showAuth("register");
