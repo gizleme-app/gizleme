@@ -494,7 +494,7 @@ let gHistKey = null;       // device-level history key (shared across rooms)
 let myName = "";
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
-function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null }; }
+function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null }; }
 function rid(){ return [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,"0")).join(""); }
 function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...crypto.getRandomValues(new Uint8Array(6))].map(b=>A[b%A.length]).join(""); }
 
@@ -578,14 +578,17 @@ async function doJoinGroup(rid, gkBytes, name){
   rooms.set(code,R); hideJoin(); switchTo(code);
   if(gHistKey){ const past=await histLoad(code); const dur=expFor(code); const cut=dur?Date.now()-dur:0; if(dur) histSweep(code,cut);
     let shown=0; for(const r of past){ if(r.env.t==="img") continue; if(dur&&(r.ts||0)<=cut) continue; addText(R.logEl, r.dir==="sent"?"sent":"recv", r.env.body, r.who||"", false, r.ts); shown++; }
+    seedSeen(R, past);
     if(shown) sysline(R.logEl,"— "+shown+" saved message"+(shown>1?"s":"")+" unlocked —"); }
+  if(!R.seen) R.seen=new Set();
   const ch=client.channel("ratchet-"+rid,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
   R.channel=ch;
   ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
   ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName}); setStatus(R,"🔒 encrypted group",true);
-      if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; } }
+      if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; } fetchMailbox(R); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); } });
+  fetchMailbox(R);
   try{ history.replaceState(null,"","/"); }catch(e){}
   renderContacts(); updateVerifyUI();
 }
@@ -596,19 +599,21 @@ function onSyncGroup(R){
   const extra=names.length?(" · "+names.slice(0,3).join(", ")+(names.length>3?" +"+(names.length-3):"")):"";
   setStatus(R,"🔒 group · "+n+(n>1?" online":" (just you)")+extra,true);
 }
-async function broadcastGroup(R, env){
+async function broadcastGroup(R, env, mid){
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const ctBuf=await crypto.subtle.encrypt({name:"AES-GCM",iv}, R.gkMsg, enc.encode(JSON.stringify(env)));
   showWire(R,b64(ctBuf));
-  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,iv:b64(iv),ct:b64(ctBuf)}});
+  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,iv:b64(iv),ct:b64(ctBuf),mid}});
 }
 async function onMsgGroup(R,{payload:p}){
-  if(!p||p.from===R.id) return; showWire(R,p.ct);
+  if(!p||p.from===R.id) return;
+  if(p.mid){ if(!R.seen) R.seen=new Set(); if(R.seen.has(p.mid)) return; R.seen.add(p.mid); }
+  showWire(R,p.ct);
   try{
     const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)}, R.gkMsg, unb64(p.ct));
     const env=JSON.parse(dec.decode(pt)); const now=Date.now(); const who=(realName(p.name)||p.name||"Member");
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who, now); }
-    else { addText(R.logEl,"recv",env.body, who, true, now); histSave(R.code,{dir:"recv",env,ts:now,who}); }
+    else { addText(R.logEl,"recv",env.body, who, true, now); histSave(R.code,{dir:"recv",env,ts:now,who,mid:p.mid}); }
     if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
     soundRecv();
   }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
@@ -622,6 +627,48 @@ async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
 function parseInvite(text){ // accepts a full link or raw payload
   try{ const s=(text||"").trim(); const i=s.indexOf("#g="); const payload= i>=0 ? s.slice(i+3) : s;
     const obj=JSON.parse(dec.decode(unb64url(payload))); if(obj&&obj.rid&&obj.gk) return obj; }catch(e){} return null; }
+
+// ---------- offline delivery: encrypted store-and-forward mailbox ----------
+const MBOX_FN="gizleme-mbox", LS_MBTS="gz-mboxts";
+function myUsername(){ const s=sessLoad(); return (s&&s.username)||""; }
+async function mboxFn(action,extra){ return client.functions.invoke(MBOX_FN,{body:Object.assign({action},extra||{})}); }
+function roomSecretB64(R){ return R.group ? (R.gk?b64(R.gk):null) : (R.fromContact||null); }
+async function mboxIdFor(R){ const sec=roomSecretB64(R); if(!sec) return null; return b64url(new Uint8Array(await hkdf(unb64(sec),"gz-mbox/v1",16))); }
+async function mboxKeyFor(R){ if(R.group) return R.gkMsg; const sec=roomSecretB64(R); if(!sec) return null; return aesKey(await hkdf(unb64(sec),"gz-mbox-key/v1")); }
+function mbtsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_MBTS)||"{}")||{}; }catch(e){ return {}; } }
+function mbtsGet(id){ return mbtsLoad()[id]||0; }
+function mbtsSet(id,ts){ const m=mbtsLoad(); if(ts>(m[id]||0)){ m[id]=ts; try{ localStorage.setItem(LS_MBTS,JSON.stringify(m)); }catch(e){} } }
+async function depositMailbox(R, mid, env){
+  try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return false;
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(JSON.stringify(env)));
+    await mboxFn("put",{mbox:id, mid, from:myUsername(), data:{iv:b64(iv),ct:b64(ct),name:myName}});
+    return true;
+  }catch(e){ return false; }
+}
+async function fetchMailbox(R){
+  if(!R) return;
+  try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return;
+    const since=mbtsGet(id);
+    const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
+    const items=(data&&data.items)||[]; if(!items.length) return;
+    if(!R.seen) R.seen=new Set();
+    let maxTs=since; const mine=myUsername();
+    for(const it of items){ const ts=Date.parse(it.ts)||Date.now(); if(ts>maxTs) maxTs=ts;
+      if(it.from_user && it.from_user===mine) continue;
+      if(it.mid && R.seen.has(it.mid)) continue;
+      try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
+        const env=JSON.parse(dec.decode(pt)); const who=realName(it.data.name)||(R.group?"Member":"");
+        R.seen.add(it.mid);
+        if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who||"delivered", ts); }
+        else { addText(R.logEl,"recv",env.body, who, false, ts); histSave(R.code,{dir:"recv",env,ts,who,mid:it.mid}); }
+        if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
+      }catch(e){}
+    }
+    mbtsSet(id,maxTs); soundRecv();
+  }catch(e){}
+}
+function seedSeen(R, past){ R.seen=new Set(); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.add(r.mid); }); }
 
 // ---------- identity verification (safety code from the first shared secret) ----------
 const SAFE_EMOJI=["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🐦","🦆","🦉","🦋","🐝","🐞","🐢","🐍","🐙","🦀","🐠","🐬","🐳","🌵","🌲","🌴","🌸","🌻","🌹","🍁","🍄","🔥","💧","⭐","🌙","🍎","🍊","🍋","🍉","🍇","🍓","🍒","🍑","🥝","🍍","🥥","🥕","🌽","🍞","🧀","🍔","🍕","🌮","🍰","🚀","⛵","🎸"];
@@ -1004,7 +1051,7 @@ async function establish(R, other){
 }
 function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.peerName="Waiting for peer…"; R.avatar="?";
   setStatus(R,"waiting for peer…",false);
-  if(R.code===active){ $("peerName").textContent="Waiting for peer…"; $("peerAvatar").textContent="?"; $("msgInput").disabled=true; $("sendBtn").disabled=true; $("attachBtn").disabled=true; updateVerifyUI(); } }
+  if(R.code===active){ $("peerName").textContent="Waiting for peer…"; $("peerAvatar").textContent="?"; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
 function onSync(R){
   const st=R.channel.presenceState(); const others=[];
   for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
@@ -1017,6 +1064,7 @@ function onSync(R){
 // envelope: {t:'txt',body} | {t:'img',path,k,iv,mime,once}
 async function onMsg(R, {payload:p}){
   if(!p||p.from===R.id||!R.root) return;
+  if(p.mid){ if(!R.seen) R.seen=new Set(); if(R.seen.has(p.mid)) return; R.seen.add(p.mid); }
   showWire(R,p.ct);
   try{
     const mk=await hkdf(R.root,"msg|"+p.dir+"|"+p.i);
@@ -1026,38 +1074,50 @@ async function onMsg(R, {payload:p}){
     const tag="decrypted · key "+await fp(mk);
     const now=Date.now();
     if(env.t==="img"){ addImageRecvOnce(R.logEl,env, tag, now); }
-    else { addText(R.logEl,"recv",env.body,tag,true,now); histSave(R.code,{dir:"recv",env,ts:now}); }
+    else { addText(R.logEl,"recv",env.body,tag,true,now); histSave(R.code,{dir:"recv",env,ts:now,mid:p.mid}); }
     if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
     soundRecv();
   }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
 }
-async function broadcast(R, env){
+async function broadcast(R, env, mid){
   const dir=R.id+">"+R.peer.id; const i=R.sendI++;
   const mk=await hkdf(R.root,"msg|"+dir+"|"+i); const key=await aesKey(mk);
   const {iv,ct}=await aesEnc(key, enc.encode(JSON.stringify(env)));
   showWire(R,ct);
-  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,dir,i,iv,ct}});
+  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,dir,i,iv,ct,mid}});
   return await fp(mk);
 }
 async function sendText(){
   const R=A(); if(!R) return;
   const text=$("msgInput").value.trim(); if(!text) return;
-  if(R.group){ $("msgInput").value=""; initAudio(); const env={t:"txt",body:text}; const now=Date.now();
-    await broadcastGroup(R,env); addText(R.logEl,"sent",text,"",false,now); soundSend(); histSave(R.code,{dir:"sent",env,ts:now}); return; }
-  if(!R.paired) return;
+  const env={t:"txt",body:text}; const mid=rid(); const now=Date.now();
+  if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  if(R.group){ $("msgInput").value=""; initAudio();
+    await broadcastGroup(R,env,mid);
+    depositMailbox(R,mid,env);                 // always, so members who are offline get it on connect
+    addText(R.logEl,"sent",text,"",false,now); soundSend(); histSave(R.code,{dir:"sent",env,ts:now,mid}); return; }
+  if(!R.fromContact && !R.paired) return;       // manual room with no one here yet: nothing to send to
   $("msgInput").value=""; initAudio();
-  const env={t:"txt",body:text};
-  const kfp=await broadcast(R,env); const now=Date.now();
-  addText(R.logEl,"sent",text,"key "+kfp,false,now); soundSend();
-  histSave(R.code,{dir:"sent",env,ts:now});
+  if(R.paired){
+    const kfp=await broadcast(R,env,mid);
+    addText(R.logEl,"sent",text,"key "+kfp,false,now);
+  } else {
+    // peer offline → drop it in the encrypted server mailbox and wake them with a push
+    const ok=await depositMailbox(R,mid,env);
+    addText(R.logEl,"sent",text,ok?"delivered when online":"queued",false,now);
+    if(R.fromContact && pushOn()) notifyPeer(R.fromContact);
+  }
+  soundSend(); histSave(R.code,{dir:"sent",env,ts:now,mid});
 }
 async function sendImage(file){
-  const R=A(); if(!file||!R) return; if(!R.group && !R.paired) return; initAudio();
+  const R=A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
   sysline(R.logEl,"encrypting & sending photo…");
   try{
     const meta=await uploadImage(file); meta.t="img"; meta.once=true;
-    if(R.group){ await broadcastGroup(R,meta); }
-    else { await broadcast(R,meta); }
+    const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+    if(R.group){ await broadcastGroup(R,meta,mid); depositMailbox(R,mid,meta); }
+    else if(R.paired){ await broadcast(R,meta,mid); }
+    else { await depositMailbox(R,mid,meta); if(R.fromContact && pushOn()) notifyPeer(R.fromContact); }
     addImageSent(R.logEl,meta, URL.createObjectURL(file), R.group?"":"sent", Date.now()); soundSend();
   }catch(e){ sysline(R.logEl,"⚠ photo failed to send ("+(e.message||e)+")",true); }
 }
@@ -1083,16 +1143,19 @@ async function doJoin(code, opts){
       if(dur && (r.ts||0)<=cut) continue;
       addText(R.logEl, r.dir==="sent"?"sent":"recv", r.env.body, "saved", false, r.ts); shown++;
     }
+    seedSeen(R, past);
     if(shown) sysline(R.logEl, "— "+shown+" saved message"+(shown>1?"s":"")+" unlocked —");
   }
+  if(!R.seen) R.seen=new Set();
   const ch=client.channel("ratchet-"+code,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
   R.channel=ch;
   ch.on("presence",{event:"sync"},()=>onSync(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
   ch.subscribe(async st=>{
-    if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName,pub:R.pubB64}); setStatus(R,"waiting for peer…",false); }
+    if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName,pub:R.pubB64}); setStatus(R, opts.fromContact?"offline — messages will be delivered when they reconnect":"waiting for peer…",false); fetchMailbox(R); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); }
   });
+  fetchMailbox(R);   // pull anything that was queued while we were away
   // Reconnecting to a contact: if they're not online shortly, wake them with a push.
   if(opts.fromContact && pushOn()){
     setTimeout(()=>{ const r=rooms.get(code); if(r && !r.paired) notifyPeer(opts.fromContact); }, 6000);
@@ -1148,7 +1211,10 @@ function switchTo(code){
   R.unread=0;
   $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar;
   $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
-  $("msgInput").disabled=!R.paired; $("sendBtn").disabled=!R.paired; $("attachBtn").disabled=!R.paired;
+  // Composer is usable whenever there's somewhere to deliver: a live pairing, a group,
+  // or a saved contact (message goes to the encrypted mailbox and is delivered when they reconnect).
+  const canSend = R.paired || R.group || !!R.fromContact;
+  $("msgInput").disabled=!canSend; $("sendBtn").disabled=!canSend; $("attachBtn").disabled=!canSend;
   renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
 }
 function leaveRoom(code){
@@ -1354,6 +1420,10 @@ async function rekey(){
   $("expGlobal").addEventListener("change",e=>{ setExpGlobal(+e.target.value||0); toast("Default updated"); });
   $("expRoom").addEventListener("change",e=>{ if(active){ setExpRoom(active,e.target.value); toast("Updated for this chat"); } });
   setInterval(sweepEphemeral, 15000);
+  // poll the encrypted mailbox for the open chat so offline-sent messages arrive even without a push
+  setInterval(()=>{ const R=A(); if(R) fetchMailbox(R); }, 20000);
+  // when the app comes back to the foreground (e.g. tapped a push), pull right away
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ const R=A(); if(R) fetchMailbox(R); } });
 
   // ----- PWA install (surfaced in Settings) -----
   let deferredPrompt=null;
