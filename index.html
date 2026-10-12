@@ -69,6 +69,9 @@
   .authmsg{color:#f87171;font-size:.82rem;margin:-2px 0 2px;min-height:1em;text-align:center}
   .authmsg.ok{color:#34d399}
   .linkbtn{background:none;border:none;color:#a5b4fc;font-size:.86rem;cursor:pointer;padding:6px;text-decoration:underline;text-underline-offset:2px}
+  .nctabs{display:flex;gap:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:11px;padding:4px}
+  .nctab{flex:1;background:none;border:none;color:#9b96ad;font-size:.85rem;font-weight:600;padding:9px 6px;border-radius:8px;cursor:pointer}
+  .nctab.on{background:var(--accent);color:#fff}
   #userHint.ok{color:#34d399}
   #userHint.bad{color:#f87171}
   #join .remember{align-items:center;gap:8px;font-size:.78rem;color:#b9b4cc;cursor:pointer;margin-top:-4px}
@@ -203,6 +206,7 @@
   .ct.active .cn{color:var(--accent)}
   .ct.active .cm{color:var(--accent)}
   .ct .ava{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}
+  .ct .ava.grp{background:linear-gradient(135deg,#7c3aed,#4338ca);font-size:1.05rem}
   .ct .ci{min-width:0;flex:1}
   .ct .cn{font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ct .cm{color:var(--muted);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -267,12 +271,25 @@
       <label for="pw2Input">Confirm password</label>
       <input id="pw2Input" type="password" placeholder="••••••••" maxlength="128" autocomplete="new-password"/>
     </div>
+    <div class="nctabs" id="ncTabs" style="display:none">
+      <button type="button" class="nctab" data-nc="direct">Direct</button>
+      <button type="button" class="nctab" data-nc="group">Group</button>
+      <button type="button" class="nctab" data-nc="join">Join link</button>
+    </div>
     <div class="field" id="roomField">
       <label for="roomInput">Room code</label>
       <div class="row">
         <div class="field" style="flex:1"><input id="roomInput" placeholder="ABC123" maxlength="8" autocomplete="off"/></div>
         <button class="ghost" id="genRoom" type="button" title="New code">⟳</button>
       </div>
+    </div>
+    <div class="field" id="gnameField" style="display:none">
+      <label for="gnameInput">Group name</label>
+      <input id="gnameInput" placeholder="e.g. Family" maxlength="40" autocomplete="off"/>
+    </div>
+    <div class="field" id="invField" style="display:none">
+      <label for="invInput">Invite link</label>
+      <input id="invInput" placeholder="Paste the invite link…" autocomplete="off"/>
     </div>
     <label class="remember" id="bioOptWrap" style="display:none"><input type="checkbox" id="bioOptIn"/> Enable Face ID / Touch ID for quick unlock</label>
     <p class="authmsg" id="authMsg"></p>
@@ -310,6 +327,7 @@
     <button class="icon" id="verifyBtn" title="Verify who you're talking to" aria-label="Verify identity" hidden>🛡</button>
     <button class="icon" id="menuBtn" title="More" aria-label="More options">⋮</button>
     <div class="menu" id="barMenu" hidden>
+      <button class="menu-item" data-act="invite" id="mi-invite" hidden>➕ Invite people</button>
       <button class="menu-item" data-act="verify" id="mi-verify">🛡 Verify identity</button>
       <button class="menu-item" data-act="notify" id="mi-notify">📣 Notify contact</button>
       <button class="menu-item" data-act="rekey" id="mi-rekey">⟳ New keys</button>
@@ -476,7 +494,7 @@ let gHistKey = null;       // device-level history key (shared across rooms)
 let myName = "";
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
-function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null }; }
+function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null }; }
 function rid(){ return [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,"0")).join(""); }
 function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...crypto.getRandomValues(new Uint8Array(6))].map(b=>A[b%A.length]).join(""); }
 
@@ -512,27 +530,98 @@ function closeSidebar(){ const s=$("sidebar"); if(s) s.classList.remove("open");
 function activeCK(){ const R=A(); return R&&R.fromContact||null; }
 function renderContacts(){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
-  const list=contactsLoad().sort((a,b)=>(b.ts||0)-(a.ts||0));
-  if(!list.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
-    const e=document.createElement("p"); e.style.margin="0 0 14px"; e.textContent="No chats yet. Start a secure chat — once you connect, that person is saved here and one tap reconnects you.";
+  const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,ts:g.ts||0}))
+    .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,name:c.name,v:c.v,ts:c.ts||0})))
+    .sort((a,b)=>(b.ts||0)-(a.ts||0));
+  if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
+    const e=document.createElement("p"); e.style.margin="0 0 14px"; e.textContent="No chats yet. Start a secure chat or create a group — people you connect with are saved here.";
     const btn=document.createElement("button"); btn.className="btn"; btn.textContent="＋ New chat"; btn.style.maxWidth="200px"; btn.addEventListener("click",showAddRoom);
     wrap.appendChild(e); wrap.appendChild(btn); el.appendChild(wrap); return; }
-  const cur=activeCK();
-  list.forEach(c=>{
-    const row=document.createElement("div"); row.className="ct"+(c.ck===cur?" active":"");
-    const ava=document.createElement("div"); ava.className="ava"; ava.textContent=(c.name&&c.name[0]||"?").toUpperCase();
+  const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
+  items.forEach(it=>{
+    const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":"");
+    const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":((it.name&&it.name[0]||"?").toUpperCase());
     const ci=document.createElement("div"); ci.className="ci";
-    const cn=document.createElement("div"); cn.className="cn"; cn.textContent=c.name||"Contact";
-    if(c.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title="Verified"; cn.appendChild(vb); }
-    const cm=document.createElement("div"); cm.className="cm"; cm.textContent=c.ck===cur?"● connected here":"tap to reconnect";
+    const cn=document.createElement("div"); cn.className="cn"; cn.textContent=it.name||(it.t==="g"?"Group":"Contact");
+    if(it.t==="c"&&it.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title="Verified"; cn.appendChild(vb); }
+    const cm=document.createElement("div"); cm.className="cm"; cm.textContent=it.id===activeId?"● open here":(it.t==="g"?"group · tap to open":"tap to reconnect");
     ci.appendChild(cn); ci.appendChild(cm);
-    const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title="Remove contact"; x.setAttribute("aria-label","Remove contact");
-    x.addEventListener("click",ev=>{ ev.stopPropagation(); contactRemove(c.ck); });
+    const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?"Leave group":"Remove contact"; x.setAttribute("aria-label",x.title);
+    x.addEventListener("click",ev=>{ ev.stopPropagation(); if(it.t==="g") groupRemove(it.rid); else contactRemove(it.ck); });
     row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
-    row.addEventListener("click",()=>openContact(c.ck,c.name));
+    row.addEventListener("click",()=> it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.name));
     el.appendChild(row);
   });
 }
+
+// ---------- group chats (named, invite-only, shared group key) ----------
+const LS_GROUPS="gz-groups";
+function groupsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_GROUPS)||"[]")||[]; }catch(e){ return []; } }
+function groupsSave(l){ try{ localStorage.setItem(LS_GROUPS,JSON.stringify(l)); }catch(e){} renderContacts(); }
+function groupUpsert(rid,gkB64,name){ const l=groupsLoad(); const i=l.findIndex(g=>g.rid===rid);
+  if(i>=0){ if(name) l[i].name=name; l[i].ts=Date.now(); } else l.push({rid,gk:gkB64,name:name||"Group",ts:Date.now()}); groupsSave(l); }
+function groupRemove(rid){ const R=rooms.get(rid); if(R){ try{ R.channel&&R.channel.unsubscribe(); }catch(e){} if(R.logEl) R.logEl.remove(); rooms.delete(rid); if(active===rid) goHome(); }
+  groupsSave(groupsLoad().filter(g=>g.rid!==rid)); }
+function newRid(){ const A="0123456789abcdefghijklmnopqrstuvwxyz"; return [...crypto.getRandomValues(new Uint8Array(16))].map(b=>A[b%36]).join(""); }
+async function gkMsgKey(gkBytes){ return aesKey(await hkdf(gkBytes,"gz-group-msg/v1")); }
+function openGroup(rid,gkB64,name){ closeSidebar(); doJoinGroup(rid, unb64(gkB64), name); }
+async function createGroup(name){ const rid=newRid(); const gk=crypto.getRandomValues(new Uint8Array(32));
+  await doJoinGroup(rid, gk, (name||"").trim()||"New group");
+  const R=A(); if(R&&R.logEl){ sysline(R.logEl,"🔒 Group created. Tap the menu ⋮ → “Invite people” to add members."); } }
+async function doJoinGroup(rid, gkBytes, name){
+  const code=rid;
+  groupUpsert(rid, b64(gkBytes), name);
+  if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
+  const R=newRoom(code);
+  R.group=true; R.rid=rid; R.gk=gkBytes; R.gkMsg=await gkMsgKey(gkBytes); R.title=name||"Group"; R.peerName=name||"Group"; R.avatar="👥"; R.secure=true; R.paired=true;
+  const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl;
+  rooms.set(code,R); hideJoin(); switchTo(code);
+  if(gHistKey){ const past=await histLoad(code); const dur=expFor(code); const cut=dur?Date.now()-dur:0; if(dur) histSweep(code,cut);
+    let shown=0; for(const r of past){ if(r.env.t==="img") continue; if(dur&&(r.ts||0)<=cut) continue; addText(R.logEl, r.dir==="sent"?"sent":"recv", r.env.body, r.who||"", false, r.ts); shown++; }
+    if(shown) sysline(R.logEl,"— "+shown+" saved message"+(shown>1?"s":"")+" unlocked —"); }
+  const ch=client.channel("ratchet-"+rid,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
+  R.channel=ch;
+  ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
+  ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
+  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName}); setStatus(R,"🔒 encrypted group",true);
+      if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; } }
+    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); } });
+  try{ history.replaceState(null,"","/"); }catch(e){}
+  renderContacts(); updateVerifyUI();
+}
+function onSyncGroup(R){
+  const st=R.channel.presenceState(); const ids=new Set(); const names=[];
+  for(const k in st) for(const m of st[k]){ if(!m.id) continue; ids.add(m.id); if(m.id!==R.id && m.name) names.push(m.name); }
+  const n=ids.size;
+  const extra=names.length?(" · "+names.slice(0,3).join(", ")+(names.length>3?" +"+(names.length-3):"")):"";
+  setStatus(R,"🔒 group · "+n+(n>1?" online":" (just you)")+extra,true);
+}
+async function broadcastGroup(R, env){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ctBuf=await crypto.subtle.encrypt({name:"AES-GCM",iv}, R.gkMsg, enc.encode(JSON.stringify(env)));
+  showWire(R,b64(ctBuf));
+  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,iv:b64(iv),ct:b64(ctBuf)}});
+}
+async function onMsgGroup(R,{payload:p}){
+  if(!p||p.from===R.id) return; showWire(R,p.ct);
+  try{
+    const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)}, R.gkMsg, unb64(p.ct));
+    const env=JSON.parse(dec.decode(pt)); const now=Date.now(); const who=(realName(p.name)||p.name||"Member");
+    if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who, now); }
+    else { addText(R.logEl,"recv",env.body, who, true, now); histSave(R.code,{dir:"recv",env,ts:now,who}); }
+    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); }
+    soundRecv();
+  }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
+}
+function groupInviteLink(R){ const payload=b64url(enc.encode(JSON.stringify({rid:R.rid,gk:b64(R.gk),name:R.title}))); return CANONICAL+"/#g="+payload; }
+async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
+  const url=groupInviteLink(R); const msg="Join my Gizleme group “"+R.title+"” 🔒\n"+url;
+  if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
+  try{ await navigator.clipboard.writeText(url); toast("Invite link copied"); }catch(e){ prompt("Copy this invite link:",url); }
+}
+function parseInvite(text){ // accepts a full link or raw payload
+  try{ const s=(text||"").trim(); const i=s.indexOf("#g="); const payload= i>=0 ? s.slice(i+3) : s;
+    const obj=JSON.parse(dec.decode(unb64url(payload))); if(obj&&obj.rid&&obj.gk) return obj; }catch(e){} return null; }
 
 // ---------- identity verification (safety code from the first shared secret) ----------
 const SAFE_EMOJI=["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🐦","🦆","🦉","🦋","🐝","🐞","🐢","🐍","🐙","🦀","🐠","🐬","🐳","🌵","🌲","🌴","🌸","🌻","🌹","🍁","🍄","🔥","💧","⭐","🌙","🍎","🍊","🍋","🍉","🍇","🍓","🍒","🍑","🥝","🍍","🥥","🥕","🌽","🍞","🧀","🍔","🍕","🌮","🍰","🚀","⛵","🎸"];
@@ -542,12 +631,19 @@ function safetyEmoji(b){ const a=[]; for(let i=0;i<5;i++) a.push(SAFE_EMOJI[b[i]
 function isVerified(ck){ const c=contactsLoad().find(x=>x.ck===ck); return !!(c&&c.v); }
 function setVerified(ck){ const list=contactsLoad(); const c=list.find(x=>x.ck===ck); if(c){ c.v=1; contactsSave(list); } }
 function updateVerifyUI(){
-  const R=A(); const vb=$("verifyBtn"); const show=!!(R&&R.fromContact&&R.paired);
-  if(vb){ vb.hidden=!show; if(show){ const v=isVerified(R.fromContact); vb.textContent=v?"✅":"🛡"; vb.title=v?"Verified — tap to review":"Verify who you're talking to"; } }
-  if(R && R.code===active){ const nm=$("peerName"); if(nm) nm.textContent = R.peerName + (R.fromContact&&isVerified(R.fromContact)?" ✓":""); }
+  const R=A(); const vb=$("verifyBtn"); const show=!!(R&&((R.fromContact&&R.paired)||R.group));
+  if(vb){ vb.hidden=!show; if(show){ const v=R.group?false:isVerified(R.fromContact); vb.textContent=v?"✅":"🛡"; vb.title=R.group?"Group safety code":(v?"Verified — tap to review":"Verify who you're talking to"); } }
+  if(R && R.code===active){ const nm=$("peerName"); if(nm) nm.textContent = R.peerName + (!R.group&&R.fromContact&&isVerified(R.fromContact)?" ✓":""); }
 }
 async function openVerify(){
-  const R=A(); if(!R||!R.fromContact){ toast("Connect to a contact first"); return; }
+  const R=A(); if(!R||(!R.fromContact&&!R.group)){ toast("Open a chat first"); return; }
+  if(R.group){
+    $("verifyWho").textContent = R.title||"this group";
+    try{ const b=new Uint8Array(await hkdf(R.gk,"gz-safety/v1",16)); $("safetyEmoji").textContent=safetyEmoji(b); $("safetyCode").textContent=safetyHex(b); }
+    catch(e){ $("safetyCode").textContent="unavailable"; }
+    $("verifyStatus").textContent="Everyone in this group shares this code"; $("verifyStatus").classList.remove("ok");
+    $("verifyMark").style.display="none"; $("verifyModal").classList.add("show"); return;
+  }
   $("verifyWho").textContent = R.title||R.peerName||"this contact";
   try{ const b=await safetyBytes(R.fromContact); $("safetyEmoji").textContent=safetyEmoji(b); $("safetyCode").textContent=safetyHex(b); }
   catch(e){ $("safetyCode").textContent="unavailable"; }
@@ -566,6 +662,7 @@ const PUSH_FN="gizleme-push";
 const LS_DEVID="gz-devid", LS_PUSH="gz-push-on", LS_NOTIFIED="gz-notified";
 let gPushSub=null, _vapid=null;
 function b64url(bytes){ return b64(bytes).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function unb64url(s){ s=(s||"").replace(/-/g,"+").replace(/_/g,"/"); while(s.length%4) s+="="; return unb64(s); }
 function urlB64ToU8(s){ const pad="=".repeat((4-s.length%4)%4); const b=(s+pad).replace(/-/g,"+").replace(/_/g,"/");
   const raw=atob(b); const u=new Uint8Array(raw.length); for(let i=0;i<raw.length;i++)u[i]=raw.charCodeAt(i); return u; }
 function deviceId(){ let d=null; try{ d=localStorage.getItem(LS_DEVID); }catch(e){}
@@ -943,20 +1040,25 @@ async function broadcast(R, env){
   return await fp(mk);
 }
 async function sendText(){
-  const R=A(); if(!R||!R.paired) return;
-  const text=$("msgInput").value.trim(); if(!text) return; $("msgInput").value=""; initAudio();
+  const R=A(); if(!R) return;
+  const text=$("msgInput").value.trim(); if(!text) return;
+  if(R.group){ $("msgInput").value=""; initAudio(); const env={t:"txt",body:text}; const now=Date.now();
+    await broadcastGroup(R,env); addText(R.logEl,"sent",text,"",false,now); soundSend(); histSave(R.code,{dir:"sent",env,ts:now}); return; }
+  if(!R.paired) return;
+  $("msgInput").value=""; initAudio();
   const env={t:"txt",body:text};
   const kfp=await broadcast(R,env); const now=Date.now();
   addText(R.logEl,"sent",text,"key "+kfp,false,now); soundSend();
   histSave(R.code,{dir:"sent",env,ts:now});
 }
 async function sendImage(file){
-  const R=A(); if(!file||!R||!R.paired) return; initAudio();
+  const R=A(); if(!file||!R) return; if(!R.group && !R.paired) return; initAudio();
   sysline(R.logEl,"encrypting & sending photo…");
   try{
     const meta=await uploadImage(file); meta.t="img"; meta.once=true;
-    const kfp=await broadcast(R,meta);
-    addImageSent(R.logEl,meta, URL.createObjectURL(file), "key "+kfp, Date.now()); soundSend();
+    if(R.group){ await broadcastGroup(R,meta); }
+    else { await broadcast(R,meta); }
+    addImageSent(R.logEl,meta, URL.createObjectURL(file), R.group?"":"sent", Date.now()); soundSend();
   }catch(e){ sysline(R.logEl,"⚠ photo failed to send ("+(e.message||e)+")",true); }
 }
 function showWire(R, ctB64){ if(R && R.code!==active) return; try{ $("wireCt").textContent=hex(unb64(ctB64)); }catch(e){} }
@@ -1010,20 +1112,34 @@ function showAuth(mode){
   $("userField").style.display=(reg||login)?"block":"none";
   $("pwField").style.display=(reg||login||unlock)?"block":"none";
   $("pw2Field").style.display=reg?"block":"none";
-  $("roomField").style.display=nw?"block":"none";
+  $("ncTabs").style.display=nw?"flex":"none";
   $("bioOptWrap").style.display=((reg||login)&&bioSupported()&&!bioSet())?"flex":"none";
   $("bioBtn").hidden=!(unlock&&bioSupported()&&bioSet());
-  $("shareRow").style.display=nw?"flex":"none";
   $("backBtn").style.display=nw?"block":"none";
+  if(!nw){ $("roomField").style.display="none"; $("gnameField").style.display="none"; $("invField").style.display="none"; $("shareRow").style.display="none"; }
   $("joinBtn").textContent=reg?"Create account":login?"Log in":unlock?"Unlock":"Connect";
   authMsg(""); if($("userHint")){ $("userHint").textContent=""; $("userHint").className=""; }
   const sl=$("switchLink");
   if(reg){ $("joinHint").textContent="Choose a username and a strong password (8+ characters)."; sl.style.display="block"; sl.textContent="Already have an account? Log in"; }
   else if(login){ $("joinHint").textContent="Log in to your Gizleme account from any device."; sl.style.display="block"; sl.textContent="New here? Create an account"; }
   else if(unlock){ const s=sessLoad(); $("joinHint").textContent=(s&&s.display)?("Welcome back, "+s.display+"."):"Welcome back."; sl.style.display="block"; sl.textContent="Log out / switch account"; }
-  else { $("joinHint").textContent="Share this room code with one person. Once you both open it you're connected — and they're saved to your chats."; sl.style.display="none"; }
-  if(nw) $("roomInput").value=roomCode();
+  else { sl.style.display="none"; ncSet("direct"); }
   if(login){ const s=sessLoad(); if(s&&s.display) $("userInput").value=s.display; }
+}
+function ncSet(nc){
+  $("join").dataset.nc=nc;
+  const direct=nc==="direct", group=nc==="group", join=nc==="join";
+  $("roomField").style.display=direct?"block":"none";
+  $("shareRow").style.display=direct?"flex":"none";
+  $("gnameField").style.display=group?"block":"none";
+  $("invField").style.display=join?"block":"none";
+  $("joinBtn").textContent=direct?"Connect":group?"Create group":"Join group";
+  $("joinHint").textContent = direct
+    ? "Share this room code with one person. Once you both open it you're connected."
+    : group ? "Create a named, encrypted group. Only people you invite with the link can join — the name alone gives no access."
+    : "Paste an invite link a group member shared with you to join their group.";
+  [...document.querySelectorAll(".nctab")].forEach(b=>b.classList.toggle("on",b.dataset.nc===nc));
+  if(direct) $("roomInput").value=roomCode();
 }
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
@@ -1073,6 +1189,7 @@ async function openByNotifyKey(n){
 }
 async function applyDeepLink(){
   const p=window.__pending||{}; window.__pending=null;
+  if(p.group && p.group.rid && p.group.gk){ try{ await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name); return; }catch(e){} }
   if(p.room){ if(rooms.has(p.room)) switchTo(p.room); else await doJoin(p.room); return; }
   if(p.n){ const ok=await openByNotifyKey(p.n); if(ok) return; }
   goHome();
@@ -1162,11 +1279,18 @@ async function logoutAccount(){
   rooms.clear(); active=null;
   showAuth("register");
 }
+async function createGroupFromInput(){ initAudio(); await createGroup($("gnameInput").value.trim()); if($("gnameInput")) $("gnameInput").value=""; }
+async function joinFromInviteInput(){ initAudio(); const inv=parseInvite($("invInput").value);
+  if(!inv){ authMsg("That invite link doesn't look valid"); return; }
+  try{ $("invInput").value=""; await doJoinGroup(inv.rid, unb64(inv.gk), inv.name); }catch(e){ authMsg("Couldn't join — try again"); } }
 async function join(){ const m=($("join").dataset.mode)||"register";
   if(m==="register") return doRegister();
   if(m==="login") return doLoginAccount();
   if(m==="unlock") return doUnlockPw();
-  if(m==="newchat") return connectRoom();
+  if(m==="newchat"){ const nc=($("join").dataset.nc)||"direct";
+    if(nc==="group") return createGroupFromInput();
+    if(nc==="join") return joinFromInviteInput();
+    return connectRoom(); }
 }
 async function rekey(){
   const R=A(); if(!R||!R.channel) return;
@@ -1180,9 +1304,11 @@ async function rekey(){
 (function init(){
   const params=new URLSearchParams(location.search);
   try{ const t=localStorage.getItem("vesper-theme"); if(t) document.documentElement.setAttribute("data-theme",t); }catch(e){}
-  // pending deep-link (notification ?n= , or invite ?room=)
+  // pending deep-link (notification ?n= , invite ?room= , group invite #g=)
   const deepRoom=(params.get("room")||"").toUpperCase();
-  window.__pending={ n:params.get("n")||"", room:deepRoom };
+  let pendGroup=null; try{ const h=location.hash||""; if(h.indexOf("#g=")===0){ pendGroup=JSON.parse(dec.decode(unb64url(h.slice(3)))); } }catch(e){}
+  window.__pending={ n:params.get("n")||"", room:deepRoom, group:(pendGroup&&pendGroup.rid&&pendGroup.gk)?pendGroup:null };
+  if(pendGroup){ try{ history.replaceState(null,"","/"); }catch(e){} }
 
   $("bioBtn").addEventListener("click",doUnlockBio);
   $("switchLink").addEventListener("click",()=>{ const m=$("join").dataset.mode;
@@ -1194,7 +1320,8 @@ async function rekey(){
   $("joinBtn").addEventListener("click",join);
   let _ucT=null;
   $("userInput").addEventListener("input",()=>{ if($("join").dataset.mode!=="register") return; clearTimeout(_ucT); _ucT=setTimeout(checkUsername,350); });
-  ["userInput","pwInput","pw2Input","roomInput"].forEach(id=>$(id).addEventListener("keydown",e=>{ if(e.key==="Enter") join(); }));
+  ["userInput","pwInput","pw2Input","roomInput","gnameInput","invInput"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("keydown",e=>{ if(e.key==="Enter") join(); }); });
+  [...document.querySelectorAll(".nctab")].forEach(b=>b.addEventListener("click",()=>ncSet(b.dataset.nc)));
   $("copyLink").addEventListener("click",shareInvite);
   $("waShare").addEventListener("click",shareWhatsApp);
 
@@ -1246,10 +1373,11 @@ async function rekey(){
   // ----- overflow menu (⋮) -----
   function closeMenu(){ $("barMenu").hidden=true; }
   function toggleMenu(){ const m=$("barMenu");
-    if(m.hidden){ const R=A();
-      $("mi-verify").hidden=!(R&&R.fromContact&&R.paired);
-      $("mi-notify").hidden=!(R&&R.fromContact);
-      $("mi-rekey").hidden=!(R&&R.paired);
+    if(m.hidden){ const R=A(); const grp=!!(R&&R.group);
+      $("mi-invite").hidden=!grp;
+      $("mi-verify").hidden=!(R&&((R.fromContact&&R.paired)||grp));
+      $("mi-notify").hidden=!(R&&R.fromContact&&!grp);
+      $("mi-rekey").hidden=!(R&&R.paired&&!grp);
       m.hidden=false;
     } else m.hidden=true;
   }
@@ -1257,7 +1385,8 @@ async function rekey(){
   document.addEventListener("click",e=>{ if(!$("barMenu").hidden && !$("barMenu").contains(e.target) && e.target!==$("menuBtn")) closeMenu(); });
   $("barMenu").addEventListener("click",e=>{ const b=e.target.closest(".menu-item"); if(!b) return; closeMenu();
     const act=b.dataset.act;
-    if(act==="verify") openVerify();
+    if(act==="invite") inviteToGroup();
+    else if(act==="verify") openVerify();
     else if(act==="notify") nudgeContact();
     else if(act==="rekey") rekey();
     else if(act==="wire") $("wire").classList.toggle("show");
