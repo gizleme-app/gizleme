@@ -183,7 +183,8 @@
   /* contacts sidebar */
   #app{flex-direction:row;height:100dvh;overflow:hidden;align-items:stretch}
   .main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%}
-  .sidebar{width:236px;flex:none;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);min-height:0;height:100%}
+  .sidebar{width:236px;flex:none;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);min-height:0;height:100%;position:relative}
+  .fab{display:none;position:absolute;right:18px;bottom:20px;width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:1.9rem;line-height:1;box-shadow:0 10px 26px rgba(67,56,202,.5);cursor:pointer;z-index:10}
   .sb-brand{display:flex;align-items:center;justify-content:center;gap:9px;padding:16px 12px 12px;border-bottom:1px solid var(--line)}
   .sb-logo{width:30px;height:30px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.3))}
   .sb-word{font-weight:800;font-size:1.2rem;letter-spacing:.01em;background:linear-gradient(90deg,var(--fg),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -203,7 +204,7 @@
   .ct .cx{border:none;background:none;color:var(--muted);font-size:1rem;cursor:pointer;opacity:0;padding:0 2px}
   .ct:hover .cx{opacity:1}
   .ct .cx:hover{color:var(--bad)}
-  .sb-empty{color:var(--muted);font-size:.8rem;padding:10px 12px;line-height:1.55}
+  .sb-empty{color:var(--muted);font-size:.84rem;padding:28px 18px;line-height:1.55;display:flex;flex-direction:column;align-items:center;text-align:center}
   .sb-backdrop{display:none}
   /* bar brand + overflow menu */
   .bartitle{display:none;align-items:center;gap:8px;font-weight:800;font-size:1.1rem}
@@ -228,11 +229,12 @@
   #app.home #barTitle{display:flex}
   @media (max-width:720px){
     /* master-detail: home = full-screen chats list, chat = full-screen conversation */
-    #app.home .sidebar{position:static;transform:none;width:100%;max-width:none;box-shadow:none;border-right:none;height:100%}
+    #app.home .sidebar{position:relative;transform:none;width:100%;max-width:none;box-shadow:none;border-right:none;height:100%}
     #app.home .main{display:none}
     #app:not(.home) .sidebar{display:none}
     #app:not(.home) .main{display:flex}
     #app:not(.home) .navback{display:inline-flex}
+    #app.home .fab{display:flex;align-items:center;justify-content:center}
     .sb-backdrop{display:none!important}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important} #join .glow{animation:none!important}}
@@ -278,6 +280,7 @@
     <div class="sb-brand"><img class="sb-logo" src="/watermark.png" alt=""/><span class="sb-word">Gizleme</span></div>
     <div class="sb-head"><span>Chats</span> <button id="sbNew" title="New chat" aria-label="New chat">＋</button></div>
     <div class="sb-list" id="contactList"></div>
+    <button class="fab" id="fabNew" title="New chat" aria-label="New chat">＋</button>
   </aside>
   <div class="sb-backdrop" id="sbBackdrop"></div>
   <div class="main">
@@ -488,8 +491,10 @@ function activeCK(){ const R=A(); return R&&R.fromContact||null; }
 function renderContacts(){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
   const list=contactsLoad().sort((a,b)=>(b.ts||0)-(a.ts||0));
-  if(!list.length){ const e=document.createElement("div"); e.className="sb-empty";
-    e.textContent="No contacts yet. Start a chat with a room code — once you connect, that person is saved here and one tap reconnects you with fresh keys."; el.appendChild(e); return; }
+  if(!list.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
+    const e=document.createElement("p"); e.style.margin="0 0 14px"; e.textContent="No chats yet. Start a secure chat — once you connect, that person is saved here and one tap reconnects you.";
+    const btn=document.createElement("button"); btn.className="btn"; btn.textContent="＋ New chat"; btn.style.maxWidth="200px"; btn.addEventListener("click",showAddRoom);
+    wrap.appendChild(e); wrap.appendChild(btn); el.appendChild(wrap); return; }
   const cur=activeCK();
   list.forEach(c=>{
     const row=document.createElement("div"); row.className="ct"+(c.ck===cur?" active":"");
@@ -1174,6 +1179,7 @@ async function rekey(){
   // ----- contacts / navigation -----
   renderContacts();
   $("sbNew").addEventListener("click",()=>{ closeSidebar(); showAddRoom(); });
+  $("fabNew").addEventListener("click",()=>{ closeSidebar(); showAddRoom(); });
   $("backHome").addEventListener("click",goHome);
   $("sbBackdrop").addEventListener("click",closeSidebar);
 
