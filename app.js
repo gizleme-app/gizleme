@@ -7,6 +7,31 @@ const BUCKET = "vesper-media";
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
+// ---------- language ----------
+const LS_LANG="gz-lang";
+let LANG=(()=>{ try{ const v=localStorage.getItem(LS_LANG); if(v==="fr"||v==="en") return v; }catch(e){} return /^fr\b/i.test(navigator.language||"") ? "fr" : "en"; })();
+const DICT=(window.GZ_I18N||{});
+function t(key, vars){ let v=(LANG!=="en" && DICT[LANG] && DICT[LANG][key]) || key; if(vars) for(const k in vars) v=v.split("{"+k+"}").join(vars[k]); return v; }
+function LOC(){ return LANG==="fr" ? "fr-FR" : []; }
+// Stored placeholder names (an invite not yet opened, a default group name) are kept in English in the data
+// and translated only when displayed.
+const DN_KEYS={"Invited friend":1,"Friend":1,"Group":1,"Contact":1,"Member":1,"Peer":1,"Waiting for peer…":1};
+function dn(n){ return (n && DN_KEYS[n]) ? t(n) : n; }
+// Translate the static markup in place: every text node and label-like attribute whose English text is a
+// dictionary key. Originals are remembered so the language can be switched back without a reload.
+const _i18nOrig=new WeakMap();
+function applyI18n(){
+  document.documentElement.lang=LANG;
+  const walker=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode:n=>{ const p=n.parentNode; if(!p||/^(SCRIPT|STYLE)$/.test(p.nodeName)) return NodeFilter.FILTER_REJECT; return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_SKIP; } });
+  const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
+  for(const n of nodes){ let o=_i18nOrig.get(n); if(o===undefined){ o=n.nodeValue; _i18nOrig.set(n,o); }
+    const key=o.trim(); const tr=t(key); if(tr!==key || n.nodeValue!==o) n.nodeValue=o.replace(key, tr); }
+  for(const el of document.body.querySelectorAll("[placeholder],[title],[aria-label]")){
+    for(const a of ["placeholder","title","aria-label"]){ if(!el.hasAttribute(a)) continue; const k="data-i18n-"+a.replace("-","");
+      let o=el.getAttribute(k); if(o===null){ o=el.getAttribute(a); el.setAttribute(k,o); } el.setAttribute(a, t(o)); } }
+}
+function setLang(l){ LANG=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} applyI18n(); renderContacts(); renderTabs(); updateNotifyUI(); updateVerifyUI(); if(typeof _refreshSettingsUI==="function") _refreshSettingsUI(); }
+let _refreshSettingsUI=null;
 const enc = new TextEncoder(), dec = new TextDecoder();
 const SALT = enc.encode("vesper/v1");
 const hex = b => [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
@@ -44,6 +69,7 @@ let _acct = "";            // opaque per-account marker (HKDF of the account bac
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
 function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", tag:null, authOk:false, channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null, multiSig:"", recvI:-1 }; }
+// (peerName starts as the English placeholder; dn() translates it wherever it is displayed)
 // ---------- automatic identity check at every connection ----------
 // Two contacts share a secret key (ck) from their first connection or invite link; the relay never has it.
 // Each side signs the day's public key with it. A pairing is accepted only if the other side's signature
@@ -145,8 +171,8 @@ async function acceptInvite(inv){   // someone opened a link: become their conta
   const ck=await ckFromInviteSecret(inv.s);
   const mine=contactFind(ck);
   try{ history.replaceState(null,"","/"); }catch(e){}
-  if(mine && mine.is===inv.s){ toast("That's your own invite link — send it to a friend"); goHome(); return; }
-  const nm=realName(inv.n)?inv.n:"Friend";
+  if(mine && mine.is===inv.s){ toast(t("That's your own invite link — send it to a friend")); goHome(); return; }
+  const nm=realName(inv.n)?inv.n:"Friend";   // stored in English, shown translated (dn)
   if(!mine){ const l=contactsLoad(); l.push({name:nm, ck, inv:1, ts:Date.now()}); contactsSave(l); if(pushOn()) registerAllContacts(); }
   else if(!realName(mine.name)||mine.name==="Friend"){ contactPatch(ck,{name:nm,ts:Date.now()}); }
   await openContact(ck, nm);
@@ -155,7 +181,7 @@ async function acceptInvite(inv){   // someone opened a link: become their conta
 function adoptNameFromMessage(R, n){
   if(!R||R.group||!R.fromContact||!realName(n)) return;
   const c=contactFind(R.fromContact); if(!c || (c.name!==INV_PLACEHOLDER && c.name!=="Friend")) return;
-  contactPatch(R.fromContact,{name:n}); R.title=n; R.peerName=n; R.avatar=(n[0]||"?").toUpperCase();
+  contactPatch(R.fromContact,{name:n}); R.title=n; R.peerName=dn(n); R.avatar=(n[0]||"?").toUpperCase();
   if(R.code===active){ $("peerName").textContent=n; $("peerAvatar").textContent=R.avatar; } renderTabs();
 }
 function activeCK(){ const R=A(); return R&&R.fromContact||null; }
@@ -168,10 +194,10 @@ function renderContacts(fromPreview){
   if(!fromPreview) refreshPreviews();
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
     const e=document.createElement("p"); e.style.margin="0 0 14px";
-    if(gRestoring){ e.textContent="Restoring your chats…"; wrap.appendChild(e); el.appendChild(wrap); return; }
-    e.textContent="To talk with someone, send them your invite link — when they open it, you're connected.";
-    const btn=document.createElement("button"); btn.className="btn"; btn.textContent="📤 Invite a friend"; btn.style.maxWidth="220px"; btn.addEventListener("click",showAddRoom);
-    const e2=document.createElement("p"); e2.className="sb-empty-sub"; e2.textContent="Got a link from a friend? Just open it.";
+    if(gRestoring){ e.textContent=t("Restoring your chats…"); wrap.appendChild(e); el.appendChild(wrap); return; }
+    e.textContent=t("To talk with someone, send them your invite link — when they open it, you're connected.");
+    const btn=document.createElement("button"); btn.className="btn"; btn.textContent=t("Invite a friend"); btn.style.maxWidth="220px"; btn.addEventListener("click",showAddRoom);
+    const e2=document.createElement("p"); e2.className="sb-empty-sub"; e2.textContent=t("Got a link from a friend? Just open it.");
     wrap.appendChild(e); wrap.appendChild(btn); wrap.appendChild(e2); el.appendChild(wrap); return; }
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
   items.forEach(it=>{
@@ -180,8 +206,8 @@ function renderContacts(fromPreview){
     const ci=document.createElement("div"); ci.className="ci";
     // line 1: name (+ verified) ……… time of the last message
     const r1=document.createElement("div"); r1.className="crow";
-    const cn=document.createElement("div"); cn.className="cn"; cn.textContent=it.name||(it.t==="g"?"Group":"Contact");
-    if(it.t==="c"&&it.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title="Verified"; cn.appendChild(vb); }
+    const cn=document.createElement("div"); cn.className="cn"; cn.textContent=dn(it.name)||(it.t==="g"?t("Group"):t("Contact"));
+    if(it.t==="c"&&it.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title=t("Verified"); cn.appendChild(vb); }
     const pv=_prev[previewKeyOf(it)]||null;
     const ct=document.createElement("span"); ct.className="ctime"; ct.textContent=pv?fmtListTime(pv.ts):"";
     r1.appendChild(cn); r1.appendChild(ct);
@@ -190,19 +216,19 @@ function renderContacts(fromPreview){
     const unread=(it.id===activeId) ? 0 : (_meta.unread[previewKeyOf(it)]||0);
     const cm=document.createElement("div"); cm.className="cm";
     const pendingInv = it.t==="c" && it.name===INV_PLACEHOLDER;
-    const placeholder = pendingInv ? "Invite sent · waiting for them to open it" : (it.t==="g" ? "Group · say hello" : "Tap to start chatting");
+    const placeholder = pendingInv ? t("Invite sent · waiting for them to open it") : (it.t==="g" ? t("Group · say hello") : t("Tap to start chatting"));
     // "Hide previews": nothing readable over your shoulder — only whether there's something new
     cm.textContent= previewsHidden()
-      ? (unread ? unread+" new message"+(unread>1?"s":"") : (pv ? "🔒 Encrypted message" : placeholder))
+      ? (unread ? t(unread>1?"{n} new messages":"{n} new message",{n:unread}) : (pv ? t("🔒 Encrypted message") : placeholder))
       : (pv ? pv.text : placeholder);
     if(unread) cm.classList.add("unread");
     r2.appendChild(cm);
-    if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=unread+" unread"; r2.appendChild(ub); ct.classList.add("unread"); }
+    if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=t("{n} unread",{n:unread}); r2.appendChild(ub); ct.classList.add("unread"); }
     ci.appendChild(r1); ci.appendChild(r2);
-    const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?"Leave group":"Remove contact"; x.setAttribute("aria-label",x.title);
+    const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?t("Leave group"):t("Remove contact"); x.setAttribute("aria-label",x.title);
     x.addEventListener("click",ev=>{ ev.stopPropagation();
-      if(it.t==="g"){ if(confirm("Leave the group “"+(it.name||"Group")+"”?\n\nYou'll need a new invite link to come back.")) groupRemove(it.rid); }
-      else { if(confirm("Remove "+(it.name||"this contact")+" from your chats?\n\nTo talk again you'll need to exchange a new invite link.")) contactRemove(it.ck); } });
+      if(it.t==="g"){ if(confirm(t("Leave the group “{name}”?\n\nYou'll need a new invite link to come back.",{name:dn(it.name)||t("Group")}))) groupRemove(it.rid); }
+      else { if(confirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(it.name)||t("this contact")}))) contactRemove(it.ck); } });
     row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
     row.addEventListener("click",()=> it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.name));
     el.appendChild(row);
@@ -222,14 +248,14 @@ async function gkMsgKey(gkBytes){ return aesKey(await hkdf(gkBytes,"gz-group-msg
 function openGroup(rid,gkB64,name){ closeSidebar(); doJoinGroup(rid, unb64(gkB64), name); }
 async function createGroup(name){ const rid=newRid(); const gk=crypto.getRandomValues(new Uint8Array(32));
   await doJoinGroup(rid, gk, (name||"").trim()||"New group");
-  const R=A(); if(R&&R.logEl){ sysline(R.logEl,"🔒 Group created. Tap the menu ⋮ → “Invite people” to add members."); } }
+  const R=A(); if(R&&R.logEl){ sysline(R.logEl,t("🔒 Group created. Tap the menu ⋮ → “Invite people” to add members.")); } }
 async function doJoinGroup(rid, gkBytes, name){
   const code=rid;
   groupUpsert(rid, b64(gkBytes), name);
   if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
   if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
-  R.group=true; R.rid=rid; R.gk=gkBytes; R.title=name||"Group"; R.peerName=name||"Group"; R.avatar="👥"; R.paired=true;
+  R.group=true; R.rid=rid; R.gk=gkBytes; R.title=name||"Group"; R.peerName=dn(name||"Group"); R.avatar="👥"; R.paired=true;
   try{ R.gkMsg=await gkMsgKey(gkBytes); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl;
@@ -240,9 +266,9 @@ async function doJoinGroup(rid, gkBytes, name){
   R.channel=ch;
   ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
-  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); setStatus(R,"🔒 encrypted group",true);
+  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); setStatus(R,t("🔒 encrypted group"),true);
       if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; } fetchMailbox(R); }
-    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); } });
+    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false); } });
   fetchMailbox(R);
   try{ history.replaceState(null,"","/"); }catch(e){}
   renderContacts(); updateVerifyUI();
@@ -252,7 +278,7 @@ function onSyncGroup(R){
   for(const k in st) for(const m of st[k]){ if(!m.id) continue; ids.add(m.id); if(m.id!==R.id && m.name) names.push(m.name); }
   const n=ids.size;
   const extra=names.length?(" · "+names.slice(0,3).join(", ")+(names.length>3?" +"+(names.length-3):"")):"";
-  setStatus(R,"🔒 group · "+n+(n>1?" online":" (just you)")+extra,true);
+  setStatus(R,(n>1?t("🔒 group · {n} online",{n}):t("🔒 group · 1 (just you)"))+extra,true);
 }
 async function broadcastGroup(R, env, mid){
   const iv=crypto.getRandomValues(new Uint8Array(12));
@@ -268,17 +294,17 @@ async function onMsgGroup(R,{payload:p}){
     const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)}, R.gkMsg, unb64(p.ct));
     const env=JSON.parse(dec.decode(pt)); const now=Date.now();
     if(env.mid && p.mid && env.mid!==p.mid) throw new Error("id mismatch");
-    const who=(realName(env.n)||realName(p.name)||"Member");          // the name the sender sealed inside, never the relay's
+    const who=(realName(env.n)||realName(p.name)||t("Member"));          // the name the sender sealed inside, never the relay's
     onInbound(R, env, who, now, p.mid, false, true);
     if(R.code===active) blinkEyes();
     soundRecv();
-  }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
+  }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail",t("⚠ could not decrypt this message"),""); }
 }
 function groupInviteLink(R){ const payload=b64url(enc.encode(JSON.stringify({rid:R.rid,gk:b64(R.gk),name:R.title}))); return CANONICAL+"/#g="+payload; }
 async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
-  const url=groupInviteLink(R); const msg="Join my Gizleme group “"+R.title+"” 🔒\n"+url;
+  const url=groupInviteLink(R); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:R.title,url});
   if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
-  try{ await navigator.clipboard.writeText(url); toast("Invite link copied"); }catch(e){ prompt("Copy this invite link:",url); }
+  try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); }
 }
 function parseInvite(text){ // accepts a full link or raw payload
   try{ const s=(text||"").trim(); const i=s.indexOf("#g="); const payload= i>=0 ? s.slice(i+3) : s;
@@ -324,7 +350,7 @@ async function fetchMailbox(R){
           const env=JSON.parse(dec.decode(pt));
           if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
           if(env.mid && it.mid && env.mid!==it.mid) throw new Error("id mismatch");
-          const who=realName(env.n)||(R.group?"Member":"");
+          const who=realName(env.n)||(R.group?t("Member"):"");
           if(!own) adoptNameFromMessage(R, env.n);
           onInbound(R, env, who, ts, it.mid, own, false);
           if(!own) delivered++;
@@ -342,7 +368,7 @@ async function fetchMailbox(R){
 function onInbound(R, env, who, ts, mid, own, animate){
   const hk=histKeyOf(R); const open=!!R.logEl;
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
-    if(open){ if(env.t==="img") addText(R.logEl,"sent","📷 Photo","",false,ts,{mid,st:stateFor(mid)}); else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
+    if(open){ if(env.t==="img") addText(R.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)}); else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
     histSave(hk,{dir:"sent",env,ts,mid}); return;
   }
   const tag=R.group?(who||""):"";
@@ -414,41 +440,41 @@ function isVerified(ck){ const c=contactsLoad().find(x=>x.ck===ck); return !!(c&
 function setVerified(ck){ const list=contactsLoad(); const c=list.find(x=>x.ck===ck); if(c){ c.v=1; contactsSave(list); } }
 function updateVerifyUI(){
   const R=A(); const vb=$("verifyBtn"); const show=!!(R&&((R.fromContact&&R.paired)||R.group));
-  if(vb){ vb.hidden=!show; if(show){ const v=R.group?false:isVerified(R.fromContact); vb.textContent=v?"✅":"🛡"; vb.title=R.group?"Group safety code":(v?"Verified — tap to review":"Verify who you're talking to"); } }
-  if(R && R.code===active){ const nm=$("peerName"); if(nm) nm.textContent = R.peerName + (!R.group&&R.fromContact&&isVerified(R.fromContact)?" ✓":""); }
+  if(vb){ vb.hidden=!show; if(show){ const v=R.group?false:isVerified(R.fromContact); vb.classList.toggle("ok",!!v); const u=vb.querySelector("use"); if(u) u.setAttribute("href", v?"#i-shield-check":"#i-shield"); vb.title=R.group?t("Group safety code"):(v?t("Verified — tap to review"):t("Verify who you're talking to")); } }
+  if(R && R.code===active){ const nm=$("peerName"); if(nm) nm.textContent = dn(R.peerName) + (!R.group&&R.fromContact&&isVerified(R.fromContact)?" ✓":""); }
 }
 async function openVerify(){
-  const R=A(); if(!R||(!R.fromContact&&!R.group)){ toast("Open a chat first"); return; }
+  const R=A(); if(!R||(!R.fromContact&&!R.group)){ toast(t("Open a chat first")); return; }
   if(R.group){
-    $("verifyWho").textContent = R.title||"this group";
+    $("verifyWho").textContent = dn(R.title)||t("this group");
     try{ const b=new Uint8Array(await hkdf(R.gk,"gz-safety/v1",16)); $("safetyEmoji").textContent=safetyEmoji(b); $("safetyCode").textContent=safetyHex(b); }
-    catch(e){ $("safetyCode").textContent="unavailable"; }
-    $("verifyStatus").textContent="Everyone in this group shares this code"; $("verifyStatus").classList.remove("ok");
+    catch(e){ $("safetyCode").textContent=t("unavailable"); }
+    $("verifyStatus").textContent=t("Everyone in this group shares this code"); $("verifyStatus").classList.remove("ok");
     $("verifyMark").style.display="none"; $("verifyModal").classList.add("show"); return;
   }
-  $("verifyWho").textContent = R.title||R.peerName||"this contact";
+  $("verifyWho").textContent = dn(R.title||R.peerName)||t("this contact");
   const va=$("verifyAuto"); if(va){
     va.innerHTML = R.authOk
-      ? "<b>Automatic check (every connection): ✓</b> this connection proved it holds the same shared key as when you first connected. It confirms continuity, not who was there the first time — the in-person check below does that, once."
-      : (R.paired ? "<b>Automatic check:</b> first connection in this room — there was no shared key to check yet. From the next connection on, it's verified automatically."
-                  : "<b>Automatic check (every connection):</b> runs as soon as you're both online — anyone who can't prove they hold your shared key is refused."); }
+      ? t("<b>Automatic check (every connection): ✓</b> this connection proved it holds the same shared key as when you first connected. It confirms continuity, not who was there the first time — the in-person check below does that, once.")
+      : (R.paired ? t("<b>Automatic check:</b> first connection in this room — there was no shared key to check yet. From the next connection on, it's verified automatically.")
+                  : t("<b>Automatic check (every connection):</b> runs as soon as you're both online — anyone who can't prove they hold your shared key is refused.")); }
   const c=contactFind(R.fromContact);
   if(c && c.inv && !c.sv){      // connected through a link but never live together yet: no key exchange to verify
-    $("safetyEmoji").textContent="· · · · ·"; $("safetyCode").textContent="not yet";
-    $("verifyStatus").textContent="The code appears after your first chat while you're both online"; $("verifyStatus").classList.remove("ok");
+    $("safetyEmoji").textContent="· · · · ·"; $("safetyCode").textContent=t("not yet");
+    $("verifyStatus").textContent=t("The code appears after your first chat while you're both online"); $("verifyStatus").classList.remove("ok");
     $("verifyMark").style.display="none"; $("verifyModal").classList.add("show"); return;
   }
   try{ const b=(c&&c.inv&&c.sv) ? unb64(c.sv) : await safetyBytes(R.fromContact); $("safetyEmoji").textContent=safetyEmoji(b); $("safetyCode").textContent=safetyHex(b); }
-  catch(e){ $("safetyCode").textContent="unavailable"; }
+  catch(e){ $("safetyCode").textContent=t("unavailable"); }
   const v=isVerified(R.fromContact);
-  $("verifyStatus").textContent = v?"Verified ✓":"Not verified yet";
+  $("verifyStatus").textContent = v?t("Verified ✓"):t("Not verified yet");
   $("verifyStatus").classList.toggle("ok",v);
   $("verifyMark").style.display = v?"none":"inline-block";
   $("verifyModal").classList.add("show");
 }
 function markVerifiedNow(){ const R=A(); if(!R||!R.fromContact) return; setVerified(R.fromContact);
-  $("verifyStatus").textContent="Verified ✓"; $("verifyStatus").classList.add("ok"); $("verifyMark").style.display="none";
-  updateVerifyUI(); renderContacts(); toast("Marked as verified ✓"); }
+  $("verifyStatus").textContent=t("Verified ✓"); $("verifyStatus").classList.add("ok"); $("verifyMark").style.display="none";
+  updateVerifyUI(); renderContacts(); toast(t("Marked as verified ✓")); }
 
 // ---------- push notifications (wake the other side even when the app is closed) ----------
 const PUSH_FN="gizleme-push";
@@ -476,27 +502,27 @@ async function registerAllContacts(){
 async function enablePush(){
   if(!pushSupported()){
     if(/iphone|ipad|ipod/i.test(navigator.userAgent) && !(window.navigator.standalone))
-      toast("On iPhone: install Gizleme to your Home Screen first (⬇), then enable notifications");
-    else toast("Notifications aren't supported on this browser");
+      toast(t("On iPhone: install Gizleme to your Home Screen first (⬇), then enable notifications"));
+    else toast(t("Notifications aren't supported on this browser"));
     return false;
   }
   let perm=Notification.permission;
   if(perm!=="granted") perm=await Notification.requestPermission();
-  if(perm!=="granted"){ toast("Notifications are blocked — allow them in your browser settings"); return false; }
+  if(perm!=="granted"){ toast(t("Notifications are blocked — allow them in your browser settings")); return false; }
   try{
     const reg=await navigator.serviceWorker.ready;
-    const pk=await vapidKey(); if(!pk){ toast("Notification service unavailable"); return false; }
+    const pk=await vapidKey(); if(!pk){ toast(t("Notification service unavailable")); return false; }
     gPushSub=await reg.pushManager.getSubscription();
     if(!gPushSub) gPushSub=await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:urlB64ToU8(pk)});
     try{ localStorage.setItem(LS_PUSH,"1"); }catch(e){}
     await registerAllContacts();
-    toast("Notifications on 🔔"); updateNotifyUI(); return true;
-  }catch(e){ toast("Couldn't enable notifications"); return false; }
+    toast(t("Notifications on 🔔")); updateNotifyUI(); return true;
+  }catch(e){ toast(t("Couldn't enable notifications")); return false; }
 }
 async function disablePush(){
   try{ localStorage.setItem(LS_PUSH,"0"); }catch(e){}
   try{ if(gPushSub){ await fn("unregister",{owner:deviceId()}); await gPushSub.unsubscribe(); } }catch(e){}
-  gPushSub=null; toast("Notifications off"); updateNotifyUI();
+  gPushSub=null; toast(t("Notifications off")); updateNotifyUI();
 }
 async function notifyPeer(ckB64, kind){
   if(!ckB64) return false;
@@ -506,13 +532,13 @@ async function notifyPeer(ckB64, kind){
   map[nk]=now; try{ localStorage.setItem(LS_NOTIFIED,JSON.stringify(map)); }catch(e){}
   const nm=realName(myName);
   try{ await fn("notify",{notify_key:nk, from:deviceId(), title:"Gizleme",
-    body: kind==="msg" ? (nm?"New message from "+nm:"New message") : (nm?nm+" wants to chat on Gizleme":"A contact wants to chat"),
+    body: kind==="msg" ? (nm?t("New message from {name}",{name:nm}):t("New message")) : (nm?t("{name} wants to chat on Gizleme",{name:nm}):t("A contact wants to chat")),
     url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined}); return true; }catch(e){ return false; }
 }
 async function nudgeContact(){           // manual "notify this contact" from the chat
   const R=A(); if(!R||!R.fromContact) return;
   const sent=await notifyPeer(R.fromContact);
-  toast(sent?"Notification sent 📣":"Already notified — give them a moment");
+  toast(sent?t("Notification sent 📣"):t("Already notified — give them a moment"));
 }
 async function pushInit(){               // restore subscription on load
   if(!pushOn()||!pushSupported()) { updateNotifyUI(); return; }
@@ -523,10 +549,10 @@ async function pushInit(){               // restore subscription on load
 function updateNotifyUI(){
   const on=pushOn(), sup=pushSupported();
   const st=$("notifyState"), tg=$("notifyToggle"), hint=$("notifyHint");
-  if(st) st.textContent = !sup ? "Not available on this browser" : (on?"On":"Off");
-  if(tg){ tg.textContent = on?"Turn off":"Enable"; tg.classList.toggle("off",on); tg.disabled=!sup; tg.style.opacity=sup?"1":".5"; }
+  if(st) st.textContent = !sup ? t("Not available on this browser") : (on?t("On"):t("Off"));
+  if(tg){ tg.textContent = on?t("Turn off"):t("Enable"); tg.classList.toggle("off",on); tg.disabled=!sup; tg.style.opacity=sup?"1":".5"; }
   if(hint){ const iOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
-    hint.textContent = (iOS && !window.navigator.standalone) ? "On iPhone, install Gizleme to your Home Screen first." : ""; }
+    hint.textContent = (iOS && !window.navigator.standalone) ? t("On iPhone, install Gizleme to your Home Screen first.") : ""; }
 }
 
 // ---------- master key: one history key, unlockable by PIN and/or Face ID ----------
@@ -618,17 +644,17 @@ const _prev={}; let _prevT=null;
 function previewKeyOf(it){ return it.t==="g" ? it.rid : "c:"+it.ck; }
 function previewText(r, isGroup){
   if(!r) return "";
-  const body = r.env && r.env.t==="img" ? "📷 Photo" : (r.env && r.env.body) || "";
-  if(r.dir==="sent") return "You: "+body;
+  const body = r.env && r.env.t==="img" ? t("📷 Photo") : (r.env && r.env.body) || "";
+  if(r.dir==="sent") return t("You: ")+body;
   return (isGroup && r.who ? r.who+": " : "") + body;
 }
 function fmtListTime(ts){
   if(!ts) return ""; const d=new Date(ts), now=new Date();
   const sameDay=d.toDateString()===now.toDateString();
-  if(sameDay) return d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
-  const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return "Yesterday";
-  if(now-d < 6*86400e3) return d.toLocaleDateString([], {weekday:"short"});
-  return d.toLocaleDateString([], {day:"2-digit", month:"2-digit", year:"2-digit"});
+  if(sameDay) return d.toLocaleTimeString(LOC(), {hour:"2-digit", minute:"2-digit"});
+  const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return t("Yesterday");
+  if(now-d < 6*86400e3) return d.toLocaleDateString(LOC(), {weekday:"short"});
+  return d.toLocaleDateString(LOC(), {day:"2-digit", month:"2-digit", year:"2-digit"});
 }
 function refreshPreviews(){           // debounced; re-renders the list only if a preview changed
   clearTimeout(_prevT); _prevT=setTimeout(async()=>{
@@ -679,7 +705,7 @@ async function uploadImage(file){
   // writer of the bucket; the AES key never leaves the message.
   const r = await mboxFn("putblob",{data:b64(ctBuf)});
   const path = r && r.data && r.data.ok && r.data.path;
-  if(!path){ const code=(r&&r.data&&r.data.error)||(r&&r.error&&r.error.context&&r.error.context.status)||""; throw new Error(code==="rate_limited"||code===429 ? "too many photos — wait a minute" : "upload failed"); }
+  if(!path){ const code=(r&&r.data&&r.data.error)||(r&&r.error&&r.error.context&&r.error.context.status)||""; throw new Error(code==="rate_limited"||code===429 ? t("too many photos — wait a minute") : t("upload failed")); }
   return { path, k:b64(key), iv:b64(iv), mime };
 }
 async function fetchImage(meta){ // meta={path,k,iv,mime}
@@ -744,17 +770,17 @@ function sweepEphemeral(){
 let _toastT=null;
 function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(_toastT); _toastT=setTimeout(()=>t.classList.remove("show"), Math.max(1700, Math.min(6000, 55*m.length))); }
 function scrollEl(el){ try{ el.scrollTop=el.scrollHeight; }catch(e){} }
-function fmtTime(ts){ return new Date(ts).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); }
-function dayLabel(ts){ const d=new Date(ts), now=new Date(); if(d.toDateString()===now.toDateString()) return "Today";
-  const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], {weekday:"short", day:"numeric", month:"short"}); }
+function fmtTime(ts){ return new Date(ts).toLocaleTimeString(LOC(), {hour:"2-digit",minute:"2-digit"}); }
+function dayLabel(ts){ const d=new Date(ts), now=new Date(); if(d.toDateString()===now.toDateString()) return t("Today");
+  const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return t("Yesterday");
+  return d.toLocaleDateString(LOC(), {weekday:"short", day:"numeric", month:"short"}); }
 function ensureDaySep(logEl, ts){ const d=new Date(ts); const k=d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); if(logEl.dataset.lastDay===k) return; logEl.dataset.lastDay=k;
   const el=document.createElement("div"); el.className="daysep"; el.textContent=dayLabel(ts); logEl.appendChild(el); }
 const ST_GLYPH={pending:"🕓",sent:"✓",rcvd:"✓✓",failed:"!"};
 function metaRow(d, ts, st){ const m=document.createElement("span"); m.className="meta"; const t=document.createElement("span"); t.className="time"; t.textContent=fmtTime(ts); m.appendChild(t);
   if(st){ const x=document.createElement("span"); x.className="st"; m.appendChild(x); } d.appendChild(m); if(st) setMsgState(d,st); }
 function setMsgState(d, st){ const x=d.querySelector(".st"); if(!x) return; x.dataset.st=st; x.textContent=ST_GLYPH[st]||"";
-  d.classList.toggle("failed",st==="failed"); x.title= st==="rcvd"?"Received on their device" : st==="sent"?"Sent" : st==="failed"?"Not sent — tap to retry" : "Sending…"; }
+  d.classList.toggle("failed",st==="failed"); x.title= st==="rcvd"?t("Received on their device") : st==="sent"?t("Sent") : st==="failed"?t("Not sent — tap to retry") : t("Sending…"); }
 // opts: {mid, st} — st for our own messages: pending | sent | rcvd | failed
 function addText(logEl, cls, body, tag, animate, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
@@ -768,7 +794,7 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   return d;
 }
 function openLightbox(url, opts){
-  opts=opts||{};
+  opts=opts||{}; const t_=t;   // the countdown label shadows t below
   const lb=document.createElement("div"); lb.className="lightbox";
   const img=new Image(); img.src=url; lb.appendChild(img);
   const close=document.createElement("button"); close.className="lb-close"; close.textContent="✕"; lb.appendChild(close);
@@ -780,8 +806,8 @@ function openLightbox(url, opts){
   document.addEventListener("keydown",onKey);
   if(opts.countdown){
     const t=document.createElement("div"); t.className="lb-timer"; lb.appendChild(t);
-    let left=opts.countdown; t.textContent="disappears in "+left+"s";
-    timer=setInterval(()=>{ left--; if(left<=0){ done(); } else t.textContent="disappears in "+left+"s"; },1000);
+    let left=opts.countdown; t.textContent=t_("disappears in {n}s",{n:left});
+    timer=setInterval(()=>{ left--; if(left<=0){ done(); } else t.textContent=t_("disappears in {n}s",{n:left}); },1000);
   }
   document.body.appendChild(lb);
 }
@@ -792,7 +818,7 @@ function addImageSent(logEl, meta, localUrl, ts, opts){
   const img=new Image(); img.src=localUrl; img.style.maxWidth="160px"; img.style.cursor="pointer";
   img.addEventListener("click",()=>openLightbox(localUrl,{}));
   d.appendChild(img);
-  const o=document.createElement("span"); o.className="once"; o.textContent="⦿ view once"; d.appendChild(o);
+  const o=document.createElement("span"); o.className="once"; o.textContent=t("⦿ view once"); d.appendChild(o);
   metaRow(d, ts, opts.st||"pending");
   d.addEventListener("click",e=>{ if(e.target===img) return; if(d.classList.contains("failed") && d._retry) d._retry(); });
   logEl.appendChild(d); scrollEl(logEl);
@@ -802,18 +828,18 @@ function addImageRecvOnce(logEl, meta, tag, ts, mid){
   ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble recv"; d.dataset.ts=ts; if(mid) d.dataset.mid=mid;
   if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
-  const btn=document.createElement("div"); btn.className="tapview"; btn.innerHTML="📷 Photo<small>tap to view — once only</small>";
+  const btn=document.createElement("div"); btn.className="tapview"; btn.innerHTML=t("📷 Photo")+"<small>"+t("tap to view — once only")+"</small>";
   d.appendChild(btn);
   metaRow(d, ts, null);
   logEl.appendChild(d); scrollEl(logEl);
   let opened=false;
   btn.addEventListener("click",async()=>{
-    if(opened) return; opened=true; const prev=btn.innerHTML; btn.textContent="decrypting…";
+    if(opened) return; opened=true; const prev=btn.innerHTML; btn.textContent=t("decrypting…");
     try{
       const url=await fetchImage(meta);
       markViewed(mid);                                   // never shown again, even after a reload
       openLightbox(url,{countdown:10,onClose:()=>{ try{URL.revokeObjectURL(url);}catch(e){} deleteBlob(meta.path);
-        const x=document.createElement("div"); x.className="imgph"; x.textContent="📷 photo viewed"; btn.replaceWith(x); }});
+        const x=document.createElement("div"); x.className="imgph"; x.textContent=t("📷 photo viewed"); btn.replaceWith(x); }});
     }catch(e){ opened=false; btn.innerHTML=prev; }
   });
   return d;
@@ -825,7 +851,7 @@ function renderHistory(R, past){
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
     if(r.env.t==="img"){
       if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid); }
-      else addText(R.logEl,"sent","📷 Photo","",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
+      else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
       continue; }
     if(r.dir==="sent") addText(R.logEl,"sent",r.env.body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
     else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid});
@@ -841,21 +867,21 @@ function inviteParts(){
   if(inNew && !adv && _pendingInvite){            // the normal case: an invite link
     persistPendingInvite();
     const url=_pendingInvite.url;
-    return {room:"", url, msg:"Join me on Gizleme 🔒 private chat, no phone number needed — just open this link:\n"+url, invite:true};
+    return {room:"", url, msg:t("Join me on Gizleme 🔒 private chat, no phone number needed — just open this link:\n{url}",{url}), invite:true};
   }
   // Legacy room code: only a room the user is explicitly creating (the code in the field, or a plain manual
   // room that's open). Never a contact's secret daily rendezvous code or a group id.
   const R=active?rooms.get(active):null; const manual=!!(R&&!R.fromContact&&!R.group);
   const room=((inNew ? $("roomInput").value : (manual ? active : ""))||"").trim().toUpperCase();
   const url=CANONICAL+"/"+(room?"#room="+room:"");           // code in the fragment: never sent to any server
-  const msg="Join me on Gizleme 🔒 encrypted chat — room code "+room+"\n"+url;
+  const msg=t("Join me on Gizleme 🔒 encrypted chat — room code {room}\n{url}",{room,url});
   return {room,url,msg};
 }
 async function shareInvite(){
   const {url,msg}=inviteParts();
   // One combined text field is handled most consistently across targets (WhatsApp included).
   if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
-  try{ await navigator.clipboard.writeText(url); toast("Link copied"); }catch(e){ prompt("Copy this link:",url); }
+  try{ await navigator.clipboard.writeText(url); toast(t("Link copied")); }catch(e){ prompt(t("Copy this link:"),url); }
 }
 function shareWhatsApp(){
   const {msg}=inviteParts();
@@ -868,9 +894,9 @@ function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!
 
 // ---------- session ----------
 function idleStatus(R){
-  if(!R||!R.fromContact) return "waiting for peer…";
-  if(isPendingInvite(contactFind(R.fromContact))) return "waiting for them to open your link — anything you write will be waiting for them";
-  return "offline — messages will be delivered when they reconnect"; }
+  if(!R||!R.fromContact) return t("waiting for peer…");
+  if(isPendingInvite(contactFind(R.fromContact))) return t("waiting for them to open your link — anything you write will be waiting for them");
+  return t("offline — messages will be delivered when they reconnect"); }
 async function establish(R, other, authed){
   if(R.establishing) return; R.establishing=true;          // back-to-back presence syncs must not pair twice
   let peerKey, secret, root, rootFp;
@@ -882,12 +908,12 @@ async function establish(R, other, authed){
   R.establishing=false;
   const changed=rootFp!==R.rootFp;
   R.peer=other; R.root=root; R.rootFp=rootFp; if(changed){ R.sendI=0; R.recvI=-1; } R.paired=true; R.authOk=!!authed;
-  const nm=other.name||"Peer"; R.peerName=nm; R.avatar=(nm[0]||"?").toUpperCase();
+  const nm=other.name||"Peer"; R.peerName=dn(nm); R.avatar=(nm[0]||"?").toUpperCase();
   if(realName(nm)) R.title=nm;                         // show the person's name in the tab/header
-  setStatus(R, authed ? "🔒 secure · same key as your first connection ✓" : "🔒 secure · key "+rootFp, true);
-  if(R.code===active){ $("peerName").textContent=nm; $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
+  setStatus(R, authed ? t("🔒 secure · same key as your first connection ✓") : t("🔒 secure · key {fp}",{fp:rootFp}), true);
+  if(R.code===active){ $("peerName").textContent=dn(nm); $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
   if(changed){
-    sysline(R.logEl, authed ? "✅ "+nm+" verified automatically — same shared key as when you first connected." : "🔒 secure channel established with "+nm);
+    sysline(R.logEl, authed ? t("✅ {name} verified automatically — same shared key as when you first connected.",{name:dn(nm)}) : t("🔒 secure channel established with {name}",{name:dn(nm)}));
     soundConnect();
     // Derive a stable per-contact key from the first shared secret (relay never sees it),
     // then save/refresh the contact — identical on both sides, no extra round-trip.
@@ -906,7 +932,7 @@ async function establish(R, other, authed){
 function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.authOk=false; R.recvI=-1;
   // A saved contact keeps their name in the header while offline; only an anonymous manual room shows "Waiting for peer…".
   const known=!!(R.fromContact && realName(R.title));
-  R.peerName=known?R.title:"Waiting for peer…"; R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
+  R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
   setStatus(R,idleStatus(R),false);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
 function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; } return p; }
@@ -929,20 +955,20 @@ async function onSync(R){
   if(eligible.length>1 && realName(R.title)){ const known=eligible.filter(m=>realName(m.name)===R.title); if(known.length) o=known[known.length-1]; }
   const sig=others.map(m=>m.id).sort().join(",")+"|"+auth.join(",");
   if(sig!==R.multiSig){ R.multiSig=sig;
-    const nm=R.title||"your contact";
+    const nm=dn(R.title)||t("your contact");
     if(rejected.length && R.fromContact){
-      const who=realName(rejected[0].name)||"someone"; const missing=auth.includes("missing");
-      if(o) sysline(R.logEl,"⚠ Someone connected as “"+who+"” but couldn't prove they hold your shared key with "+nm+" — ignored. You're connected to the verified "+nm+".",true);
+      const who=realName(rejected[0].name)||t("someone"); const missing=auth.includes("missing");
+      if(o) sysline(R.logEl,t("⚠ Someone connected as “{who}” but couldn't prove they hold your shared key with {name} — ignored. You're connected to the verified {name}.",{who,name:nm}),true);
       else sysline(R.logEl, missing
-        ? "⚠ Couldn't verify the person connecting as “"+who+"”: their app didn't present a key check (older Gizleme — ask them to reload). Not connected live. Your messages still reach "+nm+" through the encrypted mailbox."
-        : "⚠ Couldn't verify this is "+nm+": their key check failed — someone may be in the middle. Nothing was shared with them. Your messages still reach "+nm+" through the encrypted mailbox; verify in person before trusting a live chat.", true);
+        ? t("⚠ Couldn't verify the person connecting as “{who}”: their app didn't present a key check (older Gizleme — ask them to reload). Not connected live. Your messages still reach {name} through the encrypted mailbox.",{who,name:nm})
+        : t("⚠ Couldn't verify this is {name}: their key check failed — someone may be in the middle. Nothing was shared with them. Your messages still reach {name} through the encrypted mailbox; verify in person before trusting a live chat.",{name:nm}), true);
     } else if(others.length>1){
-      const names=[...new Set(others.map(m=>realName(m.name)||"someone"))];
-      if(names.length===1) sysline(R.logEl, names[0]+" is connected from "+others.length+" devices — you're paired with the most recent one; their other device still receives your messages.", false);
-      else sysline(R.logEl, "⚠ "+others.length+" people are in this chat: "+names.join(", ")+". You're paired with "+(o&&realName(o.name)||"the most recent")+". If you weren't expecting anyone else, stop and compare the safety code (🛡) with them in person.", true);
+      const names=[...new Set(others.map(m=>realName(m.name)||t("someone")))];
+      if(names.length===1) sysline(R.logEl, t("{name} is connected from {n} devices — you're paired with the most recent one; their other device still receives your messages.",{name:names[0],n:others.length}), false);
+      else sysline(R.logEl, t("⚠ {n} people are in this chat: {names}. You're paired with {with}. If you weren't expecting anyone else, stop and compare the safety code (🛡) with them in person.",{n:others.length,names:names.join(", "),with:(o&&realName(o.name)||t("the most recent"))}), true);
     }
   }
-  if(!o){ if(R.paired) unpair(R); setStatus(R,"⚠ not verified — not connected live",false); return; }
+  if(!o){ if(R.paired) unpair(R); setStatus(R,t("⚠ not verified — not connected live"),false); return; }
   if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o,auth[others.indexOf(o)]==="ok");
 }
 
@@ -968,7 +994,7 @@ async function onMsg(R, {payload:p}){
   }catch(e){
     if(p.mid && R.seen) R.seen.delete(p.mid);            // not decrypted here: let the encrypted mailbox copy deliver it
     if(R.fromContact){ setTimeout(()=>fetchMailbox(R),1500); }   // e.g. we're paired with their other device — the mailbox has it
-    else addText(R.logEl,"fail","⚠ could not decrypt this message","");   // manual room: nothing else will deliver it
+    else addText(R.logEl,"fail",t("⚠ could not decrypt this message"),"");   // manual room: nothing else will deliver it
   }
 }
 async function broadcast(R, env, mid){
@@ -984,7 +1010,7 @@ async function sendText(){
   if(!R.group && !R.fromContact && !R.paired) return;       // manual room with no one here yet: nothing to send to
   const env={t:"txt",body:text}; const mid=rid(); const now=Date.now();
   if(!R.seen) R.seen=new Set(); R.seen.add(mid);
-  $("msgInput").value=""; initAudio();
+  $("msgInput").value=""; $("msgInput").style.height="auto"; initAudio();
   const el=addText(R.logEl,"sent",text,"",false,now,{mid,st:"pending"});
   await deliverOut(R, env, mid, el, now);
 }
@@ -1012,7 +1038,7 @@ async function sendImage(file){
   try{
     const meta=await uploadImage(file); meta.t="img"; meta.once=true;
     await deliverOut(R, meta, mid, el, now);
-  }catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now); toast("Photo not sent — "+(e&&e.message?e.message:"check your connection")); }
+  }catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now); toast(t("Photo not sent — ")+(e&&e.message?e.message:t("check your connection"))); }
 }
 async function sendImageRetry(R,file,el,mid,now){ el._retry=null; setMsgState(el,"pending");
   try{ const meta=await uploadImage(file); meta.t="img"; meta.once=true; await deliverOut(R, meta, mid, el, now); }
@@ -1028,7 +1054,7 @@ async function doJoin(code, opts){
   if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
   R.fromContact=opts.fromContact||null; R.title=opts.title||null;
-  if(R.fromContact && realName(R.title)){ R.peerName=R.title; R.avatar=(R.title[0]||"?").toUpperCase(); }   // a known contact: show their name right away
+  if(R.fromContact && realName(R.title)){ R.peerName=dn(R.title); R.avatar=(R.title[0]||"?").toUpperCase(); }   // a known contact: show their name right away
   try{ R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); await ensureTag(R); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }          // someone joined it while we were generating keys
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none";
@@ -1053,7 +1079,7 @@ async function doJoin(code, opts){
   ch.on("broadcast",{event:"rcpt"},(payload)=>onRcpt(R,payload));
   ch.subscribe(async st=>{
     if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); if(!R.paired) setStatus(R,idleStatus(R),false); fetchMailbox(R); }
-    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); }
+    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false); }
   });
   fetchMailbox(R);   // pull anything that was queued while we were away
   // Keep the shared code in the URL only for manual/invite rooms; contact rooms use a
@@ -1074,26 +1100,28 @@ function showAuth(mode){
   if($("promises")) $("promises").style.display=reg?"grid":"none";   // the pitch belongs on the first screen only
   $("pwField").style.display=(reg||login||unlock)?"block":"none";
   $("pw2Field").style.display=reg?"block":"none";
+  if($("dispField")) $("dispField").style.display=reg?"block":"none";
   try{ $("pwInput").setAttribute("autocomplete", reg?"new-password":"current-password"); }catch(e){}
   $("ncTabs").style.display=nw?"flex":"none";
   $("bioOptWrap").style.display=((reg||login)&&bioSupported()&&!bioSet())?"flex":"none";
   $("bioBtn").hidden=!(unlock&&bioSupported()&&bioSet());
-  $("bioBtn").textContent="🙂 Unlock with "+bioLabel();
+  $("bioBtn").textContent=t("🙂 Unlock with {bio}",{bio:bioLabel()});
   if($("lockHead")) $("lockHead").style.display=unlock?"block":"none";
   if($("forgotLink")) $("forgotLink").style.display=(login||unlock)?"block":"none";
   if($("iabNote")){ const iab=(typeof _isInApp==="function") && _isInApp() && (reg||login);
     $("iabNote").style.display=iab?"block":"none";
     if(iab) $("iabNote").textContent=(/iPhone|iPad|iPod/i.test(navigator.userAgent)
-      ? "You're inside WhatsApp's built-in browser. To stay logged in and get notifications, open this page in Safari first: tap ⋯ then “Open in Safari”."
-      : "You're inside an app's built-in browser. To stay logged in and get notifications, open this page in your browser first (⋯ → Open in browser)."); }
+      ? t("You're inside WhatsApp's built-in browser. To stay logged in and get notifications, open this page in Safari first: tap ⋯ then “Open in Safari”.")
+      : t("You're inside an app's built-in browser. To stay logged in and get notifications, open this page in your browser first (⋯ → Open in browser).")); }
   $("backBtn").style.display=nw?"block":"none";
   if(!nw){ $("roomField").style.display="none"; $("invLinkField").style.display="none"; $("gnameField").style.display="none"; $("invField").style.display="none"; $("shareRow").style.display="none"; }
-  $("joinBtn").textContent=reg?"Create account":login?"Log in":unlock?"Unlock":"Connect";
+  $("joinBtn").textContent=reg?t("Create account"):login?t("Log in"):unlock?t("Unlock"):t("Connect");
   authMsg(""); if($("userHint")){ $("userHint").textContent=""; $("userHint").className=""; }
   const sl=$("switchLink");
-  if(reg){ $("joinHint").textContent="Pick any name — no phone number or email needed — and a strong password (8+ characters). There is no password reset: save it in your password manager."; sl.style.display="block"; sl.textContent="Already have an account? Log in"; }
-  else if(login){ $("joinHint").textContent="Log in to your Gizleme account from any device."; sl.style.display="block"; sl.textContent="New here? Create an account"; }
-  else if(unlock){ const s=sessLoad(); $("joinHint").textContent=""; if($("lockSub")) $("lockSub").textContent=(s&&s.display)?("Welcome back, "+s.display+"."):"Welcome back."; sl.style.display="block"; sl.textContent="Log out / switch account"; }
+  if(reg){ const inv=window.__pending&&window.__pending.invite&&realName(window.__pending.invite.n)?window.__pending.invite.n:"";
+    $("joinHint").textContent=(inv?t("{inviter} invited you to a private chat. Pick a name to reply.",{inviter:inv})+" ":"")+t("Pick any name — no phone number or email needed — and a strong password (8+ characters). There is no password reset: save it in your password manager."); sl.style.display="block"; sl.textContent=t("Already have an account? Log in"); }
+  else if(login){ $("joinHint").textContent=t("Log in to your Gizleme account from any device."); sl.style.display="block"; sl.textContent=t("New here? Create an account"); }
+  else if(unlock){ const s=sessLoad(); $("joinHint").textContent=""; if($("lockSub")) $("lockSub").textContent=(s&&s.display)?t("Welcome back, {name}.",{name:s.display}):t("Welcome back."); sl.style.display="block"; sl.textContent=t("Log out / switch account"); }
   else { sl.style.display="none"; $("roomInput").value=""; _pendingInvite=null; $("join").dataset.adv="0"; ncSet("direct"); }   // a fresh link each time New chat is opened
   if(login){ const s=sessLoad(); if(s&&s.display) $("userInput").value=s.display; }
 }
@@ -1106,12 +1134,12 @@ function ncSet(nc){
   $("shareRow").style.display=direct?"flex":"none";
   $("gnameField").style.display=group?"block":"none";
   $("invField").style.display=join?"block":"none";
-  $("joinBtn").textContent=direct?(adv?"Connect":"Open chat"):group?"Create group":"Join";
+  $("joinBtn").textContent=direct?(adv?t("Connect"):t("Open chat")):group?t("Create group"):t("Join");
   $("joinHint").textContent = direct
-    ? (adv ? "Share this room code with one person. You both need to open it at the same time."
-           : "Send this link to one person. When they open it you're connected — even if you're not online at the same time. Anyone with the link can reach you as this contact, so don't post it publicly.")
-    : group ? "Create a named, encrypted group. Only people you invite with the link can join — the name alone gives no access."
-    : "Paste a link a friend sent you — an invite or a group link.";
+    ? (adv ? t("Share this room code with one person. You both need to open it at the same time.")
+           : t("Send this link to one person. When they open it you're connected — even if you're not online at the same time. Anyone with the link can reach you as this contact, so don't post it publicly."))
+    : group ? t("Create a named, encrypted group. Only people you invite with the link can join — the name alone gives no access.")
+    : t("Paste a link a friend sent you — an invite or a group link.");
   [...document.querySelectorAll(".nctab")].forEach(b=>b.classList.toggle("on",b.dataset.nc===nc));
   if(direct && !adv && !_pendingInvite) newPendingInvite();
   if(direct && adv && !$("roomInput").value.trim()) $("roomInput").value=roomCode();   // keep a code the user may already have shared
@@ -1121,7 +1149,7 @@ function switchTo(code){
   active=code; $("app").classList.remove("home");
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   clearUnread(R);
-  $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar;
+  $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar;
   $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
   // Composer is usable whenever there's somewhere to deliver: a live pairing, a group,
   // or a saved contact (message goes to the encrypted mailbox and is delivered when they reconnect).
@@ -1142,21 +1170,21 @@ function leaveRoom(code){
   renderTabs();
 }
 function renderTabs(){
-  const t=$("tabs"); if(!t) return; t.innerHTML="";
-  t.style.display = rooms.size>1 ? "flex" : "none";   // only show the switcher with multiple open chats
+  const tabsEl=$("tabs"); if(!tabsEl) return; tabsEl.innerHTML="";
+  tabsEl.style.display = rooms.size>1 ? "flex" : "none";   // only show the switcher with multiple open chats
   rooms.forEach(R=>{
     const chip=document.createElement("div"); chip.className="tab"+(R.code===active?" active":"");
-    const nm=document.createElement("span"); nm.className="tname"; nm.textContent=R.title?R.title:("#"+R.code); chip.appendChild(nm);
+    const nm=document.createElement("span"); nm.className="tname"; nm.textContent=R.title?dn(R.title):("#"+R.code); chip.appendChild(nm);
     if(R.unread){ const b=document.createElement("span"); b.className="badge"; b.textContent=R.unread>9?"9+":R.unread; chip.appendChild(b); }
-    const x=document.createElement("button"); x.className="tx"; x.textContent="×"; x.title="Leave room"; x.setAttribute("aria-label","Leave room");
+    const x=document.createElement("button"); x.className="tx"; x.textContent="×"; x.title=t("Leave room"); x.setAttribute("aria-label",t("Leave room"));
     x.addEventListener("click",ev=>{ ev.stopPropagation(); leaveRoom(R.code); });
     chip.appendChild(x);
     chip.addEventListener("click",()=>switchTo(R.code));
-    t.appendChild(chip);
+    tabsEl.appendChild(chip);
   });
-  const add=document.createElement("button"); add.className="tabadd"; add.textContent="+"; add.title="New room"; add.setAttribute("aria-label","New room");
+  const add=document.createElement("button"); add.className="tabadd"; add.textContent="+"; add.title=t("New room"); add.setAttribute("aria-label",t("New room"));
   add.addEventListener("click",showAddRoom);
-  t.appendChild(add);
+  tabsEl.appendChild(add);
 }
 function showAddRoom(){ closeSidebar(); showAuth("newchat"); }
 
@@ -1196,7 +1224,7 @@ async function sha256b64(bytes){ return b64(await crypto.subtle.digest("SHA-256"
 async function pbkdf2bits(pw,saltBytes){ const base=await crypto.subtle.importKey("raw",enc.encode(pw),"PBKDF2",false,["deriveBits"]);
   return new Uint8Array(await crypto.subtle.deriveBits({name:"PBKDF2",salt:saltBytes,iterations:200000,hash:"SHA-256"},base,256)); }
 function authMsg(t,ok){ const m=$("authMsg"); if(m){ m.textContent=t||""; m.classList.toggle("ok",!!ok); } }
-const RL_MSG="Too many attempts — please wait a few minutes and try again";
+const RL_MSG_EN="Too many attempts — please wait a few minutes and try again"; const RL_MSG={ toString(){ return t(RL_MSG_EN); } };
 function isRateLimited(r){ return !!(r && r.error && r.error.context && r.error.context.status===429); }
 function authBusy(on){ const b=$("joinBtn"); if(b){ b.disabled=on; b.style.opacity=on?".6":"1"; } }
 function clearAuthInputs(){ ["pwInput","pw2Input"].forEach(id=>{ if($(id)) $(id).value=""; }); }
@@ -1327,23 +1355,24 @@ function clearPreviews(){ for(const k in _prev) delete _prev[k]; }
 async function checkUsername(){
   const u=$("userInput").value.trim().toLowerCase(), h=$("userHint"); if(!h) return;
   if(!u){ h.textContent=""; h.className=""; return; }
-  if(!USERRE.test(u)){ h.textContent="3–20 chars · a–z 0–9 . _"; h.className="bad"; return; }
-  h.textContent="checking…"; h.className="";
-  try{ const {data}=await authFn("check",{username:u}); if(data&&data.available){ h.textContent="available ✓"; h.className="ok"; } else { h.textContent="already taken"; h.className="bad"; } }
+  if(!USERRE.test(u)){ h.textContent=t("3–20 chars · a–z 0–9 . _"); h.className="bad"; return; }
+  h.textContent=t("checking…"); h.className="";
+  try{ const {data}=await authFn("check",{username:u}); if(data&&data.available){ h.textContent=t("available ✓"); h.className="ok"; } else { h.textContent=t("already taken"); h.className="bad"; } }
   catch(e){ h.textContent=""; h.className=""; }
 }
 async function doRegister(){
   initAudio(); const raw=$("userInput").value.trim(), u=raw.toLowerCase(), pw=$("pwInput").value, pw2=$("pw2Input").value;
-  if(!USERRE.test(u)){ authMsg("Username: 3–20 chars (a–z, 0–9, . or _)"); return; }
-  if(pw.length<8){ authMsg("Password must be at least 8 characters"); return; }
-  if(pw!==pw2){ authMsg("Passwords don't match"); return; }
+  const disp=(($("dispInput")&&$("dispInput").value.trim())||raw).slice(0,24);
+  if(!USERRE.test(u)){ authMsg(t("Username: 3–20 chars (a–z, 0–9, . or _)")); return; }
+  if(pw.length<8){ authMsg(t("Password must be at least 8 characters")); return; }
+  if(pw!==pw2){ authMsg(t("Passwords don't match")); return; }
   authBusy(true); authMsg("");
   try{
     const saltB=crypto.getRandomValues(new Uint8Array(16)), salt=b64(saltB);
     const AK=await pbkdf2bits(pw,saltB), av=await sha256b64(AK), verifier=await sha256b64(unb64(av));
-    const rr=await authFn("register",{username:u,display:raw,salt,verifier}); const data=rr.data;
-    if(isRateLimited(rr)){ authMsg(RL_MSG); authBusy(false); return; }
-    if(!data||!data.ok){ const st=rr.error&&rr.error.context&&rr.error.context.status; authMsg(st===409||(data&&data.error==="taken")?"That username is already taken":"Couldn't create account — try again"); authBusy(false); return; }
+    const rr=await authFn("register",{username:u,display:disp,salt,verifier}); const data=rr.data;
+    if(isRateLimited(rr)){ authMsg(String(RL_MSG)); authBusy(false); return; }
+    if(!data||!data.ok){ const st=rr.error&&rr.error.context&&rr.error.context.status; authMsg(st===409||(data&&data.error==="taken")?t("That username is already taken"):t("Couldn't create account — try again")); authBusy(false); return; }
     sessSave({token:data.token,username:data.username,display:data.display}); myName=data.display;
     vaultOwnerCheck(data.username);
     // Private by default for a brand-new account on this device: messages disappear after 24h and the app
@@ -1351,55 +1380,55 @@ async function doRegister(){
     try{ if(localStorage.getItem(EXP_G)===null) localStorage.setItem(EXP_G,"86400000");
          if(localStorage.getItem(LS_AUTOLOCK)===null) localStorage.setItem(LS_AUTOLOCK,"900000"); }catch(e){}
     const mk=await setupPin(pw);
-    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){ setTimeout(()=>toast(bioLabel()+" isn't available in this browser — you'll unlock with your password"),600); } }
+    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){ setTimeout(()=>toast(t("{bio} isn't available in this browser — you'll unlock with your password",{bio:bioLabel()})),600); } }
     gHistKey=await histKeyFromMK(mk); await localLoad();
     clearAuthInputs(); enterApp(); applyDeepLink();
     recoverABK(AK).then(ok=>{ if(ok) syncPull(); }).catch(()=>{});
-  }catch(e){ authMsg("Network error — try again"); }
+  }catch(e){ authMsg(t("Network error — try again")); }
   authBusy(false);
 }
 async function doLoginAccount(){
   initAudio(); const u=$("userInput").value.trim().toLowerCase(), pw=$("pwInput").value;
-  if(!u||!pw){ authMsg("Enter your username and password"); return; }
+  if(!u||!pw){ authMsg(t("Enter your username and password")); return; }
   authBusy(true); authMsg("");
   try{
     const s=await authFn("salt",{username:u});
-    if(isRateLimited(s)){ authMsg(RL_MSG); authBusy(false); return; }
-    if(!s.data||!s.data.salt){ authMsg("Network error — try again"); authBusy(false); return; }
+    if(isRateLimited(s)){ authMsg(String(RL_MSG)); authBusy(false); return; }
+    if(!s.data||!s.data.salt){ authMsg(t("Network error — try again")); authBusy(false); return; }
     const AK=await pbkdf2bits(pw,unb64(s.data.salt)), av=await sha256b64(AK);
     const lr=await authFn("login",{username:u,av}); const data=lr.data;
-    if(isRateLimited(lr)){ authMsg(RL_MSG); authBusy(false); return; }
-    if(!data||!data.ok){ authMsg("Wrong username or password"); authBusy(false); return; }
+    if(isRateLimited(lr)){ authMsg(String(RL_MSG)); authBusy(false); return; }
+    if(!data||!data.ok){ authMsg(t("Wrong username or password")); authBusy(false); return; }
     sessSave({token:data.token,username:data.username,display:data.display}); myName=data.display;
     vaultOwnerCheck(data.username);
     let mk; try{ mk= pinSet()? await unlockPin(pw) : await setupPin(pw); }catch(e){ mk=await setupPin(pw); }
-    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){ setTimeout(()=>toast(bioLabel()+" isn't available in this browser — you'll unlock with your password"),600); } }
+    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){ setTimeout(()=>toast(t("{bio} isn't available in this browser — you'll unlock with your password",{bio:bioLabel()})),600); } }
     gHistKey=await histKeyFromMK(mk); await localLoad();
     clearAuthInputs(); enterApp(); applyDeepLink();
     recoverABK(AK).then(ok=>{ if(ok) syncPull(); }).catch(()=>{});
-  }catch(e){ authMsg("Network error — try again"); }
+  }catch(e){ authMsg(t("Network error — try again")); }
   authBusy(false);
 }
 async function doUnlockPw(){
-  initAudio(); const pw=$("pwInput").value; if(!pw){ authMsg("Enter your password"); return; }
+  initAudio(); const pw=$("pwInput").value; if(!pw){ authMsg(t("Enter your password")); return; }
   authBusy(true); authMsg("");
   try{ const mk=await unlockPin(pw); gHistKey=await histKeyFromMK(mk); await localLoad(); const s=sessLoad(); myName=(s&&s.display)||myName; clearAuthInputs(); enterApp(); applyDeepLink();
     recoverABKWithPassword(pw).then(ok=>{ if(ok) syncPull(); }).catch(()=>{}); }
-  catch(e){ authMsg("Wrong password"); }
+  catch(e){ authMsg(t("Wrong password")); }
   authBusy(false);
 }
 async function doUnlockBio(){
   initAudio(); authMsg("");
   try{ const mk=await bioUnlock(); gHistKey=await histKeyFromMK(mk); await localLoad(); const s=sessLoad(); myName=(s&&s.display)||myName; clearAuthInputs(); enterApp(); applyDeepLink();
     recoverABK(null).then(ok=>{ if(ok) syncPull(); }).catch(()=>{}); }
-  catch(e){ authMsg(bioLabel()+" didn't work — use your password"); }
+  catch(e){ authMsg(t("{bio} didn't work — use your password",{bio:bioLabel()})); }
 }
 async function logoutAccount(){
   const s=sessLoad();
   let flushed=false;
   try{ clearTimeout(_syncT); if(gContactsKey) flushed=await pushBlob(); }catch(e){}   // flush pending changes before the token dies
   if(!flushed && (contactsLoad().length||groupsLoad().length) &&
-     !confirm("Your contacts couldn't be backed up to your account just now (offline?).\n\nIf you log out, the contacts on this device that aren't backed up yet will be lost. Log out anyway?")) return false;
+     !confirm(t("Your contacts couldn't be backed up to your account just now (offline?).\n\nIf you log out, the contacts on this device that aren't backed up yet will be lost. Log out anyway?"))) return false;
   // This device's push subscriptions belong to the outgoing account — drop them so its contacts can't wake the next user.
   try{ if(pushOn() && gPushSub) await fn("unregister",{owner:deviceId()}); }catch(e){}
   if(s&&s.token){ try{ await authFn("logout",{token:s.token}); }catch(e){} }
@@ -1441,10 +1470,10 @@ function lockApp(){
 async function createGroupFromInput(){ initAudio(); await createGroup($("gnameInput").value.trim()); if($("gnameInput")) $("gnameInput").value=""; }
 async function joinFromInviteInput(){ initAudio(); const raw=$("invInput").value;
   const pi=parseInviteLink(raw);
-  if(pi){ try{ $("invInput").value=""; hideJoin(); await acceptInvite(pi); }catch(e){ authMsg("Couldn't open that invite — try again"); } return; }
+  if(pi){ try{ $("invInput").value=""; hideJoin(); await acceptInvite(pi); }catch(e){ authMsg(t("Couldn't open that invite — try again")); } return; }
   const inv=parseInvite(raw);
-  if(!inv){ authMsg("That link doesn't look like a Gizleme invite"); return; }
-  try{ $("invInput").value=""; await doJoinGroup(inv.rid, unb64(inv.gk), inv.name); }catch(e){ authMsg("Couldn't join — try again"); } }
+  if(!inv){ authMsg(t("That link doesn't look like a Gizleme invite")); return; }
+  try{ $("invInput").value=""; await doJoinGroup(inv.rid, unb64(inv.gk), inv.name); }catch(e){ authMsg(t("Couldn't join — try again")); } }
 async function join(){ const m=($("join").dataset.mode)||"register";
   if(m==="register") return doRegister();
   if(m==="login") return doLoginAccount();
@@ -1459,7 +1488,7 @@ async function rekey(){
   R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); R.rootFp=""; await ensureTag(R);
   await R.channel.track(presencePayload(R));
   if(R.peer) await establish(R,R.peer,R.authOk);
-  sysline(R.logEl,"↻ new keys — channel re-secured"); toast("New keys generated");
+  sysline(R.logEl,t("↻ new keys — channel re-secured")); toast(t("New keys generated"));
 }
 
 // Re-wrap the existing device master key under a new password (history and the cached account key stay readable).
@@ -1471,14 +1500,14 @@ async function rewrapPin(newPw, mk){
 async function avFor(pw){ const u=(sessLoad()||{}).username; const s=await authFn("salt",{username:u}); if(!s.data||!s.data.salt) throw new Error("net");
   const AK=await pbkdf2bits(pw,unb64(s.data.salt)); return {AK, av:await sha256b64(AK)}; }
 async function changePassword(cur, nw){
-  const s=sessLoad(); if(!s||!s.token) throw new Error("Not logged in");
-  let mk; try{ mk=await unlockPin(cur); }catch(e){ throw new Error("Current password is wrong"); }
+  const s=sessLoad(); if(!s||!s.token) throw new Error(t("Not logged in"));
+  let mk; try{ mk=await unlockPin(cur); }catch(e){ throw new Error(t("Current password is wrong")); }
   const {AK:AKold, av:avOld}=await avFor(cur);
-  if(!gABK){ const ok=await recoverABK(AKold); if(!ok) throw new Error("Couldn't reach your account backup — try again when online"); }
+  if(!gABK){ const ok=await recoverABK(AKold); if(!ok) throw new Error(t("Couldn't reach your account backup — try again when online")); }
   const saltB=crypto.getRandomValues(new Uint8Array(16)), AKnew=await pbkdf2bits(nw,saltB), avNew=await sha256b64(AKnew), verifier=await sha256b64(unb64(avNew));
   const r=await authFn("changepw",{token:s.token, av:avOld, salt:b64(saltB), verifier});
-  if(isRateLimited(r)) throw new Error(RL_MSG);
-  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?"Current password is wrong":"Couldn't change the password — try again"); }
+  if(isRateLimited(r)) throw new Error(String(RL_MSG));
+  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?t("Current password is wrong"):t("Couldn't change the password — try again")); }
   // the server now expects the new password: re-wrap the account backup key under it, and the local master key too
   const wrapKey=await abkWrapKeyFromAK(AKnew); const iv=crypto.getRandomValues(new Uint8Array(12));
   const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},wrapKey,gABK);
@@ -1486,11 +1515,11 @@ async function changePassword(cur, nw){
   await rewrapPin(nw, mk);
 }
 async function deleteAccount(pw){
-  const s=sessLoad(); if(!s||!s.token) throw new Error("Not logged in");
+  const s=sessLoad(); if(!s||!s.token) throw new Error(t("Not logged in"));
   const {av}=await avFor(pw);
   const r=await authFn("delete",{token:s.token, av, owners:[deviceId()], acct:_acct||undefined});
-  if(isRateLimited(r)) throw new Error(RL_MSG);
-  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?"Wrong password":"Couldn't delete the account — try again"); }
+  if(isRateLimited(r)) throw new Error(String(RL_MSG));
+  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?t("Wrong password"):t("Couldn't delete the account — try again")); }
   try{ if(gPushSub){ await gPushSub.unsubscribe(); } }catch(e){}
   try{ localStorage.setItem(LS_PUSH,"0"); }catch(e){}
   sessClear(); gHistKey=null; vaultClear(); localWipe();
@@ -1499,7 +1528,7 @@ async function deleteAccount(pw){
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
   rooms.clear(); active=null; renderContacts();
 }
-const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your account. Saved message history on this device will be erased.";
+const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your account. Saved message history on this device will be erased."; const LOGOUT_MSG={ toString(){ return t(LOGOUT_MSG_EN); } };
 // ---------- wire-up ----------
 (function init(){
   const params=new URLSearchParams(location.search);
@@ -1517,12 +1546,12 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
   $("bioBtn").addEventListener("click",doUnlockBio);
   $("switchLink").addEventListener("click",()=>{ const m=$("join").dataset.mode;
     if(m==="register") showAuth("login"); else if(m==="login") showAuth("register");
-    else if(m==="unlock"){ if(confirm(LOGOUT_MSG)) logoutAccount(); } });
+    else if(m==="unlock"){ if(confirm(String(LOGOUT_MSG))) logoutAccount(); } });
   $("backBtn").addEventListener("click",()=>{ enterApp(); if(active) switchTo(active); else goHome(); });
   $("homeNew").addEventListener("click",showAddRoom);
 
   $("genRoom").addEventListener("click",()=>$("roomInput").value=roomCode());
-  $("genInvite").addEventListener("click",()=>{ newPendingInvite(); toast("New link"); });
+  $("genInvite").addEventListener("click",()=>{ newPendingInvite(); toast(t("New link")); });
   $("invLinkOut").addEventListener("focus",e=>{ try{ e.target.select(); }catch(x){} });
   $("advRoom").addEventListener("click",()=>{ $("join").dataset.adv="1"; ncSet("direct"); });
   $("joinBtn").addEventListener("click",join);
@@ -1534,14 +1563,20 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
   $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
-  $("msgInput").addEventListener("keydown",e=>{ if(e.key==="Enter") sendText(); });
+  // Enter sends (the mobile keyboard shows "send" via enterkeyhint); Shift+Enter makes a new line. The box grows up to ~5 lines.
+  $("msgInput").addEventListener("keydown",e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendText(); } });
+  const growBox=()=>{ const el=$("msgInput"); el.style.height="auto"; el.style.height=Math.min(120, el.scrollHeight)+"px"; };
+  $("msgInput").addEventListener("input",growBox);
   $("attachBtn").addEventListener("click",()=>$("fileInput").click());
   $("fileInput").addEventListener("change",e=>{ const f=e.target.files[0]; e.target.value=""; if(f) sendImage(f); });
   // ----- theme + sound (surfaced in Settings) -----
   function currentDark(){ const c=document.documentElement.getAttribute("data-theme"); return c?c==="dark":matchMedia("(prefers-color-scheme:dark)").matches; }
-  function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?"Dark":"Light"; if($("themeToggle")) $("themeToggle").textContent=d?"Light ☀":"Dark ☾"; }
+  function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")) $("themeToggle").textContent=d?t("Light ☀"):t("Dark ☾"); }
   function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); }
-  function refreshSoundUI(){ if($("soundState")) $("soundState").textContent=soundOn?"On":"Off"; const b=$("soundToggle"); if(b){ b.textContent=soundOn?"On":"Off"; b.classList.toggle("off",!soundOn); } }
+  function refreshSoundUI(){ if($("soundState")) $("soundState").textContent=soundOn?t("On"):t("Off"); const b=$("soundToggle"); if(b){ b.textContent=soundOn?t("On"):t("Off"); b.classList.toggle("off",!soundOn); } }
+  function refreshLangUI(){ if($("langState")) $("langState").textContent=LANG==="fr"?"Français":"English"; if($("langToggle")) $("langToggle").textContent=LANG==="fr"?"English":"Français"; }
+  $("langToggle").addEventListener("click",()=>{ setLang(LANG==="fr"?"en":"fr"); });
+  _refreshSettingsUI=()=>{ refreshThemeUI(); refreshSoundUI(); refreshLangUI(); refreshPrevUI(); updateNotifyUI(); };
   function toggleSound(){ soundOn=!soundOn; try{ localStorage.setItem("vesper-sound",soundOn?"on":"off"); }catch(e){} if(soundOn){ initAudio(); soundRecv(); } refreshSoundUI(); }
   $("themeToggle").addEventListener("click",toggleTheme);
   $("soundToggle").addEventListener("click",toggleSound);
@@ -1552,48 +1587,53 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
     const hasRoom=!!active;
     $("expRoomRow").style.display=hasRoom?"flex":"none";
     if(hasRoom){ const m=expRoomsMap(), k=histKeyOf(A()); $("expRoom").value=Object.prototype.hasOwnProperty.call(m,k)?String(m[k]===null?0:m[k]):""; }
-    refreshThemeUI(); refreshSoundUI(); updateNotifyUI();
+    refreshThemeUI(); refreshSoundUI(); refreshLangUI(); updateNotifyUI();
     if($("autoLock")) $("autoLock").value=String(autoLockMs());
     refreshPrevUI();
     const s=sessLoad(); if($("acctUser")) $("acctUser").textContent=(s&&(s.display||s.username))||"—";
+    if($("dispNow")) $("dispNow").textContent=(s&&s.display)||"—";
     $("settingsModal").classList.add("show");
   }
-  $("logoutBtn").addEventListener("click",()=>{ if(!confirm(LOGOUT_MSG)) return; $("settingsModal").classList.remove("show"); logoutAccount(); });
+  $("logoutBtn").addEventListener("click",()=>{ if(!confirm(String(LOGOUT_MSG))) return; $("settingsModal").classList.remove("show"); logoutAccount(); });
   // forgot / change / delete password & account
   const openModal=id=>$(id).classList.add("show"), closeModal=id=>$(id).classList.remove("show");
   $("forgotLink").addEventListener("click",()=>openModal("forgotModal"));
   $("forgotClose").addEventListener("click",()=>closeModal("forgotModal"));
-  $("forgotNew").addEventListener("click",()=>{ closeModal("forgotModal"); if($("join").dataset.mode==="unlock"){ if(confirm(LOGOUT_MSG)) logoutAccount().then(()=>showAuth("register")); } else showAuth("register"); });
+  $("forgotNew").addEventListener("click",()=>{ closeModal("forgotModal"); if($("join").dataset.mode==="unlock"){ if(confirm(String(LOGOUT_MSG))) logoutAccount().then(()=>showAuth("register")); } else showAuth("register"); });
   $("chpwBtn").addEventListener("click",()=>{ closeModal("settingsModal"); ["pwCur","pwNew","pwNew2"].forEach(i=>$(i).value=""); $("pwMsg").textContent=""; openModal("pwModal"); });
   $("pwCancel").addEventListener("click",()=>closeModal("pwModal"));
   $("pwSave").addEventListener("click",async()=>{
     const cur=$("pwCur").value, nw=$("pwNew").value, nw2=$("pwNew2").value; const m=$("pwMsg"); m.className="authmsg";
-    if(nw.length<8){ m.textContent="New password must be at least 8 characters"; return; }
-    if(nw!==nw2){ m.textContent="New passwords don't match"; return; }
-    $("pwSave").disabled=true; m.textContent="Changing…";
-    try{ await changePassword(cur,nw); m.textContent=""; closeModal("pwModal"); toast("Password changed — other devices must log in again"); }
-    catch(e){ m.textContent=(e&&e.message)||"Couldn't change the password"; }
+    if(nw.length<8){ m.textContent=t("New password must be at least 8 characters"); return; }
+    if(nw!==nw2){ m.textContent=t("New passwords don't match"); return; }
+    $("pwSave").disabled=true; m.textContent=t("Changing…");
+    try{ await changePassword(cur,nw); m.textContent=""; closeModal("pwModal"); toast(t("Password changed — other devices must log in again")); }
+    catch(e){ m.textContent=(e&&e.message)||t("Couldn't change the password"); }
     $("pwSave").disabled=false;
   });
   $("delAcctBtn").addEventListener("click",()=>{ closeModal("settingsModal"); $("delPw").value=""; $("delMsg").textContent=""; openModal("delModal"); });
   $("delCancel").addEventListener("click",()=>closeModal("delModal"));
   $("delConfirm").addEventListener("click",async()=>{
-    const pw=$("delPw").value; const m=$("delMsg"); if(!pw){ m.textContent="Enter your password"; return; }
-    if(!confirm("Delete your account now? This cannot be undone.")) return;
-    $("delConfirm").disabled=true; m.textContent="Deleting…";
-    try{ await deleteAccount(pw); closeModal("delModal"); showAuth("register"); toast("Your account has been deleted"); }
-    catch(e){ m.textContent=(e&&e.message)||"Couldn't delete the account"; }
+    const pw=$("delPw").value; const m=$("delMsg"); if(!pw){ m.textContent=t("Enter your password"); return; }
+    if(!confirm(t("Delete your account now? This cannot be undone."))) return;
+    $("delConfirm").disabled=true; m.textContent=t("Deleting…");
+    try{ await deleteAccount(pw); closeModal("delModal"); showAuth("register"); toast(t("Your account has been deleted")); }
+    catch(e){ m.textContent=(e&&e.message)||t("Couldn't delete the account"); }
     $("delConfirm").disabled=false;
   });
   ["forgotModal","pwModal","delModal"].forEach(id=>$(id).addEventListener("click",e=>{ if(e.target.id===id) closeModal(id); }));
   $("settingsClose").addEventListener("click",()=>$("settingsModal").classList.remove("show"));
   $("settingsModal").addEventListener("click",e=>{ if(e.target.id==="settingsModal") $("settingsModal").classList.remove("show"); });
   // ----- privacy & lock, and the "why Gizleme" comparison -----
-  $("autoLock").addEventListener("change",e=>{ setAutoLock(+e.target.value||0); toast(+e.target.value?"Auto-lock on":"Auto-lock off"); });
-  function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?"Hidden":"Shown"; if($("prevToggle")) $("prevToggle").textContent=h?"Show":"Hide";
-    const s=shieldOn(); if($("shieldState")) $("shieldState").textContent=s?"On":"Off"; if($("shieldToggle")){ $("shieldToggle").textContent=s?"On":"Off"; $("shieldToggle").classList.toggle("off",!s); } }
-  $("prevToggle").addEventListener("click",()=>{ const h=!previewsHidden(); setPreviewsHidden(h); refreshPrevUI(); toast(h?"Previews hidden":"Previews shown"); });
-  $("shieldToggle").addEventListener("click",()=>{ const s=!shieldOn(); setShieldOn(s); refreshPrevUI(); toast(s?"Privacy screen on":"Privacy screen off"); });
+  $("autoLock").addEventListener("change",e=>{ setAutoLock(+e.target.value||0); toast(+e.target.value?t("Auto-lock on"):t("Auto-lock off")); });
+  function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?t("Hidden"):t("Shown"); if($("prevToggle")) $("prevToggle").textContent=h?t("Show"):t("Hide");
+    const s=shieldOn(); if($("shieldState")) $("shieldState").textContent=s?t("On"):t("Off"); if($("shieldToggle")){ $("shieldToggle").textContent=s?t("On"):t("Off"); $("shieldToggle").classList.toggle("off",!s); } }
+  $("prevToggle").addEventListener("click",()=>{ const h=!previewsHidden(); setPreviewsHidden(h); refreshPrevUI(); toast(h?t("Previews hidden"):t("Previews shown")); });
+  $("shieldToggle").addEventListener("click",()=>{ const s=!shieldOn(); setShieldOn(s); refreshPrevUI(); toast(s?t("Privacy screen on"):t("Privacy screen off")); });
+  // display name (what friends see): free text, changed server-side and re-announced
+  $("dispEdit").addEventListener("click",async()=>{ const s=sessLoad(); if(!s||!s.token) return; const v=prompt(t("New display name:"), s.display||""); if(v===null) return; const nv=v.trim().slice(0,24); if(!nv) return;
+    try{ const r=await authFn("rename",{token:s.token, display:nv}); if(!r.data||!r.data.ok) throw new Error(); sessSave(Object.assign({},s,{display:nv})); myName=nv; retrackAll(); if($("acctUser")) $("acctUser").textContent=nv; if($("dispNow")) $("dispNow").textContent=nv; toast(t("Name updated")); }
+    catch(e){ toast(t("Couldn't update the name — try again")); } });
   // Cover the content the instant the page goes to the background (synchronously, so the app-switcher
   // snapshot is of the shield), uncover when it returns.
   document.addEventListener("visibilitychange",()=>{ if(document.hidden){ if(shieldOn()) showShield(true); } else showShield(false); });
@@ -1614,8 +1654,8 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
     const ms=autoLockMs(); if(ms && gHistKey && _hiddenAt && Date.now()-_hiddenAt>=ms) lockApp(); else if(gHistKey) armAutoLock();
     _hiddenAt=0;
   });
-  $("expGlobal").addEventListener("change",e=>{ setExpGlobal(+e.target.value||0); toast("Default updated"); });
-  $("expRoom").addEventListener("change",e=>{ const R=A(); if(R){ setExpRoom(histKeyOf(R),e.target.value); toast("Updated for this chat"); } });
+  $("expGlobal").addEventListener("change",e=>{ setExpGlobal(+e.target.value||0); toast(t("Default updated")); });
+  $("expRoom").addEventListener("change",e=>{ const R=A(); if(R){ setExpRoom(histKeyOf(R),e.target.value); toast(t("Updated for this chat")); } });
   setInterval(sweepEphemeral, 15000);
   // poll the encrypted mailbox for every open chat so offline-sent messages arrive (and count as unread) even without a push
   setInterval(()=>{ inboxPull(false); }, 20000);
@@ -1638,12 +1678,12 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
   function showInstall(on){ if($("installGroup")) $("installGroup").style.display=on?"block":"none"; }
   window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; if(!isStandalone) showInstall(true);
     if(installModalPending && !installPrompted()){ installModalPending=false; openInstallModal(); } });
-  window.addEventListener("appinstalled",()=>{ showInstall(false); deferredPrompt=null; closeInstallModal(); markInstallPrompted(); toast("Gizleme installed 🎉"); });
+  window.addEventListener("appinstalled",()=>{ showInstall(false); deferredPrompt=null; closeInstallModal(); markInstallPrompted(); toast(t("Gizleme installed 🎉")); });
   if(isIOS && !isStandalone) showInstall(true);
   $("installPill").addEventListener("click",async()=>{
     if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; showInstall(false); return; }
-    if(isIOS){ toast("Tap Share then “Add to Home Screen”"); return; }
-    toast("Open the browser menu → Install Gizleme");
+    if(isIOS){ toast(t("Tap Share then “Add to Home Screen”")); return; }
+    toast(t("Open the browser menu → Install Gizleme"));
   });
 
   // ----- one-time install invitation, after the first time you reach the app on this device -----
@@ -1656,13 +1696,13 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
     if(isStandalone || installPrompted()) return;
     const steps=$("installSteps"), body=$("installBody"), now=$("installNow"), sub=$("installSub");
     if(deferredPrompt){
-      sub.textContent="Add it to your device";
-      body.textContent="Open Gizleme straight from your home screen, full-screen, and get notified of new messages even when your browser is closed.";
+      sub.textContent=t("Add it to your device");
+      body.textContent=t("Open Gizleme straight from your home screen, full-screen, and get notified of new messages even when your browser is closed.");
       steps.style.display="none"; now.style.display="block";
     } else if(isIOS){
-      sub.textContent="Add it to your Home Screen";
-      body.textContent="Install Gizleme for a full-screen app and message notifications:";
-      steps.innerHTML="<li>Tap the <b>Share</b> icon in Safari’s toolbar</li><li>Scroll to <b>Add to Home Screen</b></li><li>Tap <b>Add</b></li>";
+      sub.textContent=t("Add it to your Home Screen");
+      body.textContent=t("Install Gizleme for a full-screen app and message notifications:");
+      steps.innerHTML=t("<li>Tap the <b>Share</b> icon in Safari’s toolbar</li><li>Scroll to <b>Add to Home Screen</b></li><li>Tap <b>Add</b></li>");
       steps.style.display="block"; now.style.display="none";
     } else { return; }     // no install path on this browser yet — try again next session
     markInstallPrompted();
@@ -1709,13 +1749,13 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
     const ua=navigator.userAgent||"", isAndroid=/Android/i.test(ua), iOS=/iPhone|iPad|iPod/i.test(ua);
     const hasGroupFrag=/^#(g|i|n|room)=/.test(location.hash||"");   // the secret / target rides in the fragment
     if(isAndroid && !hasGroupFrag){
-      $("iabHint").textContent="Gizleme works best in your browser or app.";
+      $("iabHint").textContent=t("Gizleme works best in your browser or app.");
       $("iabOpen").style.display="inline-block";
       $("iabOpen").onclick=()=>{ try{ location.href=iabIntentUrl(); }catch(e){} };
     } else {
       $("iabHint").textContent = iOS
-        ? "Open this link in Safari for the full app: tap the ⋯ menu, then “Open in Safari”."
-        : "Open this link in your browser for the full app: use this page’s ⋯ menu, then “Open in browser”.";
+        ? t("Open this link in Safari for the full app: tap the ⋯ menu, then “Open in Safari”.")
+        : t("Open this link in your browser for the full app: use this page’s ⋯ menu, then “Open in browser”.");
       $("iabOpen").style.display="none";
     }
     document.body.classList.add("has-iab"); bar.hidden=false;
@@ -1764,6 +1804,7 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
   else updateNotifyUI();
 
   // ----- boot: account-based, permanent login -----
+  applyI18n();
   const sess=sessLoad();
   if(sess && sess.username){
     myName=sess.display||sess.username;

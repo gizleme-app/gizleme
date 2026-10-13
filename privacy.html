@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>Gizleme — Confidentialité / Privacy</title>
+<meta name="description" content="Ce que Gizleme conserve, pendant combien de temps, et ce qu'il ne peut pas lire. / What Gizleme keeps, for how long, and what it cannot read."/>
+<link rel="icon" href="/icon-192.png"/>
+<style>
+  :root{--bg:#07070c;--fg:#e8e6f0;--muted:#b9b4cc;--accent:#a78bfa;--line:rgba(255,255,255,.1);--card:rgba(20,18,32,.74)}
+  *{box-sizing:border-box} html,body{margin:0;background:var(--bg);color:var(--fg);font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55}
+  main{max-width:760px;margin:0 auto;padding:28px 18px 60px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:10px} header img{width:40px;height:40px;border-radius:10px} header b{font-size:1.25rem}
+  nav{display:flex;gap:14px;font-size:.85rem;margin:6px 0 24px} nav a{color:var(--accent)}
+  h1{font-size:1.5rem;margin:28px 0 6px} h2{font-size:1.05rem;margin:22px 0 6px;color:#fff} p,li{color:var(--muted);font-size:.95rem} small{color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:.88rem;margin:8px 0 14px} th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top} th{color:#fff;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  .lang{display:none} .lang:target{display:block}
+  @media (prefers-color-scheme:light){ :root{--bg:#f3f4f6;--fg:#161a1f;--muted:#4b5563;--line:#e1e4ea;--card:#fff;--accent:#4338ca} h2{color:#161a1f} th{color:#161a1f} }
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+  <header><img src="/icon-192.png" alt=""/><b>Gizleme</b></header>
+  <nav><a href="#fr">Français</a><a href="#en">English</a><a href="/">← gizleme.com</a></nav>
+
+  <section id="fr" class="lang">
+    <h1>Confidentialité</h1>
+    <p>Gizleme est une messagerie chiffrée de bout en bout qui fonctionne dans le navigateur. Cette page décrit, sans détour, ce que nos serveurs conservent, pendant combien de temps, et ce qu'ils ne peuvent pas lire. Dernière mise à jour : octobre 2026.</p>
+
+    <div class="card">
+      <h2>Ce que le serveur ne peut jamais lire</h2>
+      <ul>
+        <li><b>Tes messages et tes photos.</b> Ils sont chiffrés sur ton appareil (AES-256-GCM, clés échangées par ECDH P-256) ; le relais ne transporte et ne stocke que du chiffré.</li>
+        <li><b>Ta liste de contacts.</b> Elle est stockée chiffrée sous une clé dérivée de ton mot de passe. Sans ton mot de passe, personne ne peut l'ouvrir — nous non plus. C'est aussi pourquoi il n'existe pas de « mot de passe oublié ».</li>
+        <li><b>Ton mot de passe.</b> Il ne quitte jamais ton appareil ; le serveur ne reçoit qu'un vérificateur dérivé (PBKDF2 200 000 itérations, puis SHA-256).</li>
+        <li><b>Qui est dans quelle conversation.</b> Les conversations sont identifiées par des valeurs dérivées de secrets partagés, et ton identifiant n'y est jamais attaché ; tes appareils se reconnaissent par un marqueur opaque.</li>
+      </ul>
+    </div>
+
+    <h2>Ce que le serveur conserve</h2>
+    <table>
+      <tr><th>Donnée</th><th>Contenu</th><th>Durée</th></tr>
+      <tr><td>Compte</td><td>Identifiant (en minuscules), nom affiché, sel aléatoire, vérificateur de mot de passe</td><td>Jusqu'à suppression du compte (Réglages → Compte)</td></tr>
+      <tr><td>Sessions</td><td>Empreinte (SHA-256) du jeton de session de chaque appareil connecté</td><td>1 an, ou jusqu'à déconnexion / changement de mot de passe</td></tr>
+      <tr><td>Sauvegarde du compte</td><td>Clé de sauvegarde chiffrée par ton mot de passe ; liste de contacts chiffrée par cette clé</td><td>Jusqu'à suppression du compte</td></tr>
+      <tr><td>Boîte aux lettres</td><td>Messages chiffrés en attente de livraison (identifiant de boîte dérivé d'un secret partagé, marqueur opaque de l'expéditeur, horodatage)</td><td>14 jours maximum</td></tr>
+      <tr><td>Photos</td><td>Blobs chiffrés sous nom aléatoire</td><td>Supprimées à la lecture, au plus tard après 14 jours</td></tr>
+      <tr><td>Notifications</td><td>Abonnement push de l'appareil (point de terminaison Apple/Google/Mozilla/Microsoft), clé de notification dérivée par contact, marqueur opaque du compte</td><td>Jusqu'à désactivation, déconnexion ou expiration par le service push</td></tr>
+      <tr><td>Anti-abus</td><td>Compteurs de requêtes par adresse IP et par compte</td><td>1 jour</td></tr>
+    </table>
+    <p>Les relais temps réel et les fonctions serveur sont hébergés chez Supabase ; le site est servi par Cloudflare. Comme tout service web, ces fournisseurs voient des métadonnées de connexion (adresse IP, horaires, volumes). Le contenu des notifications push ne contient jamais de message : seulement « Nouveau message de X » ou « X veut discuter ».</p>
+
+    <h2>Sur ton appareil</h2>
+    <p>L'historique des messages est stocké chiffré dans le navigateur (IndexedDB), sous une clé maîtresse protégée par ton mot de passe ou Face ID / empreinte. Les clés de contacts sont stockées chiffrées et retirées de la mémoire au verrouillage. La déconnexion et la suppression du compte effacent tout. Aucun traceur, aucun cookie, aucune analyse d'audience.</p>
+
+    <h2>Ce que Gizleme ne fait pas (encore)</h2>
+    <ul>
+      <li>Pas de confidentialité persistante pour les messages déposés en boîte aux lettres : ils sont chiffrés sous une clé stable par contact. Si cette clé fuit (lien d'invitation diffusé, appareil compromis), les messages encore en boîte (≤ 14 jours) peuvent être lus.</li>
+      <li>Un lien d'invitation est une clé : quiconque le possède peut écrire sous ce contact tant que tu ne l'as pas retiré.</li>
+      <li>Le code n'est pas encore open source ni audité par un tiers. Le tableau « Pourquoi Gizleme ? » dans l'application le dit aussi.</li>
+    </ul>
+    <p>Questions : <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>
+  </section>
+
+  <section id="en" class="lang">
+    <h1>Privacy</h1>
+    <p>Gizleme is end-to-end encrypted messaging that runs in the browser. This page says plainly what our servers keep, for how long, and what they cannot read. Last updated: October 2026.</p>
+
+    <div class="card">
+      <h2>What the server can never read</h2>
+      <ul>
+        <li><b>Your messages and photos.</b> They are encrypted on your device (AES-256-GCM, keys agreed with ECDH P-256); the relay only carries and stores ciphertext.</li>
+        <li><b>Your contact list.</b> It is stored encrypted under a key derived from your password. Without your password nobody can open it — including us. That is also why there is no "forgot password".</li>
+        <li><b>Your password.</b> It never leaves your device; the server only receives a derived verifier (PBKDF2 200,000 iterations, then SHA-256).</li>
+        <li><b>Who is in which conversation.</b> Conversations are identified by values derived from shared secrets and your username is never attached to them; your own devices recognise each other through an opaque marker.</li>
+      </ul>
+    </div>
+
+    <h2>What the server keeps</h2>
+    <table>
+      <tr><th>Data</th><th>Content</th><th>Retention</th></tr>
+      <tr><td>Account</td><td>Username (lowercase), display name, random salt, password verifier</td><td>Until you delete the account (Settings → Account)</td></tr>
+      <tr><td>Sessions</td><td>SHA-256 fingerprint of each logged-in device's session token</td><td>1 year, or until log-out / password change</td></tr>
+      <tr><td>Account backup</td><td>Backup key wrapped by your password; contact list encrypted under that key</td><td>Until you delete the account</td></tr>
+      <tr><td>Mailbox</td><td>Encrypted messages awaiting delivery (mailbox id derived from a shared secret, opaque sender marker, timestamp)</td><td>14 days at most</td></tr>
+      <tr><td>Photos</td><td>Encrypted blobs under random names</td><td>Deleted when viewed, at the latest after 14 days</td></tr>
+      <tr><td>Notifications</td><td>The device's push subscription (Apple/Google/Mozilla/Microsoft endpoint), a per-contact derived notification key, the account's opaque marker</td><td>Until turned off, logged out, or expired by the push service</td></tr>
+      <tr><td>Abuse control</td><td>Request counters per IP address and per account</td><td>1 day</td></tr>
+    </table>
+    <p>The realtime relay and server functions run on Supabase; the site is served by Cloudflare. Like any web service, these providers see connection metadata (IP address, timing, volume). Push notifications never carry message content: only "New message from X" or "X wants to chat".</p>
+
+    <h2>On your device</h2>
+    <p>Message history is stored encrypted in the browser (IndexedDB) under a master key protected by your password or Face ID / fingerprint. Contact keys are stored encrypted and dropped from memory when the app locks. Logging out or deleting the account erases everything. No trackers, no cookies, no analytics.</p>
+
+    <h2>What Gizleme does not do (yet)</h2>
+    <ul>
+      <li>No forward secrecy for messages left in the mailbox: they are encrypted under a stable per-contact key. If that key leaks (an invite link passed around, a compromised device), messages still in the mailbox (≤ 14 days) can be read.</li>
+      <li>An invite link is a key: whoever holds it can write to you as that contact until you remove the contact.</li>
+      <li>The code is not yet open source or independently audited. The "Why Gizleme?" table in the app says so too.</li>
+    </ul>
+    <p>Questions: <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>
+  </section>
+</main>
+<script src="/privacy.js"></script>
+</body>
+</html>

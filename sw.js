@@ -1,9 +1,9 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v4";
-const SHELL = ["/", "/index.html", "/app.js", "/vendor/supabase-2.45.4.js", "/manifest.webmanifest",
-               "/watermark.png", "/watermark-eyes.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
+const CACHE = "gizleme-v5";
+const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.45.4.js", "/manifest.webmanifest",
+               "/watermark.png", "/watermark-eyes.png", "/hero.jpg", "/og.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));
