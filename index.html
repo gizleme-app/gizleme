@@ -237,17 +237,23 @@
   .cmp td:first-child{color:var(--fg);font-weight:600;width:34%}
   .cmp td.y{color:#16a34a} .cmp td.n{color:var(--muted)} .cmp td.g{color:var(--accent);font-weight:600}
   .cmp .sub{display:block;font-weight:400;color:var(--muted);font-size:.7rem}
-  .sb-list{flex:1;overflow-y:auto;padding:4px 8px 12px;display:flex;flex-direction:column;gap:2px}
-  .ct{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;cursor:pointer;color:var(--fg);text-align:left}
+  .sb-list{flex:1;overflow-y:auto;padding:2px 6px 12px;display:flex;flex-direction:column;gap:1px}
+  /* conversation rows, WhatsApp/Signal style: avatar · name + time · last message + unread */
+  .ct{display:flex;align-items:center;gap:12px;padding:10px 10px;border-radius:12px;cursor:pointer;color:var(--fg);text-align:left}
   .ct:hover{background:var(--surface-2)}
-  .ct.active{background:color-mix(in srgb, var(--accent) 16%, transparent)}
+  .ct.active{background:color-mix(in srgb, var(--accent) 14%, transparent)}
   .ct.active .cn{color:var(--accent)}
-  .ct.active .cm{color:var(--accent)}
-  .ct .ava{width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}
-  .ct .ava.grp{background:linear-gradient(135deg,#7c3aed,#4338ca);font-size:1.05rem}
-  .ct .ci{min-width:0;flex:1}
-  .ct .cn{font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ct .cm{color:var(--muted);font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ct .ava{width:46px;height:46px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;flex:none}
+  .ct .ava.grp{background:linear-gradient(135deg,#7c3aed,#4338ca);font-size:1.25rem}
+  .ct .ci{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+  .ct .crow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+  .ct .cn{font-weight:600;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .ct .ctime{flex:none;font-size:.7rem;color:var(--muted)}
+  .ct .ctime.unread{color:var(--accent);font-weight:700}
+  .ct .cm{color:var(--muted);font-size:.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+  .ct .cm.unread{color:var(--fg);font-weight:600}
+  .ct .ubadge{flex:none;margin-left:0}
+  @media (max-width:720px){ .sb-list{padding:0 4px 80px} .ct{border-radius:0;padding:11px 12px;border-bottom:1px solid var(--line)} .ct:last-child{border-bottom:none} }
   .ct .cx{border:none;background:none;color:var(--muted);font-size:1rem;cursor:pointer;opacity:0;padding:0 2px}
   .ct:hover .cx{opacity:1}
   .ct .cx:hover{color:var(--bad)}
@@ -268,11 +274,12 @@
   .menu-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:none;border:none;color:var(--fg);font-size:.9rem;padding:11px 12px;border-radius:8px;cursor:pointer}
   .menu-item:hover{background:var(--surface-2)}
   .menu-item[hidden]{display:none}
-  .home{display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px;text-align:center}
-  .home .hlogo{width:72px;height:72px}
-  .home h2{color:var(--fg);font-size:1.15rem;margin:4px 0 0}
-  .home p{color:var(--muted);font-size:.86rem;max-width:300px;line-height:1.5;margin:0}
-  .home .btn{max-width:220px;margin-top:6px}
+  /* the "no chat open" placeholder inside .main — scoped to the element, NOT the .home state class on #app */
+  #home{display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px;text-align:center}
+  #home .hlogo{width:72px;height:72px}
+  #home h2{color:var(--fg);font-size:1.15rem;margin:4px 0 0}
+  #home p{color:var(--muted);font-size:.86rem;max-width:300px;line-height:1.5;margin:0}
+  #home .btn{max-width:220px;margin-top:6px}
   /* home mode: show the chats placeholder, hide the conversation chrome */
   #app.home .tabs,#app.home .logs,#app.home .wire,#app.home .composer{display:none}
   #app.home #home{display:flex}
@@ -713,11 +720,13 @@ function adoptNameFromMessage(R, n){
   if(R.code===active){ $("peerName").textContent=n; $("peerAvatar").textContent=R.avatar; } renderTabs();
 }
 function activeCK(){ const R=A(); return R&&R.fromContact||null; }
-function renderContacts(){
+function renderContacts(fromPreview){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
+  const lastTs=it=>Math.max(it.ts||0, (_prev[previewKeyOf(it)]||{}).ts||0);
   const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,ts:g.ts||0}))
     .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,name:c.name,v:c.v,ts:c.ts||0})))
-    .sort((a,b)=>(b.ts||0)-(a.ts||0));
+    .sort((a,b)=>lastTs(b)-lastTs(a));                 // most recent activity first, like any chats list
+  if(!fromPreview) refreshPreviews();
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
     const e=document.createElement("p"); e.style.margin="0 0 14px";
     if(gRestoring){ e.textContent="Restoring your chats…"; wrap.appendChild(e); el.appendChild(wrap); return; }
@@ -730,15 +739,24 @@ function renderContacts(){
     const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":"");
     const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":((it.name&&it.name[0]||"?").toUpperCase());
     const ci=document.createElement("div"); ci.className="ci";
+    // line 1: name (+ verified) ……… time of the last message
+    const r1=document.createElement("div"); r1.className="crow";
     const cn=document.createElement("div"); cn.className="cn"; cn.textContent=it.name||(it.t==="g"?"Group":"Contact");
     if(it.t==="c"&&it.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title="Verified"; cn.appendChild(vb); }
+    const pv=_prev[previewKeyOf(it)]||null;
+    const ct=document.createElement("span"); ct.className="ctime"; ct.textContent=pv?fmtListTime(pv.ts):"";
+    r1.appendChild(cn); r1.appendChild(ct);
+    // line 2: last message ……… unread count
+    const r2=document.createElement("div"); r2.className="crow";
     let openR=null; rooms.forEach(x=>{ if(it.t==="g" ? x.rid===it.rid : x.fromContact===it.ck) openR=x; });
     const unread=openR&&openR.unread||0;
-    if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=unread+" unread"; cn.appendChild(ub); }
     const cm=document.createElement("div"); cm.className="cm";
     const pendingInv = it.t==="c" && it.name===INV_PLACEHOLDER;
-    cm.textContent= it.id===activeId ? "● open here" : unread ? (unread+" new message"+(unread>1?"s":"")) : pendingInv ? "invite sent · waiting for them" : (it.t==="g"?"group · tap to open":"tap to reconnect");
-    ci.appendChild(cn); ci.appendChild(cm);
+    cm.textContent= pv ? pv.text : pendingInv ? "Invite sent · waiting for them to open it" : (it.t==="g" ? "Group · say hello" : "Tap to start chatting");
+    if(unread) cm.classList.add("unread");
+    r2.appendChild(cm);
+    if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=unread+" unread"; r2.appendChild(ub); ct.classList.add("unread"); }
+    ci.appendChild(r1); ci.appendChild(r2);
     const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?"Leave group":"Remove contact"; x.setAttribute("aria-label",x.title);
     x.addEventListener("click",ev=>{ ev.stopPropagation(); if(it.t==="g") groupRemove(it.rid); else contactRemove(it.ck); });
     row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
@@ -1064,12 +1082,52 @@ async function histSave(room, rec){ // rec = {dir, env, ts}
     const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify(rec)));
     const db=await idb(); const tx=db.transaction("msgs","readwrite");
     tx.objectStore("msgs").add({room,iv,ct,ts:rec.ts||Date.now()});
+    tx.oncomplete=()=>refreshPreviews();          // the chats list shows the latest message
   }catch(e){}
 }
 function histSweep(room, cutoff){ // delete saved records older than cutoff (ms epoch)
   try{ idb().then(db=>{ const tx=db.transaction("msgs","readwrite"); const idx=tx.objectStore("msgs").index("room");
     const rq=idx.openCursor(IDBKeyRange.only(room)); rq.onsuccess=e=>{ const c=e.target.result; if(!c) return;
       if((c.value.ts||0) && c.value.ts<=cutoff) c.delete(); c.continue(); }; }); }catch(e){}
+}
+// Last saved message of a chat (one reverse cursor step + one decrypt) — for the conversation list preview.
+async function histLast(room){
+  if(!gHistKey||!room) return null;
+  try{ const db=await idb();
+    const rec=await new Promise((res,rej)=>{ const idx=db.transaction("msgs").objectStore("msgs").index("room");
+      const rq=idx.openCursor(IDBKeyRange.only(room),"prev"); rq.onsuccess=e=>{ const c=e.target.result; res(c?c.value:null); }; rq.onerror=()=>rej(rq.error); });
+    if(!rec) return null;
+    const r=JSON.parse(dec.decode(await aesDec(gHistKey,rec.iv,rec.ct))); r.ts=r.ts||rec.ts||0; return r;
+  }catch(e){ return null; }
+}
+// Preview cache for the chats list: key -> {text, ts, dir}. Refreshed in the background after each render.
+const _prev={}; let _prevT=null;
+function previewKeyOf(it){ return it.t==="g" ? it.rid : "c:"+it.ck; }
+function previewText(r, isGroup){
+  if(!r) return "";
+  const body = r.env && r.env.t==="img" ? "📷 Photo" : (r.env && r.env.body) || "";
+  if(r.dir==="sent") return "You: "+body;
+  return (isGroup && r.who ? r.who+": " : "") + body;
+}
+function fmtListTime(ts){
+  if(!ts) return ""; const d=new Date(ts), now=new Date();
+  const sameDay=d.toDateString()===now.toDateString();
+  if(sameDay) return d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return "Yesterday";
+  if(now-d < 6*86400e3) return d.toLocaleDateString([], {weekday:"short"});
+  return d.toLocaleDateString([], {day:"2-digit", month:"2-digit", year:"2-digit"});
+}
+function refreshPreviews(){           // debounced; re-renders the list only if a preview changed
+  clearTimeout(_prevT); _prevT=setTimeout(async()=>{
+    if(!gHistKey) return;
+    const items=groupsLoad().map(g=>({t:"g",rid:g.rid})).concat(contactsLoad().map(c=>({t:"c",ck:c.ck})));
+    let changed=false;
+    for(const it of items){ const k=previewKeyOf(it); const r=await histLast(k);
+      const dur=expFor(k); if(r && dur && (r.ts||0)<=Date.now()-dur){ if(_prev[k]){ delete _prev[k]; changed=true; } continue; }   // expired: no preview
+      const nx=r?{text:previewText(r,it.t==="g"),ts:r.ts||0,dir:r.dir}:null; const old=_prev[k];
+      if((nx&&!old)||(!nx&&old)||(nx&&old&&(nx.text!==old.text||nx.ts!==old.ts))){ if(nx) _prev[k]=nx; else delete _prev[k]; changed=true; } }
+    if(changed) renderContacts(true);
+  }, 120);
 }
 async function histLoad(room){
   if(!gHistKey) return [];
@@ -1705,7 +1763,8 @@ async function syncPull(){ if(!gContactsKey) return; try{
   }catch(e){ gRestoring=false; renderContacts(); } }
 let _syncT=null;
 function syncPushSoon(){ if(!gContactsKey) return; clearTimeout(_syncT); _syncT=setTimeout(()=>{ pushBlob().catch(()=>{}); }, 1500); }
-function vaultClear(){ gEpoch++; gABK=null; gContactsKey=null; gVaultCver=0; gRestoring=false; _pendingNotify=null; abkCacheClear(); }
+function vaultClear(){ gEpoch++; gABK=null; gContactsKey=null; gVaultCver=0; gRestoring=false; _pendingNotify=null; abkCacheClear(); clearPreviews(); }
+function clearPreviews(){ for(const k in _prev) delete _prev[k]; }
 
 async function checkUsername(){
   const u=$("userInput").value.trim().toLowerCase(), h=$("userHint"); if(!h) return;
@@ -1804,7 +1863,7 @@ function lockApp(){
   clearTimeout(_lockT); clearTimeout(_syncT);
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
   rooms.clear(); active=null;
-  gHistKey=null; gEpoch++; gABK=null; gContactsKey=null; gRestoring=false;   // keys leave memory; the cached ABK stays for a quick unlock
+  gHistKey=null; gEpoch++; gABK=null; gContactsKey=null; gRestoring=false; clearPreviews();   // keys leave memory; the cached ABK stays for a quick unlock
   try{ $("wireCt").textContent="—"; $("msgInput").value=""; const m=$("barMenu"); if(m) m.hidden=true; }catch(e){}
   ["settingsModal","verifyModal","whyModal","installModal"].forEach(id=>{ const m=$(id); if(m) m.classList.remove("show"); });
   showAuth("unlock");
