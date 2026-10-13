@@ -180,6 +180,9 @@
   #iabBar #iabOpen{flex:none;background:#fff;color:var(--accent);border:none;border-radius:999px;padding:6px 14px;font-weight:700;font-size:.82rem;cursor:pointer}
   #iabBar #iabClose{flex:none;background:transparent;border:none;color:#fff;font-size:1.1rem;line-height:1;padding:4px 6px;cursor:pointer;opacity:.85}
   body.has-iab #app, body.has-iab #join{padding-top:58px}
+  #privacyShield{position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-weight:700;letter-spacing:.04em}
+  #privacyShield[hidden]{display:none}
+  #privacyShield img{width:72px;height:72px;opacity:.9}
 
   /* pin unlock modal */
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;padding:20px;z-index:30}
@@ -462,6 +465,9 @@
       <div class="set-row"><span>Message previews in the chats list <span class="lbl-sub" id="prevState">Shown</span></span>
         <button class="pill off" id="prevToggle" type="button">Hide</button>
       </div>
+      <div class="set-row"><span>Privacy screen <span class="lbl-sub" id="shieldState">On</span><br><span class="lbl-sub">Hides the chat the moment you switch apps (app switcher, a glance). Screenshots can't be blocked by any web app — or by any app on iPhone.</span></span>
+        <button class="pill" id="shieldToggle" type="button">On</button>
+      </div>
       <div class="set-row"><span>Lock now</span><button class="pill off" id="lockNowBtn" type="button">🔒 Lock</button></div>
       <div class="set-row"><span>Why Gizleme?</span><button class="pill off" id="whyBtn" type="button">Compare</button></div>
     </div>
@@ -552,6 +558,10 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Privacy screen: covers the content the instant the app goes to the background, so the OS app-switcher
+     thumbnail and a glance at the phone show nothing. (No web API can block or detect screenshots.) -->
+<div id="privacyShield" hidden aria-hidden="true"><img src="/watermark.png" alt=""/><div>Gizleme</div></div>
 
 <!-- Why Gizleme: the honest comparison (reachable from the landing and from Settings) -->
 <div class="modal" id="whyModal">
@@ -1860,7 +1870,10 @@ async function logoutAccount(){
   showAuth("login");
 }
 // ---------- lock: stays signed in, but wipes keys and open chats from memory until Face ID / password ----------
-const LS_AUTOLOCK="gz-autolock", LS_HIDEPREV="gz-hideprev";
+const LS_AUTOLOCK="gz-autolock", LS_HIDEPREV="gz-hideprev", LS_SHIELD="gz-shield";
+function shieldOn(){ try{ const v=localStorage.getItem(LS_SHIELD); return v===null ? true : v==="1"; }catch(e){ return true; } }   // on by default
+function setShieldOn(on){ try{ localStorage.setItem(LS_SHIELD,on?"1":"0"); }catch(e){} if(!on) showShield(false); }
+function showShield(on){ const s=$("privacyShield"); if(s) s.hidden=!on; }
 function previewsHidden(){ try{ return localStorage.getItem(LS_HIDEPREV)==="1"; }catch(e){ return false; } }
 function setPreviewsHidden(on){ try{ localStorage.setItem(LS_HIDEPREV,on?"1":"0"); }catch(e){} renderContacts(); }
 function autoLockMs(){ try{ return +localStorage.getItem(LS_AUTOLOCK)||0; }catch(e){ return 0; } }
@@ -1962,8 +1975,15 @@ async function rekey(){
   $("settingsModal").addEventListener("click",e=>{ if(e.target.id==="settingsModal") $("settingsModal").classList.remove("show"); });
   // ----- privacy & lock, and the "why Gizleme" comparison -----
   $("autoLock").addEventListener("change",e=>{ setAutoLock(+e.target.value||0); toast(+e.target.value?"Auto-lock on":"Auto-lock off"); });
-  function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?"Hidden":"Shown"; if($("prevToggle")) $("prevToggle").textContent=h?"Show":"Hide"; }
+  function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?"Hidden":"Shown"; if($("prevToggle")) $("prevToggle").textContent=h?"Show":"Hide";
+    const s=shieldOn(); if($("shieldState")) $("shieldState").textContent=s?"On":"Off"; if($("shieldToggle")){ $("shieldToggle").textContent=s?"On":"Off"; $("shieldToggle").classList.toggle("off",!s); } }
   $("prevToggle").addEventListener("click",()=>{ const h=!previewsHidden(); setPreviewsHidden(h); refreshPrevUI(); toast(h?"Previews hidden":"Previews shown"); });
+  $("shieldToggle").addEventListener("click",()=>{ const s=!shieldOn(); setShieldOn(s); refreshPrevUI(); toast(s?"Privacy screen on":"Privacy screen off"); });
+  // Cover the content the instant the page goes to the background (synchronously, so the app-switcher
+  // snapshot is of the shield), uncover when it returns.
+  document.addEventListener("visibilitychange",()=>{ if(document.hidden){ if(shieldOn()) showShield(true); } else showShield(false); });
+  window.addEventListener("pagehide",()=>{ if(shieldOn()) showShield(true); });
+  window.addEventListener("pageshow",()=>showShield(false));
   $("lockNowBtn").addEventListener("click",()=>{ $("settingsModal").classList.remove("show"); lockApp(); });
   $("sbLock").addEventListener("click",lockApp);
   $("sbSettings").addEventListener("click",openSettings);
