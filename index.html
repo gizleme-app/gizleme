@@ -518,7 +518,8 @@
 <div class="modal" id="verifyModal">
   <div class="card">
     <div class="logo"><span class="lock" aria-hidden="true">🛡</span><div><h1 style="font-size:1.05rem">Verify <span id="verifyWho">this contact</span></h1><p>Confirm no one is in the middle</p></div></div>
-    <p class="set-note">Both of you open this screen. If the <b>safety code</b> and emoji below match on both devices, your connection is private end-to-end and you're talking to the same person as the first time. If they differ, stop — someone may be intercepting.</p>
+    <p class="set-note" id="verifyAuto"></p>
+    <p class="set-note"><b>In-person check (once):</b> both of you open this screen. If the <b>safety code</b> and emoji match on both devices, no one was in the middle when you first connected. If they differ, stop.</p>
     <div class="safety-emoji" id="safetyEmoji">· · · · ·</div>
     <div class="safety-code" id="safetyCode">————</div>
     <div class="verify-row">
@@ -620,7 +621,21 @@ let gRestoring = false;    // true while the first vault pull on an empty device
 let _pendingNotify = null; // a ?n= notification deep link that arrived before contacts were restored; retried after sync
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
-function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null }; }
+function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", tag:null, authOk:false, channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null, multiSig:"" }; }
+// ---------- automatic identity check at every connection ----------
+// Two contacts share a secret key (ck) from their first connection or invite link; the relay never has it.
+// Each side signs the day's public key with it. A pairing is accepted only if the other side's signature
+// verifies, so someone who merely reached the room (a relay, an intercepted room code) can't be paired with.
+async function authKeyFor(ckB64){ return crypto.subtle.importKey("raw", await hkdf(unb64(ckB64),"gz-auth/v1"), {name:"HMAC",hash:"SHA-256"}, false, ["sign","verify"]); }
+async function authTag(ckB64, pubB64){ return b64(await crypto.subtle.sign("HMAC", await authKeyFor(ckB64), unb64(pubB64))); }
+async function authVerify(ckB64, pubB64, tagB64){ try{ return await crypto.subtle.verify("HMAC", await authKeyFor(ckB64), unb64(tagB64), unb64(pubB64)); }catch(e){ return false; } }
+async function ensureTag(R){ try{ R.tag = (R.fromContact && R.pubB64) ? await authTag(R.fromContact, R.pubB64) : null; }catch(e){ R.tag=null; } }
+// "ok" | "bad" | "missing" | "n/a" (no shared key yet in this room: first-ever connection via a room code)
+async function verifyPeerTag(R, other){
+  if(!R.fromContact) return "n/a";
+  if(!other || !other.tag) return "missing";
+  return (await authVerify(R.fromContact, other.pub, other.tag)) ? "ok" : "bad";
+}
 function rid(){ return [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,"0")).join(""); }
 function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...crypto.getRandomValues(new Uint8Array(6))].map(b=>A[b%A.length]).join(""); }
 
@@ -883,6 +898,11 @@ async function openVerify(){
     $("verifyMark").style.display="none"; $("verifyModal").classList.add("show"); return;
   }
   $("verifyWho").textContent = R.title||R.peerName||"this contact";
+  const va=$("verifyAuto"); if(va){
+    va.innerHTML = R.authOk
+      ? "<b>Automatic check (every connection): ✓</b> this connection proved it holds the same shared key as when you first connected. Done each time you connect — nothing to do."
+      : (R.paired ? "<b>Automatic check:</b> first connection in this room — there was no shared key to check yet. From the next connection on, it's verified automatically."
+                  : "<b>Automatic check (every connection):</b> runs as soon as you're both online — anyone who can't prove they hold your shared key is refused."); }
   const c=contactFind(R.fromContact);
   if(c && c.inv && !c.sv){      // connected through a link but never live together yet: no key exchange to verify
     $("safetyEmoji").textContent="· · · · ·"; $("safetyCode").textContent="not yet";
@@ -1241,7 +1261,7 @@ function idleStatus(R){
   if(!R||!R.fromContact) return "waiting for peer…";
   if(isPendingInvite(contactFind(R.fromContact))) return "waiting for them to open your link — anything you write will be waiting for them";
   return "offline — messages will be delivered when they reconnect"; }
-async function establish(R, other){
+async function establish(R, other, authed){
   if(R.establishing) return; R.establishing=true;          // back-to-back presence syncs must not pair twice
   let peerKey, secret, root, rootFp;
   try{
@@ -1251,17 +1271,20 @@ async function establish(R, other){
   }catch(e){ R.establishing=false; return; }
   R.establishing=false;
   const changed=rootFp!==R.rootFp;
-  R.peer=other; R.root=root; R.rootFp=rootFp; if(changed) R.sendI=0; R.paired=true;
+  R.peer=other; R.root=root; R.rootFp=rootFp; if(changed) R.sendI=0; R.paired=true; R.authOk=!!authed;
   const nm=other.name||"Peer"; R.peerName=nm; R.avatar=(nm[0]||"?").toUpperCase();
   if(realName(nm)) R.title=nm;                         // show the person's name in the tab/header
-  setStatus(R,"🔒 secure · key "+rootFp,true);
+  setStatus(R, authed ? "🔒 secure · identity verified ✓ · key "+rootFp : "🔒 secure · key "+rootFp, true);
   if(R.code===active){ $("peerName").textContent=nm; $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
   if(changed){
-    sysline(R.logEl,"🔒 secure channel established with "+nm);
+    sysline(R.logEl, authed ? "✅ "+nm+" verified automatically — same shared key as when you first connected." : "🔒 secure channel established with "+nm);
     soundConnect();
     // Derive a stable per-contact key from the first shared secret (relay never sees it),
     // then save/refresh the contact — identical on both sides, no extra round-trip.
-    if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){} }
+    if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){}
+      // From now on this room has a shared key: sign our public key with it and re-announce, so the other
+      // side's checks (and every future connection) can verify us automatically.
+      try{ await ensureTag(R); if(R.tag && R.channel) R.channel.track(presencePayload(R)); }catch(e){} }
     if(R.fromContact) contactUpsert(nm, R.fromContact);
     // Link-based contact: the identity safety code is bound to this first live key exchange (both sides
     // derive the same value), so someone who merely intercepted the link can't match it.
@@ -1270,34 +1293,46 @@ async function establish(R, other){
     if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
 }
-function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp="";
+function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.authOk=false;
   // A saved contact keeps their name in the header while offline; only an anonymous manual room shows "Waiting for peer…".
   const known=!!(R.fromContact && realName(R.title));
   R.peerName=known?R.title:"Waiting for peer…"; R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
   setStatus(R,idleStatus(R),false);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
-function presencePayload(R){ const p={id:R.id,name:myName,u:myUsername()}; if(!R.group) p.pub=R.pubB64; return p; }
-function onSync(R){
+function presencePayload(R){ const p={id:R.id,name:myName,u:myUsername()}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; } return p; }
+async function onSync(R){
   const st=R.channel.presenceState(); const me=myUsername(); let others=[];
   for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
   others=others.filter(m=>!(me && m.u===me));          // my own account on another device/tab is not a peer
   if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setStatus(R,idleStatus(R),false); return; }
-  // Presence lists are in join order, so after a reload the last entry is the live one and the earlier one is
-  // a ghost the relay hasn't expired yet: pair with the most recent.
-  let o=others[others.length-1];
-  // Several different people and one of them is the contact this chat is with: prefer them over a stranger.
-  if(others.length>1 && realName(R.title)){ const known=others.filter(m=>realName(m.name)===R.title); if(known.length) o=known[known.length-1]; }
-  if(others.length>1){
-    const sig=others.map(m=>m.id).sort().join(",");
-    if(sig!==R.multiSig){ R.multiSig=sig;
+  // Authenticate every candidate with the shared contact key. Only someone holding the key we established
+  // together can sign their public key, so an unverified entry is never paired with — whatever it calls itself.
+  const auth=await Promise.all(others.map(m=>verifyPeerTag(R,m)));
+  const cur=R.paired&&R.peer ? R.peer : null;
+  const eligible=others.filter((m,i)=> auth[i]==="ok" || auth[i]==="n/a" ||
+      (auth[i]==="missing" && cur && m.id===cur.id && m.pub===cur.pub));   // in-session grace for the peer we're already on
+  const rejected=others.filter(m=>!eligible.includes(m));
+  // Presence lists are in join order: after a reload the last entry is the live one. Among several different
+  // people, prefer the contact this chat is with.
+  let o=eligible.length?eligible[eligible.length-1]:null;
+  if(eligible.length>1 && realName(R.title)){ const known=eligible.filter(m=>realName(m.name)===R.title); if(known.length) o=known[known.length-1]; }
+  const sig=others.map(m=>m.id).sort().join(",")+"|"+auth.join(",");
+  if(sig!==R.multiSig){ R.multiSig=sig;
+    const nm=R.title||"your contact";
+    if(rejected.length && R.fromContact){
+      const who=realName(rejected[0].name)||"someone"; const missing=auth.includes("missing");
+      if(o) sysline(R.logEl,"⚠ Someone connected as “"+who+"” but couldn't prove they hold your shared key with "+nm+" — ignored. You're connected to the verified "+nm+".",true);
+      else sysline(R.logEl, missing
+        ? "⚠ Couldn't verify the person connecting as “"+who+"”: their app didn't present a key check (older Gizleme — ask them to reload). Not connected live. Your messages still reach "+nm+" through the encrypted mailbox."
+        : "⚠ Couldn't verify this is "+nm+": their key check failed — someone may be in the middle. Nothing was shared with them. Your messages still reach "+nm+" through the encrypted mailbox; verify in person before trusting a live chat.", true);
+    } else if(others.length>1){
       const names=[...new Set(others.map(m=>realName(m.name)||"someone"))];
-      if(names.length===1)
-        sysline(R.logEl, names[0]+" is connected from "+others.length+" devices — you're paired with the most recent one; their other device still receives your messages.", false);
-      else
-        sysline(R.logEl, "⚠ "+others.length+" people are in this chat: "+names.join(", ")+". You're paired with "+(realName(o.name)||"the most recent")+". If you weren't expecting anyone else, stop and compare the safety code (🛡) with them in person.", true);
+      if(names.length===1) sysline(R.logEl, names[0]+" is connected from "+others.length+" devices — you're paired with the most recent one; their other device still receives your messages.", false);
+      else sysline(R.logEl, "⚠ "+others.length+" people are in this chat: "+names.join(", ")+". You're paired with "+(o&&realName(o.name)||"the most recent")+". If you weren't expecting anyone else, stop and compare the safety code (🛡) with them in person.", true);
     }
-  } else R.multiSig="";
-  if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o);
+  }
+  if(!o){ if(R.paired) unpair(R); setStatus(R,"⚠ not verified — not connected live",false); return; }
+  if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o,auth[others.indexOf(o)]==="ok");
 }
 
 // envelope: {t:'txt',body} | {t:'img',path,k,iv,mime,once}
@@ -1380,7 +1415,7 @@ async function doJoin(code, opts){
   const R=newRoom(code);
   R.fromContact=opts.fromContact||null; R.title=opts.title||null;
   if(R.fromContact && realName(R.title)){ R.peerName=R.title; R.avatar=(R.title[0]||"?").toUpperCase(); }   // a known contact: show their name right away
-  try{ R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); } finally { _joining.delete(code); }
+  try{ R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); await ensureTag(R); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }          // someone joined it while we were generating keys
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none";
   $("logs").appendChild(logEl); R.logEl=logEl;
@@ -1792,9 +1827,9 @@ async function join(){ const m=($("join").dataset.mode)||"register";
 }
 async function rekey(){
   const R=A(); if(!R||!R.channel) return;
-  R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); R.rootFp="";
+  R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); R.rootFp=""; await ensureTag(R);
   await R.channel.track(presencePayload(R));
-  if(R.peer) await establish(R,R.peer);
+  if(R.peer) await establish(R,R.peer,R.authOk);
   sysline(R.logEl,"↻ new keys — channel re-secured"); toast("New keys generated");
 }
 
