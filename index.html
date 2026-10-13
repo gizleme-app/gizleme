@@ -459,6 +459,9 @@
           <option value="1800000">30 minutes</option>
         </select>
       </label>
+      <div class="set-row"><span>Message previews in the chats list <span class="lbl-sub" id="prevState">Shown</span></span>
+        <button class="pill off" id="prevToggle" type="button">Hide</button>
+      </div>
       <div class="set-row"><span>Lock now</span><button class="pill off" id="lockNowBtn" type="button">🔒 Lock</button></div>
       <div class="set-row"><span>Why Gizleme?</span><button class="pill off" id="whyBtn" type="button">Compare</button></div>
     </div>
@@ -752,7 +755,11 @@ function renderContacts(fromPreview){
     const unread=openR&&openR.unread||0;
     const cm=document.createElement("div"); cm.className="cm";
     const pendingInv = it.t==="c" && it.name===INV_PLACEHOLDER;
-    cm.textContent= pv ? pv.text : pendingInv ? "Invite sent · waiting for them to open it" : (it.t==="g" ? "Group · say hello" : "Tap to start chatting");
+    const placeholder = pendingInv ? "Invite sent · waiting for them to open it" : (it.t==="g" ? "Group · say hello" : "Tap to start chatting");
+    // "Hide previews": nothing readable over your shoulder — only whether there's something new
+    cm.textContent= previewsHidden()
+      ? (unread ? unread+" new message"+(unread>1?"s":"") : (pv ? "🔒 Encrypted message" : placeholder))
+      : (pv ? pv.text : placeholder);
     if(unread) cm.classList.add("unread");
     r2.appendChild(cm);
     if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=unread+" unread"; r2.appendChild(ub); ct.classList.add("unread"); }
@@ -1853,7 +1860,9 @@ async function logoutAccount(){
   showAuth("login");
 }
 // ---------- lock: stays signed in, but wipes keys and open chats from memory until Face ID / password ----------
-const LS_AUTOLOCK="gz-autolock";
+const LS_AUTOLOCK="gz-autolock", LS_HIDEPREV="gz-hideprev";
+function previewsHidden(){ try{ return localStorage.getItem(LS_HIDEPREV)==="1"; }catch(e){ return false; } }
+function setPreviewsHidden(on){ try{ localStorage.setItem(LS_HIDEPREV,on?"1":"0"); }catch(e){} renderContacts(); }
 function autoLockMs(){ try{ return +localStorage.getItem(LS_AUTOLOCK)||0; }catch(e){ return 0; } }
 function setAutoLock(ms){ try{ localStorage.setItem(LS_AUTOLOCK,String(ms||0)); }catch(e){} armAutoLock(); }
 let _lockT=null, _hiddenAt=0;
@@ -1944,6 +1953,7 @@ async function rekey(){
     if(hasRoom){ const m=expRoomsMap(), k=histKeyOf(A()); $("expRoom").value=Object.prototype.hasOwnProperty.call(m,k)?String(m[k]===null?0:m[k]):""; }
     refreshThemeUI(); refreshSoundUI(); updateNotifyUI();
     if($("autoLock")) $("autoLock").value=String(autoLockMs());
+    refreshPrevUI();
     const s=sessLoad(); if($("acctUser")) $("acctUser").textContent=(s&&(s.display||s.username))||"—";
     $("settingsModal").classList.add("show");
   }
@@ -1952,6 +1962,8 @@ async function rekey(){
   $("settingsModal").addEventListener("click",e=>{ if(e.target.id==="settingsModal") $("settingsModal").classList.remove("show"); });
   // ----- privacy & lock, and the "why Gizleme" comparison -----
   $("autoLock").addEventListener("change",e=>{ setAutoLock(+e.target.value||0); toast(+e.target.value?"Auto-lock on":"Auto-lock off"); });
+  function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?"Hidden":"Shown"; if($("prevToggle")) $("prevToggle").textContent=h?"Show":"Hide"; }
+  $("prevToggle").addEventListener("click",()=>{ const h=!previewsHidden(); setPreviewsHidden(h); refreshPrevUI(); toast(h?"Previews hidden":"Previews shown"); });
   $("lockNowBtn").addEventListener("click",()=>{ $("settingsModal").classList.remove("show"); lockApp(); });
   $("sbLock").addEventListener("click",lockApp);
   $("sbSettings").addEventListener("click",openSettings);
