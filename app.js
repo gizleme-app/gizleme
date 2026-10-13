@@ -78,11 +78,29 @@ async function authKeyFor(ckB64){ return crypto.subtle.importKey("raw", await hk
 async function authTag(ckB64, pubB64){ return b64(await crypto.subtle.sign("HMAC", await authKeyFor(ckB64), unb64(pubB64))); }
 async function authVerify(ckB64, pubB64, tagB64){ try{ return await crypto.subtle.verify("HMAC", await authKeyFor(ckB64), unb64(tagB64), unb64(pubB64)); }catch(e){ return false; } }
 async function ensureTag(R){ try{ R.tag = (R.fromContact && R.pubB64) ? await authTag(R.fromContact, R.pubB64) : null; }catch(e){ R.tag=null; } }
-// "ok" | "bad" | "missing" | "n/a" (no shared key yet in this room: first-ever connection via a room code)
+// ---------- single-use invite links (protocol v2) ----------
+// A link-derived contact key is a bearer secret: anyone who kept the link could use it. So at the first
+// live pairing that is authenticated with it, both sides derive a NEW contact key from the session's ECDH
+// secret — something only these two devices can compute — and retire the link key. Rendezvous rooms,
+// mailbox and push keys move to the new key; history, previews and unread counts stay attached to the
+// conversation through a stable history key (hk). Other devices of each account learn the new key from the
+// vault (contact {ck:new, prev:old, hk, rot}).
+async function rotatedCKFromSecret(secret){ return b64(await hkdf(secret,"gz-contact/v2")); }
+async function rotatedCKFor(R, peerPubB64){ const pk=await importPub(unb64(peerPubB64)); return rotatedCKFromSecret(await sharedSecret(R.kp.privateKey,pk)); }
+function ckHistKey(ck){ const c=contactFind(ck); return (c&&c.hk)||("c:"+ck); }
+function contactByPrev(ckOld){ return contactsLoad().find(c=>c.prev===ckOld)||null; }
+// "ok" | "bad" | "missing" | "stale" | "n/a" (no shared key yet in this room: first-ever connection via a room code)
 async function verifyPeerTag(R, other){
   if(!R.fromContact) return "n/a";
   if(!other || !other.tag) return "missing";
-  return (await authVerify(R.fromContact, other.pub, other.tag)) ? "ok" : "bad";
+  if(await authVerify(R.fromContact, other.pub, other.tag)) return "ok";
+  const c=contactFind(R.fromContact);
+  // They already switched to the key we're about to derive from this very session (rotation in progress).
+  if(c && c.inv && !c.rot && R.kp){ try{ const cand=await rotatedCKFor(R, other.pub); if(await authVerify(cand, other.pub, other.tag)) return "ok"; }catch(e){} }
+  // One of their devices still signs with the retired link key: never paired with (that key may be in other
+  // hands), but it's not an attack either — it will catch up once it syncs the account.
+  if(c && c.prev && await authVerify(c.prev, other.pub, other.tag)) return "stale";
+  return "bad";
 }
 function rid(){ return [...crypto.getRandomValues(new Uint8Array(8))].map(b=>b.toString(16).padStart(2,"0")).join(""); }
 function roomCode(){ const A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; return [...crypto.getRandomValues(new Uint8Array(6))].map(b=>A[b%A.length]).join(""); }
@@ -168,7 +186,9 @@ function persistPendingInvite(){   // the inviter keeps a placeholder contact th
 }
 function isPendingInvite(c){ return !!(c && c.inv && c.is && c.name===INV_PLACEHOLDER); }
 async function acceptInvite(inv){   // someone opened a link: become their contact and open the chat
-  const ck=await ckFromInviteSecret(inv.s);
+  const ck0=await ckFromInviteSecret(inv.s);
+  const rotated=contactByPrev(ck0);                      // this link's contact already moved to a rotated key
+  const ck=rotated?rotated.ck:ck0;
   const mine=contactFind(ck);
   try{ history.replaceState(null,"","/"); }catch(e){}
   if(mine && mine.is===inv.s){ toast(t("That's your own invite link — send it to a friend")); goHome(); return; }
@@ -189,7 +209,7 @@ function renderContacts(fromPreview){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
   const lastTs=it=>Math.max(it.ts||0, (_prev[previewKeyOf(it)]||{}).ts||0);
   const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,ts:g.ts||0}))
-    .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,name:c.name,v:c.v,ts:c.ts||0})))
+    .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,v:c.v,ts:c.ts||0})))
     .sort((a,b)=>lastTs(b)-lastTs(a));                 // most recent activity first, like any chats list
   if(!fromPreview) refreshPreviews();
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
@@ -614,7 +634,7 @@ function idb(){ return new Promise((res,rej)=>{ if(_db) return res(_db);
   r.onsuccess=()=>{ _db=r.result; res(_db); }; r.onerror=()=>rej(r.error); }); }
 // Saved history and per-chat settings are keyed by a stable id: the contact key for 1:1 contact chats
 // (their live room code rotates daily and would otherwise hide yesterday's messages), the rid for groups.
-function histKeyOf(R){ return R && R.fromContact ? "c:"+R.fromContact : (R?R.code:""); }
+function histKeyOf(R){ return R && R.fromContact ? ckHistKey(R.fromContact) : (R?R.code:""); }
 async function histSave(room, rec){ // rec = {dir, env, ts}
   if(!gHistKey) return;
   try{
@@ -641,7 +661,7 @@ async function histLast(room){
 }
 // Preview cache for the chats list: key -> {text, ts, dir}. Refreshed in the background after each render.
 const _prev={}; let _prevT=null;
-function previewKeyOf(it){ return it.t==="g" ? it.rid : "c:"+it.ck; }
+function previewKeyOf(it){ return it.t==="g" ? it.rid : (it.hk||("c:"+it.ck)); }
 function previewText(r, isGroup){
   if(!r) return "";
   const body = r.env && r.env.t==="img" ? t("📷 Photo") : (r.env && r.env.body) || "";
@@ -659,7 +679,7 @@ function fmtListTime(ts){
 function refreshPreviews(){           // debounced; re-renders the list only if a preview changed
   clearTimeout(_prevT); _prevT=setTimeout(async()=>{
     if(!gHistKey) return;
-    const items=groupsLoad().map(g=>({t:"g",rid:g.rid})).concat(contactsLoad().map(c=>({t:"c",ck:c.ck})));
+    const items=groupsLoad().map(g=>({t:"g",rid:g.rid})).concat(contactsLoad().map(c=>({t:"c",ck:c.ck,hk:c.hk})));
     let changed=false;
     for(const it of items){ const k=previewKeyOf(it); const r=await histLast(k);
       const dur=expFor(k); if(r && dur && (r.ts||0)<=Date.now()-dur){ if(_prev[k]){ delete _prev[k]; changed=true; } continue; }   // expired: no preview
@@ -925,6 +945,19 @@ async function establish(R, other, authed){
     // Link-based contact: the identity safety code is bound to this first live key exchange (both sides
     // derive the same value), so someone who merely intercepted the link can't match it.
     try{ const c=contactFind(R.fromContact); if(c && c.inv && !c.sv) contactPatch(R.fromContact,{sv:b64(await hkdf(secret,"gz-safety/v2",16))}); }catch(e){}
+    // Single-use link: the pairing was authenticated with the link key, so retire it for a key only our two
+    // devices can compute. Persisted first; the room switches to it only once that succeeded.
+    try{ const c=contactFind(R.fromContact);
+      if(authed && c && c.inv && !c.rot){
+        const old=R.fromContact, nk=await rotatedCKFromSecret(secret);
+        const l=contactsLoad(); const i=l.findIndex(x=>x.ck===old);
+        if(i>=0 && !l.some(x=>x.ck===nk)){
+          const e=l[i]; e.prev=old; e.hk=e.hk||("c:"+old); e.ck=nk; e.rot=Date.now(); delete e.is; e.ts=Date.now();
+          contactsSave(l);
+          R.fromContact=nk; await ensureTag(R); if(R.tag && R.channel) R.channel.track(presencePayload(R));
+          sysline(R.logEl, t("🔐 Invite link retired — this chat now uses a key only your two devices know."));
+        } }
+    }catch(e){}
     renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
     if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
@@ -948,7 +981,8 @@ async function onSync(R){
   const cur=R.paired&&R.peer ? R.peer : null;
   const eligible=others.filter((m,i)=> auth[i]==="ok" || auth[i]==="n/a" ||
       (auth[i]==="missing" && cur && m.id===cur.id && m.pub===cur.pub));   // in-session grace for the peer we're already on
-  const rejected=others.filter(m=>!eligible.includes(m));
+  const stale=others.filter((m,i)=>auth[i]==="stale");
+  const rejected=others.filter(m=>!eligible.includes(m) && !stale.includes(m));
   // Presence lists are in join order: after a reload the last entry is the live one. Among several different
   // people, prefer the contact this chat is with.
   let o=eligible.length?eligible[eligible.length-1]:null;
@@ -962,13 +996,15 @@ async function onSync(R){
       else sysline(R.logEl, missing
         ? t("⚠ Couldn't verify the person connecting as “{who}”: their app didn't present a key check (older Gizleme — ask them to reload). Not connected live. Your messages still reach {name} through the encrypted mailbox.",{who,name:nm})
         : t("⚠ Couldn't verify this is {name}: their key check failed — someone may be in the middle. Nothing was shared with them. Your messages still reach {name} through the encrypted mailbox; verify in person before trusting a live chat.",{name:nm}), true);
+    } else if(stale.length){
+      sysline(R.logEl, t("{name}'s other device still uses the retired invite key — it will catch up when it syncs the account. Not connected live with that device.",{name:nm}), false);
     } else if(others.length>1){
       const names=[...new Set(others.map(m=>realName(m.name)||t("someone")))];
       if(names.length===1) sysline(R.logEl, t("{name} is connected from {n} devices — you're paired with the most recent one; their other device still receives your messages.",{name:names[0],n:others.length}), false);
       else sysline(R.logEl, t("⚠ {n} people are in this chat: {names}. You're paired with {with}. If you weren't expecting anyone else, stop and compare the safety code (🛡) with them in person.",{n:others.length,names:names.join(", "),with:(o&&realName(o.name)||t("the most recent"))}), true);
     }
   }
-  if(!o){ if(R.paired) unpair(R); setStatus(R,t("⚠ not verified — not connected live"),false); return; }
+  if(!o){ if(R.paired) unpair(R); setStatus(R, stale.length && !rejected.length ? idleStatus(R) : t("⚠ not verified — not connected live"), false); return; }
   if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o,auth[others.indexOf(o)]==="ok");
 }
 
@@ -1298,10 +1334,17 @@ async function recoverABKWithPassword(pw){
 }
 function mergeContacts(remote){
   const lc=contactsLoad(), byCk={}; lc.forEach(c=>byCk[c.ck]=Object.assign({},c));
-  (remote.contacts||[]).forEach(rc=>{ if(!rc||!rc.ck) return; const e=byCk[rc.ck];
+  (remote.contacts||[]).forEach(rc=>{ if(!rc||!rc.ck) return;
+    // the other device rotated this contact's key: its record replaces our pre-rotation one
+    if(rc.prev && byCk[rc.prev] && !byCk[rc.ck]){ const o=byCk[rc.prev]; delete byCk[rc.prev]; byCk[rc.ck]=Object.assign({},rc,{v:(o.v||rc.v)?1:undefined, name:realName(o.name)&&!realName(rc.name)?o.name:rc.name}); if(!byCk[rc.ck].v) delete byCk[rc.ck].v; return; }
+    // we rotated already and the other device still has the old record: ours wins, its flags are kept
+    const rotLocal=Object.values(byCk).find(c=>c.prev===rc.ck);
+    if(rotLocal){ if(rc.v) rotLocal.v=1; if(realName(rc.name) && !realName(rotLocal.name)) rotLocal.name=rc.name; return; }
+    const e=byCk[rc.ck];
     if(!e){ byCk[rc.ck]=Object.assign({},rc); }
     else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1;
-           if(rc.inv) e.inv=1; if(rc.is&&!e.is) e.is=rc.is; if(rc.sv&&!e.sv) e.sv=rc.sv;
+           if(rc.inv) e.inv=1; if(rc.is&&!e.is&&!e.rot) e.is=rc.is; if(rc.sv&&!e.sv) e.sv=rc.sv;
+           if(rc.hk&&!e.hk) e.hk=rc.hk; if(rc.prev&&!e.prev) e.prev=rc.prev; if(rc.rot&&!e.rot){ e.rot=rc.rot; delete e.is; }
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
   (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];

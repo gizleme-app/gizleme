@@ -24,7 +24,7 @@ rate-limit counters.
 | Key derivation | HKDF-SHA-256 (salt `vesper/v1`, versioned `info` labels per purpose) |
 | Message encryption | AES-256-GCM, random 96-bit IV, message id sealed inside the ciphertext |
 | Per-message live keys | HKDF(root, `msg|<direction>|<counter>`) — counter must increase, direction must match the paired peer |
-| Contact key `ck` | HKDF(first ECDH secret) or HKDF(invite-link secret); never sent to a server |
+| Contact key `ck` | HKDF(first ECDH secret) for room-code contacts; HKDF(invite-link secret) for link contacts, replaced by HKDF(first authenticated session's ECDH secret, `gz-contact/v2`) at the first live pairing; never sent to a server |
 | Pairing authentication | HMAC-SHA-256 under HKDF(ck, `gz-auth/v1`) over the session public key; unverified presence entries are never paired with |
 | Mailbox | id = HKDF(ck, `gz-mbox/v1`); contents AES-GCM under HKDF(ck, `gz-mbox-key/v1`); sender name and message id inside the ciphertext |
 | Receipts | AES-GCM under the mailbox key, 1:1 only |
@@ -57,10 +57,16 @@ rate-limit counters.
   message does, so offline devices can collect it) are encrypted under a stable per-contact key. A later
   compromise of that key exposes mailbox ciphertext still on the server (≤ 14 days) and any captured
   copies. The live path uses fresh ECDH per session but the mailbox copy does not.
-- **Invite links are bearer keys.** Anyone holding an invite link derives the same contact key and can read
-  and write as that contact until the contact is removed. The in-person safety code detects an impostor
-  who paired first; it does not revoke the link. A single-use link design (key rotation at first live
-  pairing) is planned.
+- **Invite links are bearer keys until the first live meeting.** Anyone holding an invite link derives the
+  same contact key and can read and write as that contact — until the two parties are online together for
+  the first time. At that first pairing, authenticated with the link key, both sides derive a new contact
+  key from the session's ECDH secret (`HKDF(secret, gz-contact/v2)`), retire the link key, and move the
+  rendezvous rooms, mailbox and push keys to it; the conversation history stays attached through a stable
+  history key, and the account vault carries `{ck, prev, hk, rot}` to the user's other devices. After
+  that, a copy of the link gives nothing: a device still signing with the retired key is not paired with
+  (a calm note, not an alarm) and the old mailbox is no longer read. An impostor who opened the link and
+  paired *before* the real invitee still becomes the contact — the in-person safety code is the check for
+  that.
 - **Groups have no sender authentication and no key rotation.** Any member or the relay could re-label a
   group message; leaving a group does not revoke the key. Create a new group to exclude someone.
 - **Offline password guessing by the server.** The verifier is derived with PBKDF2-200k; a weak password

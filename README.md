@@ -17,6 +17,7 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 ## Features
 
 - Invite links (`#i=`) that work asynchronously: the invitee can write immediately, even if you're offline.
+  Single-use: at the first live meeting the link key is replaced by one only the two devices can compute.
 - Automatic identity check at every connection (HMAC under the shared contact key) + in-person safety code.
 - Encrypted store-and-forward mailbox (14 days), real inbox with unread counts and previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
