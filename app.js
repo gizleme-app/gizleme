@@ -71,14 +71,17 @@ const B32="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 // under the device master key (unlocked by password / Face ID). In memory only while the app is unlocked.
 const LS_LOCAL="gz-local";
 let _contacts=[], _groups=[], _localT=null;
+let _meta={unread:{},rcpt:{},viewed:{}};   // per-chat unread counts, received-receipts by message id, viewed view-once photos
 function contactsLoad(){ return _contacts.map(c=>Object.assign({},c)); }
 function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); localSaveSoon(); renderContacts(); syncPushSoon(); }
 function localSaveSoon(){ clearTimeout(_localT); _localT=setTimeout(()=>{ localSave().catch(()=>{}); },250); }
-async function localSave(){ if(!gHistKey) return; const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify({contacts:_contacts,groups:_groups})));
+async function localSave(){ if(!gHistKey) return; const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify({contacts:_contacts,groups:_groups,meta:_meta})));
   try{ localStorage.setItem(LS_LOCAL,JSON.stringify({iv,ct})); }catch(e){} }
 async function localLoad(){   // at unlock: decrypt the local copy, and import (then delete) any plaintext left by older builds
   let c=[], g=[];
-  try{ const r=JSON.parse(localStorage.getItem(LS_LOCAL)||"null"); if(r&&r.ct&&gHistKey){ const o=JSON.parse(dec.decode(await aesDec(gHistKey,r.iv,r.ct))); c=o.contacts||[]; g=o.groups||[]; } }catch(e){}
+  let meta=null;
+  try{ const r=JSON.parse(localStorage.getItem(LS_LOCAL)||"null"); if(r&&r.ct&&gHistKey){ const o=JSON.parse(dec.decode(await aesDec(gHistKey,r.iv,r.ct))); c=o.contacts||[]; g=o.groups||[]; meta=o.meta||null; } }catch(e){}
+  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}};
   let legacy=false;
   try{ const lc=JSON.parse(localStorage.getItem(LS_CONTACTS)||"[]")||[], lg=JSON.parse(localStorage.getItem(LS_GROUPS)||"[]")||[];
     lc.forEach(x=>{ if(x&&x.ck&&!c.find(y=>y.ck===x.ck)){ c.push(x); legacy=true; } });
@@ -86,8 +89,9 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   try{ localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){}
   _contacts=c; _groups=g; if(legacy) localSaveSoon();
   renderContacts(); if(pushOn()&&gPushSub) registerAllContacts();
+  inboxPull(true);                                   // deliver what arrived while the app was closed, for every chat
 }
-function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; }                       // lock: out of memory, ciphertext stays on disk
+function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{}}; }                       // lock: out of memory, ciphertext stays on disk
 function localWipe(){ localClear(); try{ localStorage.removeItem(LS_LOCAL); localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} }
 function realName(n){ return n && n!=="Peer" && n!=="Contact" && n!=="Anon" && n!=="Waiting for peer…" ? n : ""; }
 function contactUpsert(name, ckB64){
@@ -183,8 +187,7 @@ function renderContacts(fromPreview){
     r1.appendChild(cn); r1.appendChild(ct);
     // line 2: last message ……… unread count
     const r2=document.createElement("div"); r2.className="crow";
-    let openR=null; rooms.forEach(x=>{ if(it.t==="g" ? x.rid===it.rid : x.fromContact===it.ck) openR=x; });
-    const unread=openR&&openR.unread||0;
+    const unread=(it.id===activeId) ? 0 : (_meta.unread[previewKeyOf(it)]||0);
     const cm=document.createElement("div"); cm.className="cm";
     const pendingInv = it.t==="c" && it.name===INV_PLACEHOLDER;
     const placeholder = pendingInv ? "Invite sent · waiting for them to open it" : (it.t==="g" ? "Group · say hello" : "Tap to start chatting");
@@ -197,7 +200,9 @@ function renderContacts(fromPreview){
     if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=unread+" unread"; r2.appendChild(ub); ct.classList.add("unread"); }
     ci.appendChild(r1); ci.appendChild(r2);
     const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?"Leave group":"Remove contact"; x.setAttribute("aria-label",x.title);
-    x.addEventListener("click",ev=>{ ev.stopPropagation(); if(it.t==="g") groupRemove(it.rid); else contactRemove(it.ck); });
+    x.addEventListener("click",ev=>{ ev.stopPropagation();
+      if(it.t==="g"){ if(confirm("Leave the group “"+(it.name||"Group")+"”?\n\nYou'll need a new invite link to come back.")) groupRemove(it.rid); }
+      else { if(confirm("Remove "+(it.name||"this contact")+" from your chats?\n\nTo talk again you'll need to exchange a new invite link.")) contactRemove(it.ck); } });
     row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
     row.addEventListener("click",()=> it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.name));
     el.appendChild(row);
@@ -229,10 +234,7 @@ async function doJoinGroup(rid, gkBytes, name){
   if(rooms.has(code)){ switchTo(code); return; }
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl;
   rooms.set(code,R); hideJoin(); switchTo(code);
-  if(gHistKey){ const past=await histLoad(code); const dur=expFor(code); const cut=dur?Date.now()-dur:0; if(dur) histSweep(code,cut);
-    let shown=0; for(const r of past){ if(r.env.t==="img") continue; if(dur&&(r.ts||0)<=cut) continue; addText(R.logEl, r.dir==="sent"?"sent":"recv", r.env.body, r.who||"", false, r.ts); shown++; }
-    seedSeen(R, past);
-    if(shown) sysline(R.logEl,"— "+shown+" saved message"+(shown>1?"s":"")+" unlocked —"); }
+  if(gHistKey){ renderHistory(R, await histLoad(code)); }
   if(!R.seen) R.seen=new Set();
   const ch=client.channel("ratchet-"+rid,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
   R.channel=ch;
@@ -256,7 +258,7 @@ async function broadcastGroup(R, env, mid){
   const iv=crypto.getRandomValues(new Uint8Array(12));
   const ctBuf=await crypto.subtle.encrypt({name:"AES-GCM",iv}, R.gkMsg, enc.encode(JSON.stringify(Object.assign({},env,{mid,n:myName}))));
   showWire(R,b64(ctBuf));
-  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,iv:b64(iv),ct:b64(ctBuf),mid}});
+  try{ const r=await R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,iv:b64(iv),ct:b64(ctBuf),mid}}); return r==="ok"; }catch(e){ return false; }
 }
 async function onMsgGroup(R,{payload:p}){
   if(!p||p.from===R.id) return;
@@ -267,9 +269,8 @@ async function onMsgGroup(R,{payload:p}){
     const env=JSON.parse(dec.decode(pt)); const now=Date.now();
     if(env.mid && p.mid && env.mid!==p.mid) throw new Error("id mismatch");
     const who=(realName(env.n)||realName(p.name)||"Member");          // the name the sender sealed inside, never the relay's
-    if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who, now); }
-    else { addText(R.logEl,"recv",env.body, who, true, now); histSave(histKeyOf(R),{dir:"recv",env,ts:now,who,mid:p.mid}); }
-    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
+    onInbound(R, env, who, now, p.mid, false, true);
+    if(R.code===active) blinkEyes();
     soundRecv();
   }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
 }
@@ -303,37 +304,104 @@ async function depositMailbox(R, mid, env){
   }catch(e){ return false; }
 }
 async function fetchMailbox(R){
-  if(!R) return;
+  if(!R) return 0;
   if(R.fetching) return R.fetching;          // coalesce overlapping fetches (open + subscribe + poll)
   R.fetching=(async()=>{
-    try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return;
+    let delivered=0;
+    try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return 0;
       const since=mbtsGet(id);
       const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
-      const items=(data&&data.items)||[]; if(!items.length) return;
+      const items=(data&&data.items)||[]; if(!items.length) return 0;
       if(!R.seen) R.seen=new Set();
-      let maxTs=since, delivered=0; const mine=_acct;
+      let maxTs=since; const mine=_acct;
       const dur=expFor(histKeyOf(R)); const cut=dur?Date.now()-dur:0;
       for(const it of items){ const ts=Date.parse(it.ts)||Date.now(); if(ts>maxTs) maxTs=ts;
-        if(mine && it.from_user===mine) continue;                 // our own account's other device wrote it
+        const own=!!(mine && it.from_user===mine);               // written by our own account's other device
         if(it.mid && R.seen.has(it.mid)) continue;
         if(dur && ts<=cut) continue;                             // already past this chat's disappearing window
         if(it.mid) R.seen.add(it.mid);                           // claim it before awaiting so a parallel pass can't show it too
         try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
           const env=JSON.parse(dec.decode(pt));
+          if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
           if(env.mid && it.mid && env.mid!==it.mid) throw new Error("id mismatch");
           const who=realName(env.n)||(R.group?"Member":"");
-          adoptNameFromMessage(R, env.n);
-          if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who||"delivered", ts); }
-          else { addText(R.logEl,"recv",env.body, who, false, ts); histSave(histKeyOf(R),{dir:"recv",env,ts,who,mid:it.mid}); }
-          if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); renderContacts(); }
-          delivered++;
+          if(!own) adoptNameFromMessage(R, env.n);
+          onInbound(R, env, who, ts, it.mid, own, false);
+          if(!own) delivered++;
         }catch(e){ if(it.mid) R.seen.delete(it.mid); }
       }
       mbtsSet(id,maxTs);
-      if(delivered){ soundRecv(); if(R.code===active) blinkEyes(); }
+      if(delivered && !R.shadow){ soundRecv(); if(R.code===active) blinkEyes(); }
     }catch(e){}
+    return delivered;
   })();
-  try{ await R.fetching; } finally { R.fetching=null; }
+  try{ return await R.fetching; } finally { R.fetching=null; }
+}
+// One place where every inbound message lands (live, mailbox, background): render if the chat is open,
+// always save, count as unread when not being looked at, and tell the sender it arrived.
+function onInbound(R, env, who, ts, mid, own, animate){
+  const hk=histKeyOf(R); const open=!!R.logEl;
+  if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
+    if(open){ if(env.t==="img") addText(R.logEl,"sent","📷 Photo","",false,ts,{mid,st:stateFor(mid)}); else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
+    histSave(hk,{dir:"sent",env,ts,mid}); return;
+  }
+  const tag=R.group?(who||""):"";
+  if(env.t==="img"){ if(open) addImageRecvOnce(R.logEl,env,tag,ts,mid); }
+  else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid});
+  histSave(hk,{dir:"recv",env,ts,who,mid});
+  if(!open || R.code!==active) bumpUnread(R);
+  if(!R.group && R.fromContact && mid) queueRcpt(R.fromContact, mid);
+}
+function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; localSaveSoon(); renderTabs(); renderContacts(); }
+function clearUnread(R){ const k=histKeyOf(R); if(_meta.unread[k]){ delete _meta.unread[k]; localSaveSoon(); } R.unread=0; }
+function stateFor(mid){ return mid && _meta.rcpt[mid] ? "rcvd" : "sent"; }
+// ----- receipts: "your message reached their device". Encrypted under the contact's mailbox key, so the
+// relay sees neither which messages nor that it is a receipt. Sent live when paired, and always left in the
+// mailbox for the sender's other devices / later polls. 1:1 chats only.
+const _rcptQ={}; let _rcptT=null;
+function queueRcpt(ck, mid){ (_rcptQ[ck]=_rcptQ[ck]||[]).push(mid); clearTimeout(_rcptT); _rcptT=setTimeout(()=>{ for(const k in _rcptQ){ const mids=_rcptQ[k]; delete _rcptQ[k]; flushRcpt(k,mids).catch(()=>{}); } },800); }
+async function flushRcpt(ck, mids){
+  const S={fromContact:ck,group:false}; const id=await mboxIdFor(S), key=await mboxKeyFor(S); if(!id||!key) return;
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(JSON.stringify({t:"rcpt",mids})));
+  const data={iv:b64(iv),ct:b64(ct)};
+  rooms.forEach(R=>{ if(R.fromContact===ck && R.paired && R.channel){ try{ R.channel.send({type:"broadcast",event:"rcpt",payload:{from:R.id,iv:data.iv,ct:data.ct}}); }catch(e){} } });
+  try{ await mboxFn("put",{mbox:id, mid:"r"+rid(), from:_acct||undefined, data}); }catch(e){}
+}
+async function onRcpt(R,{payload:p}){
+  if(!p||p.from===R.id||!R.fromContact) return;
+  try{ const key=await mboxKeyFor(R); const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)},key,unb64(p.ct));
+    const env=JSON.parse(dec.decode(pt)); if(env.t==="rcpt") markReceived(histKeyOf(R), env.mids||[]); }catch(e){}
+}
+function markReceived(hk, mids){
+  if(!mids.length) return;
+  mids.forEach(m=>{ _meta.rcpt[m]=1; });
+  const keys=Object.keys(_meta.rcpt); if(keys.length>800) keys.slice(0,keys.length-800).forEach(k=>{ delete _meta.rcpt[k]; });
+  localSaveSoon();
+  rooms.forEach(R=>{ if(R.logEl && histKeyOf(R)===hk) mids.forEach(m=>{ const el=R.logEl.querySelector('.bubble.sent[data-mid="'+m+'"]'); if(el) setMsgState(el,"rcvd"); }); });
+}
+function markViewed(mid){ if(!mid) return; _meta.viewed[mid]=1; const keys=Object.keys(_meta.viewed); if(keys.length>800) keys.slice(0,keys.length-800).forEach(k=>{ delete _meta.viewed[k]; }); localSaveSoon(); }
+// ----- the inbox: every saved chat is collected, not only the ones open on screen -----
+async function shadowRoom(it){   // a room-shaped object for a chat that isn't open: enough for the mailbox + history
+  const R=newRoom(it.t==="g"?it.rid:""); R.shadow=true; R.logEl=null; R.seen=new Set();
+  if(it.t==="g"){ R.group=true; R.rid=it.rid; R.gk=unb64(it.gk); R.gkMsg=await gkMsgKey(R.gk); R.title=it.name||"Group"; }
+  else { R.fromContact=it.ck; R.title=it.name||""; }
+  return R;
+}
+let _inboxBusy=false, _inboxLast=0;
+async function inboxPull(force){
+  if(!gHistKey||_inboxBusy) return; if(!force && Date.now()-_inboxLast<15000) return;
+  _inboxBusy=true; _inboxLast=Date.now();
+  try{
+    const items=groupsLoad().map(g=>({t:"g",rid:g.rid,gk:g.gk,name:g.name})).concat(contactsLoad().map(c=>({t:"c",ck:c.ck,name:c.name})));
+    let bg=0;
+    for(const it of items){
+      let R=null; rooms.forEach(x=>{ if(it.t==="g" ? x.rid===it.rid : x.fromContact===it.ck) R=x; });
+      if(R){ await fetchMailbox(R); continue; }
+      try{ const S=await shadowRoom(it); bg+=(await fetchMailbox(S))||0; }catch(e){}
+    }
+    if(bg){ soundRecv(); renderContacts(); }
+  } finally { _inboxBusy=false; }
 }
 function seedSeen(R, past){ R.seen=new Set(); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.add(r.mid); }); }
 
@@ -430,19 +498,19 @@ async function disablePush(){
   try{ if(gPushSub){ await fn("unregister",{owner:deviceId()}); await gPushSub.unsubscribe(); } }catch(e){}
   gPushSub=null; toast("Notifications off"); updateNotifyUI();
 }
-async function notifyPeer(ckB64){
+async function notifyPeer(ckB64, kind){
   if(!ckB64) return false;
   const nk=await notifyKeyFor(ckB64);
   let map={}; try{ map=JSON.parse(localStorage.getItem(LS_NOTIFIED)||"{}"); }catch(e){}
   const now=Date.now(); if(map[nk]&&now-map[nk]<90000) return false;   // debounce 90s per contact
   map[nk]=now; try{ localStorage.setItem(LS_NOTIFIED,JSON.stringify(map)); }catch(e){}
+  const nm=realName(myName);
   try{ await fn("notify",{notify_key:nk, from:deviceId(), title:"Gizleme",
-    body:(realName(myName)?myName+" wants to chat on Gizleme":"A contact wants to chat"),
+    body: kind==="msg" ? (nm?"New message from "+nm:"New message") : (nm?nm+" wants to chat on Gizleme":"A contact wants to chat"),
     url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined}); return true; }catch(e){ return false; }
 }
 async function nudgeContact(){           // manual "notify this contact" from the chat
   const R=A(); if(!R||!R.fromContact) return;
-  if(!pushOn()){ const ok=await enablePush(); if(!ok) return; }
   const sent=await notifyPeer(R.fromContact);
   toast(sent?"Notification sent 📣":"Already notified — give them a moment");
 }
@@ -466,6 +534,8 @@ const LS_MKPIN="gz-mkpin", LS_MKBIO="gz-mkbio";
 function pinSet(){ try{ return !!localStorage.getItem(LS_MKPIN); }catch(e){ return false; } }
 function bioSet(){ try{ return !!localStorage.getItem(LS_MKBIO); }catch(e){ return false; } }
 function bioSupported(){ return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create); }
+function bioLabel(){ return /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent) ? "Face ID / Touch ID" : "fingerprint or face"; }
+let _isInApp=null;   // set by init (needs the standalone check); showAuth reads it
 async function histKeyFromMK(mk){ return crypto.subtle.importKey("raw", mk, {name:"AES-GCM"}, false, ["encrypt","decrypt"]); }
 async function pinWrapKey(pin, salt){ const base=await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations:200000, hash:"SHA-256"}, base, {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]); }
@@ -671,14 +741,31 @@ function sweepEphemeral(){
     histSweep(k,cut);
   });
 }
-function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); setTimeout(()=>t.classList.remove("show"),1700); }
+let _toastT=null;
+function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(_toastT); _toastT=setTimeout(()=>t.classList.remove("show"), Math.max(1700, Math.min(6000, 55*m.length))); }
 function scrollEl(el){ try{ el.scrollTop=el.scrollHeight; }catch(e){} }
-function addText(logEl, cls, body, tag, animate, ts){
-  const d=document.createElement("div"); d.className="bubble "+cls; if(ts) d.dataset.ts=ts;
+function fmtTime(ts){ return new Date(ts).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); }
+function dayLabel(ts){ const d=new Date(ts), now=new Date(); if(d.toDateString()===now.toDateString()) return "Today";
+  const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], {weekday:"short", day:"numeric", month:"short"}); }
+function ensureDaySep(logEl, ts){ const d=new Date(ts); const k=d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); if(logEl.dataset.lastDay===k) return; logEl.dataset.lastDay=k;
+  const el=document.createElement("div"); el.className="daysep"; el.textContent=dayLabel(ts); logEl.appendChild(el); }
+const ST_GLYPH={pending:"🕓",sent:"✓",rcvd:"✓✓",failed:"!"};
+function metaRow(d, ts, st){ const m=document.createElement("span"); m.className="meta"; const t=document.createElement("span"); t.className="time"; t.textContent=fmtTime(ts); m.appendChild(t);
+  if(st){ const x=document.createElement("span"); x.className="st"; m.appendChild(x); } d.appendChild(m); if(st) setMsgState(d,st); }
+function setMsgState(d, st){ const x=d.querySelector(".st"); if(!x) return; x.dataset.st=st; x.textContent=ST_GLYPH[st]||"";
+  d.classList.toggle("failed",st==="failed"); x.title= st==="rcvd"?"Received on their device" : st==="sent"?"Sent" : st==="failed"?"Not sent — tap to retry" : "Sending…"; }
+// opts: {mid, st} — st for our own messages: pending | sent | rcvd | failed
+function addText(logEl, cls, body, tag, animate, ts, opts){
+  opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
+  const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
+  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
   const t=document.createElement("span"); t.className="txt"; d.appendChild(t);
-  if(tag){ const s=document.createElement("span"); s.className="tag"; s.textContent=tag; d.appendChild(s); }
+  if(cls==="sent"||cls==="recv") metaRow(d, ts, cls==="sent" ? (opts.st||"sent") : null);
+  if(cls==="sent"){ d.addEventListener("click",()=>{ if(d.classList.contains("failed") && d._retry) d._retry(); }); }
   logEl.appendChild(d); scrollEl(logEl);
   if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
+  return d;
 }
 function openLightbox(url, opts){
   opts=opts||{};
@@ -699,30 +786,51 @@ function openLightbox(url, opts){
   document.body.appendChild(lb);
 }
 async function deleteBlob(path){ try{ await mboxFn("delblob",{path}); }catch(e){} }
-function addImageSent(logEl, meta, localUrl, tag, ts){
-  const d=document.createElement("div"); d.className="bubble img-wrap sent"; if(ts) d.dataset.ts=ts;
+function addImageSent(logEl, meta, localUrl, ts, opts){
+  opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
+  const d=document.createElement("div"); d.className="bubble img-wrap sent"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
   const img=new Image(); img.src=localUrl; img.style.maxWidth="160px"; img.style.cursor="pointer";
   img.addEventListener("click",()=>openLightbox(localUrl,{}));
   d.appendChild(img);
-  const o=document.createElement("span"); o.className="once"; o.textContent="⦿ disappearing"; d.appendChild(o);
-  if(tag){ const s=document.createElement("span"); s.className="tag"; s.textContent=tag; d.appendChild(s); }
+  const o=document.createElement("span"); o.className="once"; o.textContent="⦿ view once"; d.appendChild(o);
+  metaRow(d, ts, opts.st||"pending");
+  d.addEventListener("click",e=>{ if(e.target===img) return; if(d.classList.contains("failed") && d._retry) d._retry(); });
   logEl.appendChild(d); scrollEl(logEl);
+  return d;
 }
-function addImageRecvOnce(logEl, meta, tag, ts){
-  const d=document.createElement("div"); d.className="bubble recv"; if(ts) d.dataset.ts=ts;
-  const btn=document.createElement("div"); btn.className="tapview"; btn.innerHTML="📷 Disappearing photo<small>tap to view — once only</small>";
+function addImageRecvOnce(logEl, meta, tag, ts, mid){
+  ts=ts||Date.now(); ensureDaySep(logEl, ts);
+  const d=document.createElement("div"); d.className="bubble recv"; d.dataset.ts=ts; if(mid) d.dataset.mid=mid;
+  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
+  const btn=document.createElement("div"); btn.className="tapview"; btn.innerHTML="📷 Photo<small>tap to view — once only</small>";
   d.appendChild(btn);
-  if(tag){ const s=document.createElement("span"); s.className="tag"; s.textContent=tag; d.appendChild(s); }
+  metaRow(d, ts, null);
   logEl.appendChild(d); scrollEl(logEl);
   let opened=false;
   btn.addEventListener("click",async()=>{
     if(opened) return; opened=true; const prev=btn.innerHTML; btn.textContent="decrypting…";
     try{
       const url=await fetchImage(meta);
+      markViewed(mid);                                   // never shown again, even after a reload
       openLightbox(url,{countdown:10,onClose:()=>{ try{URL.revokeObjectURL(url);}catch(e){} deleteBlob(meta.path);
         const x=document.createElement("div"); x.className="imgph"; x.textContent="📷 photo viewed"; btn.replaceWith(x); }});
     }catch(e){ opened=false; btn.innerHTML=prev; }
   });
+  return d;
+}
+// Saved history, rendered the same way for contacts and groups: expired records skipped, view-once photos
+// shown as "tap to view" until viewed, our own messages with their delivery state.
+function renderHistory(R, past){
+  const hk=histKeyOf(R); const dur=expFor(hk); const cut=dur?Date.now()-dur:0; if(dur) histSweep(hk,cut);
+  for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
+    if(r.env.t==="img"){
+      if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid); }
+      else addText(R.logEl,"sent","📷 Photo","",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
+      continue; }
+    if(r.dir==="sent") addText(R.logEl,"sent",r.env.body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
+    else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid});
+  }
+  seedSeen(R, past);
 }
 function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); d.textContent=t; logEl.appendChild(d); scrollEl(logEl); }
 function setStatus(R, t, secure){ R.statusText=t; R.secure=!!secure; if(R.code===active){ $("statusText").textContent=t; $("bar").classList.toggle("secure",!!secure); } }
@@ -853,11 +961,9 @@ async function onMsg(R, {payload:p}){
     const pt=await aesDec(key,p.iv,p.ct);
     const env=JSON.parse(dec.decode(pt));
     if(env.mid && env.mid!==p.mid) throw new Error("id mismatch");    // the id outside must be the id the sender sealed inside
-    const tag="decrypted · key "+await fp(mk);
     const now=Date.now();
-    if(env.t==="img"){ addImageRecvOnce(R.logEl,env, tag, now); }
-    else { addText(R.logEl,"recv",env.body,tag,true,now); histSave(histKeyOf(R),{dir:"recv",env,ts:now,mid:p.mid}); }
-    if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
+    onInbound(R, env, "", now, p.mid, false, true);
+    if(R.code===active) blinkEyes();
     soundRecv();
   }catch(e){
     if(p.mid && R.seen) R.seen.delete(p.mid);            // not decrypted here: let the encrypted mailbox copy deliver it
@@ -870,47 +976,47 @@ async function broadcast(R, env, mid){
   const mk=await hkdf(R.root,"msg|"+dir+"|"+i); const key=await aesKey(mk);
   const {iv,ct}=await aesEnc(key, enc.encode(JSON.stringify(Object.assign({},env,{mid}))));
   showWire(R,ct);
-  R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,dir,i,iv,ct,mid}});
-  return await fp(mk);
+  try{ const r=await R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,name:myName,dir,i,iv,ct,mid}}); return r==="ok"; }catch(e){ return false; }
 }
 async function sendText(){
   const R=A(); if(!R) return;
   const text=$("msgInput").value.trim(); if(!text) return;
+  if(!R.group && !R.fromContact && !R.paired) return;       // manual room with no one here yet: nothing to send to
   const env={t:"txt",body:text}; const mid=rid(); const now=Date.now();
   if(!R.seen) R.seen=new Set(); R.seen.add(mid);
-  if(R.group){ $("msgInput").value=""; initAudio();
-    await broadcastGroup(R,env,mid);
-    depositMailbox(R,mid,env);                 // always, so members who are offline get it on connect
-    addText(R.logEl,"sent",text,"",false,now); soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid}); return; }
-  if(!R.fromContact && !R.paired) return;       // manual room with no one here yet: nothing to send to
   $("msgInput").value=""; initAudio();
-  if(R.paired){
-    const kfp=await broadcast(R,env,mid);
-    addText(R.logEl,"sent",text,"key "+kfp,false,now);
-    // Also leave an encrypted copy in the mailbox (deduped by mid on the other side): covers a peer whose
-    // socket was mid-reconnect, and lets their second device pick it up too.
-    if(R.fromContact) depositMailbox(R,mid,env);
+  const el=addText(R.logEl,"sent",text,"",false,now,{mid,st:"pending"});
+  await deliverOut(R, env, mid, el, now);
+}
+// Delivery: live broadcast when paired, and/or the encrypted mailbox (always for contacts and groups, so
+// offline devices get it). The bubble shows pending → sent, or failed with tap-to-retry; nothing is saved
+// to history until it has actually left the device.
+async function deliverOut(R, env, mid, el, now){
+  let ok=false;
+  try{
+    if(R.group){ const a=await broadcastGroup(R,env,mid); const b=await depositMailbox(R,mid,env); ok=a||b; }
+    else if(R.paired){ const a=await broadcast(R,env,mid); const b=R.fromContact ? await depositMailbox(R,mid,env) : false; ok=a||b; }
+    else { ok=await depositMailbox(R,mid,env); }
+  }catch(e){ ok=false; }
+  if(ok){
+    setMsgState(el, stateFor(mid)); soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
+    if(!R.group && R.fromContact && !R.paired) notifyPeer(R.fromContact, "msg");     // they're not here: wake their device
   } else {
-    // peer offline → the encrypted server mailbox, then wake them with a push
-    const ok=await depositMailbox(R,mid,env);
-    if(!ok){ R.seen.delete(mid); $("msgInput").value=text; addText(R.logEl,"fail","⚠ Couldn't send — check your connection and try again",""); return; }
-    addText(R.logEl,"sent",text,"delivered when they're back",false,now);
-    if(R.fromContact && pushOn()) notifyPeer(R.fromContact);
+    setMsgState(el,"failed"); el._retry=()=>{ el._retry=null; setMsgState(el,"pending"); deliverOut(R,env,mid,el,now); };
   }
-  soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
 }
 async function sendImage(file){
   const R=A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
-  sysline(R.logEl,"encrypting & sending photo…");
+  const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid); const now=Date.now();
+  const el=addImageSent(R.logEl, null, URL.createObjectURL(file), now, {mid, st:"pending"});
   try{
     const meta=await uploadImage(file); meta.t="img"; meta.once=true;
-    const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
-    if(R.group){ await broadcastGroup(R,meta,mid); depositMailbox(R,mid,meta); }
-    else if(R.paired){ await broadcast(R,meta,mid); if(R.fromContact) depositMailbox(R,mid,meta); }
-    else { const ok=await depositMailbox(R,mid,meta); if(!ok){ R.seen.delete(mid); throw new Error("no connection"); } if(R.fromContact && pushOn()) notifyPeer(R.fromContact); }
-    addImageSent(R.logEl,meta, URL.createObjectURL(file), R.group?"":"sent", Date.now()); soundSend();
-  }catch(e){ sysline(R.logEl,"⚠ Photo not sent — "+(e&&e.message?e.message:"check your connection and try again"),true); }
+    await deliverOut(R, meta, mid, el, now);
+  }catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now); toast("Photo not sent — "+(e&&e.message?e.message:"check your connection")); }
 }
+async function sendImageRetry(R,file,el,mid,now){ el._retry=null; setMsgState(el,"pending");
+  try{ const meta=await uploadImage(file); meta.t="img"; meta.once=true; await deliverOut(R, meta, mid, el, now); }
+  catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now); } }
 function showWire(R, ctB64){ if(R && R.code!==active) return; try{ $("wireCt").textContent=hex(unb64(ctB64)); }catch(e){} }
 let _blinkT=null;
 function blinkEyes(){ const l=$("logs"); if(!l) return; l.classList.remove("blink"); void l.offsetWidth; l.classList.add("blink"); clearTimeout(_blinkT); _blinkT=setTimeout(()=>l.classList.remove("blink"),2700); }
@@ -932,35 +1038,24 @@ async function doJoin(code, opts){
   switchTo(code);
   if(gHistKey){
     const hk=histKeyOf(R);
-    let past=await histLoad(hk); let shown=0;
+    let past=await histLoad(hk);
     if(hk!==code){ // contact chat: also pick up records saved under today's daily code by older builds, then de-dupe
       const legacy=await histLoad(code); if(legacy.length){ const seenK=new Set(past.map(r=>r.mid||(r.ts+"|"+r.dir)));
         legacy.forEach(r=>{ const k=r.mid||(r.ts+"|"+r.dir); if(!seenK.has(k)){ past.push(r); seenK.add(k); } });
         past.sort((a,b)=>(a.ts||0)-(b.ts||0)); } }
-    const dur=expFor(hk); const cut=dur?Date.now()-dur:0;
-    if(dur){ histSweep(hk,cut); if(hk!==code) histSweep(code,cut); }
-    for(const r of past){
-      if(r.env.t==="img") continue;
-      if(dur && (r.ts||0)<=cut) continue;
-      addText(R.logEl, r.dir==="sent"?"sent":"recv", r.env.body, "saved", false, r.ts); shown++;
-    }
-    seedSeen(R, past);
-    if(shown) sysline(R.logEl, "— "+shown+" saved message"+(shown>1?"s":"")+" unlocked —");
+    renderHistory(R, past);
   }
   if(!R.seen) R.seen=new Set();
   const ch=client.channel("ratchet-"+code,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
   R.channel=ch;
   ch.on("presence",{event:"sync"},()=>onSync(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
+  ch.on("broadcast",{event:"rcpt"},(payload)=>onRcpt(R,payload));
   ch.subscribe(async st=>{
     if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); if(!R.paired) setStatus(R,idleStatus(R),false); fetchMailbox(R); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); }
   });
   fetchMailbox(R);   // pull anything that was queued while we were away
-  // Reconnecting to a contact: if they're not online shortly, wake them with a push.
-  if(opts.fromContact && pushOn()){
-    setTimeout(()=>{ const r=rooms.get(code); if(r && !r.paired) notifyPeer(opts.fromContact); }, 6000);
-  }
   // Keep the shared code in the URL only for manual/invite rooms; contact rooms use a
   // secret daily code that shouldn't linger in history, so reload lands on the chats list.
   try{ history.replaceState(null,"", opts.fromContact ? "/" : localRoomUrl(code)); }catch(e){}
@@ -983,14 +1078,22 @@ function showAuth(mode){
   $("ncTabs").style.display=nw?"flex":"none";
   $("bioOptWrap").style.display=((reg||login)&&bioSupported()&&!bioSet())?"flex":"none";
   $("bioBtn").hidden=!(unlock&&bioSupported()&&bioSet());
+  $("bioBtn").textContent="🙂 Unlock with "+bioLabel();
+  if($("lockHead")) $("lockHead").style.display=unlock?"block":"none";
+  if($("forgotLink")) $("forgotLink").style.display=(login||unlock)?"block":"none";
+  if($("iabNote")){ const iab=(typeof _isInApp==="function") && _isInApp() && (reg||login);
+    $("iabNote").style.display=iab?"block":"none";
+    if(iab) $("iabNote").textContent=(/iPhone|iPad|iPod/i.test(navigator.userAgent)
+      ? "You're inside WhatsApp's built-in browser. To stay logged in and get notifications, open this page in Safari first: tap ⋯ then “Open in Safari”."
+      : "You're inside an app's built-in browser. To stay logged in and get notifications, open this page in your browser first (⋯ → Open in browser)."); }
   $("backBtn").style.display=nw?"block":"none";
   if(!nw){ $("roomField").style.display="none"; $("invLinkField").style.display="none"; $("gnameField").style.display="none"; $("invField").style.display="none"; $("shareRow").style.display="none"; }
   $("joinBtn").textContent=reg?"Create account":login?"Log in":unlock?"Unlock":"Connect";
   authMsg(""); if($("userHint")){ $("userHint").textContent=""; $("userHint").className=""; }
   const sl=$("switchLink");
-  if(reg){ $("joinHint").textContent="Pick any name — no phone number or email needed — and a strong password (8+ characters)."; sl.style.display="block"; sl.textContent="Already have an account? Log in"; }
+  if(reg){ $("joinHint").textContent="Pick any name — no phone number or email needed — and a strong password (8+ characters). There is no password reset: save it in your password manager."; sl.style.display="block"; sl.textContent="Already have an account? Log in"; }
   else if(login){ $("joinHint").textContent="Log in to your Gizleme account from any device."; sl.style.display="block"; sl.textContent="New here? Create an account"; }
-  else if(unlock){ const s=sessLoad(); $("joinHint").textContent=(s&&s.display)?("Welcome back, "+s.display+"."):"Welcome back."; sl.style.display="block"; sl.textContent="Log out / switch account"; }
+  else if(unlock){ const s=sessLoad(); $("joinHint").textContent=""; if($("lockSub")) $("lockSub").textContent=(s&&s.display)?("Welcome back, "+s.display+"."):"Welcome back."; sl.style.display="block"; sl.textContent="Log out / switch account"; }
   else { sl.style.display="none"; $("roomInput").value=""; _pendingInvite=null; $("join").dataset.adv="0"; ncSet("direct"); }   // a fresh link each time New chat is opened
   if(login){ const s=sessLoad(); if(s&&s.display) $("userInput").value=s.display; }
 }
@@ -1017,7 +1120,7 @@ function switchTo(code){
   const R=rooms.get(code); if(!R) return;
   active=code; $("app").classList.remove("home");
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
-  R.unread=0;
+  clearUnread(R);
   $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar;
   $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
   // Composer is usable whenever there's somewhere to deliver: a live pairing, a group,
@@ -1193,6 +1296,7 @@ async function pullMerge(){
     } }
   // A notification tap that arrived before contacts were restored can be honoured now.
   if(_pendingNotify){ const n=_pendingNotify; _pendingNotify=null; openByNotifyKey(n).catch(()=>{}); }
+  inboxPull(true);
   return true;
 }
 async function pushBlob(){
@@ -1245,9 +1349,9 @@ async function doRegister(){
     // Private by default for a brand-new account on this device: messages disappear after 24h and the app
     // auto-locks after 5 minutes. Both are one tap to change in Settings; an existing device's choices are kept.
     try{ if(localStorage.getItem(EXP_G)===null) localStorage.setItem(EXP_G,"86400000");
-         if(localStorage.getItem(LS_AUTOLOCK)===null) localStorage.setItem(LS_AUTOLOCK,"300000"); }catch(e){}
+         if(localStorage.getItem(LS_AUTOLOCK)===null) localStorage.setItem(LS_AUTOLOCK,"900000"); }catch(e){}
     const mk=await setupPin(pw);
-    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){} }
+    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){ setTimeout(()=>toast(bioLabel()+" isn't available in this browser — you'll unlock with your password"),600); } }
     gHistKey=await histKeyFromMK(mk); await localLoad();
     clearAuthInputs(); enterApp(); applyDeepLink();
     recoverABK(AK).then(ok=>{ if(ok) syncPull(); }).catch(()=>{});
@@ -1269,7 +1373,7 @@ async function doLoginAccount(){
     sessSave({token:data.token,username:data.username,display:data.display}); myName=data.display;
     vaultOwnerCheck(data.username);
     let mk; try{ mk= pinSet()? await unlockPin(pw) : await setupPin(pw); }catch(e){ mk=await setupPin(pw); }
-    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){} }
+    if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){ setTimeout(()=>toast(bioLabel()+" isn't available in this browser — you'll unlock with your password"),600); } }
     gHistKey=await histKeyFromMK(mk); await localLoad();
     clearAuthInputs(); enterApp(); applyDeepLink();
     recoverABK(AK).then(ok=>{ if(ok) syncPull(); }).catch(()=>{});
@@ -1288,7 +1392,7 @@ async function doUnlockBio(){
   initAudio(); authMsg("");
   try{ const mk=await bioUnlock(); gHistKey=await histKeyFromMK(mk); await localLoad(); const s=sessLoad(); myName=(s&&s.display)||myName; clearAuthInputs(); enterApp(); applyDeepLink();
     recoverABK(null).then(ok=>{ if(ok) syncPull(); }).catch(()=>{}); }
-  catch(e){ authMsg("Face ID failed — use your password"); }
+  catch(e){ authMsg(bioLabel()+" didn't work — use your password"); }
 }
 async function logoutAccount(){
   const s=sessLoad();
@@ -1358,6 +1462,43 @@ async function rekey(){
   sysline(R.logEl,"↻ new keys — channel re-secured"); toast("New keys generated");
 }
 
+// Re-wrap the existing device master key under a new password (history and the cached account key stay readable).
+async function rewrapPin(newPw, mk){
+  const salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv}, await pinWrapKey(newPw,salt), mk);
+  try{ localStorage.setItem(LS_MKPIN, JSON.stringify({salt:b64(salt), iv:b64(iv), ct:b64(ct)})); }catch(e){}
+}
+async function avFor(pw){ const u=(sessLoad()||{}).username; const s=await authFn("salt",{username:u}); if(!s.data||!s.data.salt) throw new Error("net");
+  const AK=await pbkdf2bits(pw,unb64(s.data.salt)); return {AK, av:await sha256b64(AK)}; }
+async function changePassword(cur, nw){
+  const s=sessLoad(); if(!s||!s.token) throw new Error("Not logged in");
+  let mk; try{ mk=await unlockPin(cur); }catch(e){ throw new Error("Current password is wrong"); }
+  const {AK:AKold, av:avOld}=await avFor(cur);
+  if(!gABK){ const ok=await recoverABK(AKold); if(!ok) throw new Error("Couldn't reach your account backup — try again when online"); }
+  const saltB=crypto.getRandomValues(new Uint8Array(16)), AKnew=await pbkdf2bits(nw,saltB), avNew=await sha256b64(AKnew), verifier=await sha256b64(unb64(avNew));
+  const r=await authFn("changepw",{token:s.token, av:avOld, salt:b64(saltB), verifier});
+  if(isRateLimited(r)) throw new Error(RL_MSG);
+  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?"Current password is wrong":"Couldn't change the password — try again"); }
+  // the server now expects the new password: re-wrap the account backup key under it, and the local master key too
+  const wrapKey=await abkWrapKeyFromAK(AKnew); const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},wrapKey,gABK);
+  await vaultFn("rewrapAbk",{abk:{iv:b64(iv),ct:b64(ct)}, av:avNew});
+  await rewrapPin(nw, mk);
+}
+async function deleteAccount(pw){
+  const s=sessLoad(); if(!s||!s.token) throw new Error("Not logged in");
+  const {av}=await avFor(pw);
+  const r=await authFn("delete",{token:s.token, av, owners:[deviceId()], acct:_acct||undefined});
+  if(isRateLimited(r)) throw new Error(RL_MSG);
+  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?"Wrong password":"Couldn't delete the account — try again"); }
+  try{ if(gPushSub){ await gPushSub.unsubscribe(); } }catch(e){}
+  try{ localStorage.setItem(LS_PUSH,"0"); }catch(e){}
+  sessClear(); gHistKey=null; vaultClear(); localWipe();
+  try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK,LS_VAULTOWNER,LS_DEVID].forEach(k=>localStorage.removeItem(k)); }catch(e){}
+  try{ if(_db){ _db.close(); _db=null; } indexedDB.deleteDatabase("vesper"); }catch(e){}
+  [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
+  rooms.clear(); active=null; renderContacts();
+}
 const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your account. Saved message history on this device will be erased.";
 // ---------- wire-up ----------
 (function init(){
@@ -1418,6 +1559,33 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
     $("settingsModal").classList.add("show");
   }
   $("logoutBtn").addEventListener("click",()=>{ if(!confirm(LOGOUT_MSG)) return; $("settingsModal").classList.remove("show"); logoutAccount(); });
+  // forgot / change / delete password & account
+  const openModal=id=>$(id).classList.add("show"), closeModal=id=>$(id).classList.remove("show");
+  $("forgotLink").addEventListener("click",()=>openModal("forgotModal"));
+  $("forgotClose").addEventListener("click",()=>closeModal("forgotModal"));
+  $("forgotNew").addEventListener("click",()=>{ closeModal("forgotModal"); if($("join").dataset.mode==="unlock"){ if(confirm(LOGOUT_MSG)) logoutAccount().then(()=>showAuth("register")); } else showAuth("register"); });
+  $("chpwBtn").addEventListener("click",()=>{ closeModal("settingsModal"); ["pwCur","pwNew","pwNew2"].forEach(i=>$(i).value=""); $("pwMsg").textContent=""; openModal("pwModal"); });
+  $("pwCancel").addEventListener("click",()=>closeModal("pwModal"));
+  $("pwSave").addEventListener("click",async()=>{
+    const cur=$("pwCur").value, nw=$("pwNew").value, nw2=$("pwNew2").value; const m=$("pwMsg"); m.className="authmsg";
+    if(nw.length<8){ m.textContent="New password must be at least 8 characters"; return; }
+    if(nw!==nw2){ m.textContent="New passwords don't match"; return; }
+    $("pwSave").disabled=true; m.textContent="Changing…";
+    try{ await changePassword(cur,nw); m.textContent=""; closeModal("pwModal"); toast("Password changed — other devices must log in again"); }
+    catch(e){ m.textContent=(e&&e.message)||"Couldn't change the password"; }
+    $("pwSave").disabled=false;
+  });
+  $("delAcctBtn").addEventListener("click",()=>{ closeModal("settingsModal"); $("delPw").value=""; $("delMsg").textContent=""; openModal("delModal"); });
+  $("delCancel").addEventListener("click",()=>closeModal("delModal"));
+  $("delConfirm").addEventListener("click",async()=>{
+    const pw=$("delPw").value; const m=$("delMsg"); if(!pw){ m.textContent="Enter your password"; return; }
+    if(!confirm("Delete your account now? This cannot be undone.")) return;
+    $("delConfirm").disabled=true; m.textContent="Deleting…";
+    try{ await deleteAccount(pw); closeModal("delModal"); showAuth("register"); toast("Your account has been deleted"); }
+    catch(e){ m.textContent=(e&&e.message)||"Couldn't delete the account"; }
+    $("delConfirm").disabled=false;
+  });
+  ["forgotModal","pwModal","delModal"].forEach(id=>$(id).addEventListener("click",e=>{ if(e.target.id===id) closeModal(id); }));
   $("settingsClose").addEventListener("click",()=>$("settingsModal").classList.remove("show"));
   $("settingsModal").addEventListener("click",e=>{ if(e.target.id==="settingsModal") $("settingsModal").classList.remove("show"); });
   // ----- privacy & lock, and the "why Gizleme" comparison -----
@@ -1450,9 +1618,12 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
   $("expRoom").addEventListener("change",e=>{ const R=A(); if(R){ setExpRoom(histKeyOf(R),e.target.value); toast("Updated for this chat"); } });
   setInterval(sweepEphemeral, 15000);
   // poll the encrypted mailbox for every open chat so offline-sent messages arrive (and count as unread) even without a push
-  setInterval(()=>{ rooms.forEach(R=>fetchMailbox(R)); }, 20000);
+  setInterval(()=>{ inboxPull(false); }, 20000);
   // when the app comes back to the foreground (e.g. tapped a push), pull right away
-  document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ rooms.forEach(R=>fetchMailbox(R)); } });
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ inboxPull(true); } });
+  // offline banner: sending is attempted anyway (and marked failed → tap to retry), but say why
+  const updateNet=()=>{ const nb=$("netBar"); if(nb) nb.hidden=(navigator.onLine!==false); };
+  window.addEventListener("online",()=>{ updateNet(); inboxPull(true); }); window.addEventListener("offline",updateNet); updateNet();
   // Presence hygiene: leave every room's presence the moment the page is going away (a reload otherwise leaves
   // a ghost the relay keeps for a while, which the other side could pair with), and re-announce on return.
   const untrackAll=()=>rooms.forEach(R=>{ try{ R.channel&&R.channel.untrack&&R.channel.untrack(); }catch(e){} });
@@ -1519,9 +1690,11 @@ const LOGOUT_MSG="Log out of this device?\n\nYour contacts stay safe in your acc
   // hand off to the installed Gizleme app. We detect that and offer a way out: one tap on Android
   // (an Android intent that opens the installed app if set, otherwise the default browser), and a short
   // instruction on iPhone (where tapping "Open in Safari" from the in-app menu is the only route).
-  function isInAppBrowser(){ const ua=navigator.userAgent||"";
+  function isInAppBrowser(){ const ua=navigator.userAgent||""; if(isStandalone) return false;
     return /(FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Line\/|Messenger|MicroMessenger|Snapchat|TikTok|Twitter|Pinterest)/i.test(ua)
-        || (/Android/i.test(ua) && /; wv\)/.test(ua)); }
+        || (/Android/i.test(ua) && /; wv\)/.test(ua))
+        || (/iPhone|iPad|iPod/i.test(ua) && !/Safari\//i.test(ua) && !/CriOS|FxiOS|EdgiOS/i.test(ua)); }   // WKWebView without Safari's token
+  _isInApp=isInAppBrowser;
   function iabIntentUrl(){
     // Query + path only — a #g= group invite carries the group key in its fragment, which must never be
     // placed where it could be sent to a server, so those links fall back to the manual "open in browser" route.
