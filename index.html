@@ -63,7 +63,7 @@
   #join .hint{color:#8d88a3}
   #join .ghost{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.13);color:#e8e6f0}
   #join .ghost.bio{border-color:rgba(168,85,247,.5);color:#d8b4fe;font-weight:600}
-  .share-row{display:flex;gap:8px}
+  .share-row{display:flex;gap:8px;margin:0 0 14px}
   .share-row .ghost{flex:1;margin:0}
   #join .ghost.wa{flex:0 0 auto;border-color:rgba(37,211,102,.5);color:#25d366;font-weight:600}
   .authmsg{color:#f87171;font-size:.82rem;margin:-2px 0 2px;min-height:1em;text-align:center}
@@ -219,6 +219,9 @@
   .sb-head button{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:9px;width:28px;height:28px;font-size:1.1rem;line-height:1;cursor:pointer}
   .sb-head button:hover{border-color:var(--accent);color:var(--accent)}
   .sb-actions{display:flex;gap:6px;align-items:center}
+  .inv-link{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
+  .lbl-sub{font-weight:400;opacity:.65}
+  #invLinkField .linkbtn{margin-top:6px}
   .sb-actions #sbLock,.sb-actions #sbSettings{font-size:.85rem}
   /* landing promises (register screen only): the three things Signal/WhatsApp structurally can't offer */
   .promises{display:grid;gap:9px;margin:2px 0 16px}
@@ -249,6 +252,7 @@
   .ct:hover .cx{opacity:1}
   .ct .cx:hover{color:var(--bad)}
   .sb-empty{color:var(--muted);font-size:.84rem;padding:28px 18px;line-height:1.55;display:flex;flex-direction:column;align-items:center;text-align:center}
+  .sb-empty-sub{margin:14px 0 0;font-size:.78rem;opacity:.8}
   .sb-backdrop{display:none}
   /* bar brand + overflow menu */
   .bartitle{display:none;align-items:center;gap:8px;font-weight:800;font-size:1.1rem}
@@ -313,9 +317,17 @@
       <input id="pw2Input" type="password" placeholder="••••••••" maxlength="128" autocomplete="new-password"/>
     </div>
     <div class="nctabs" id="ncTabs" style="display:none">
-      <button type="button" class="nctab" data-nc="direct">Direct</button>
+      <button type="button" class="nctab" data-nc="direct">Invite</button>
       <button type="button" class="nctab" data-nc="group">Group</button>
-      <button type="button" class="nctab" data-nc="join">Join link</button>
+      <button type="button" class="nctab" data-nc="join">Got a link</button>
+    </div>
+    <div class="field" id="invLinkField" style="display:none">
+      <label for="invLinkOut">Your invite link <span class="lbl-sub">· one link per person</span></label>
+      <div class="row">
+        <div class="field" style="flex:1"><input id="invLinkOut" class="inv-link" readonly/></div>
+        <button class="ghost" id="genInvite" type="button" title="New link">⟳</button>
+      </div>
+      <button class="linkbtn" id="advRoom" type="button">Have a room code instead?</button>
     </div>
     <div class="field" id="roomField">
       <label for="roomInput">Room code</label>
@@ -323,6 +335,10 @@
         <div class="field" style="flex:1"><input id="roomInput" placeholder="ABC123" maxlength="8" autocomplete="off"/></div>
         <button class="ghost" id="genRoom" type="button" title="New code">⟳</button>
       </div>
+    </div>
+    <div class="share-row" id="shareRow" style="display:none">
+      <button class="ghost" id="copyLink" type="button">📤 Share link</button>
+      <button class="ghost wa" id="waShare" type="button">WhatsApp</button>
     </div>
     <div class="field" id="gnameField" style="display:none">
       <label for="gnameInput">Group name</label>
@@ -339,10 +355,6 @@
     <button class="ghost" id="backBtn" type="button" style="display:none">← Back to chats</button>
     <p class="hint" id="joinHint"></p>
     <button class="linkbtn" id="switchLink" type="button" style="display:none"></button>
-    <div class="share-row" id="shareRow" style="display:none">
-      <button class="ghost" id="copyLink" type="button">📤 Share invite</button>
-      <button class="ghost wa" id="waShare" type="button">WhatsApp</button>
-    </div>
   </div>
 </div>
 
@@ -643,6 +655,48 @@ async function openContact(ckB64, name){
   await doJoin(code,{fromContact:ckB64,title:name});
 }
 function closeSidebar(){ const s=$("sidebar"); if(s) s.classList.remove("open"); const b=$("sbBackdrop"); if(b) b.classList.remove("show"); }
+
+// ---------- invite links: the easy way to connect, and it works even when you're not online together ----------
+// The link carries a random secret in the URL fragment (never sent to a server, like group links). Both sides
+// derive the same contact key from it, so the invitee is your contact the moment they open the link and can
+// write to you straight away through the encrypted mailbox. The identity safety code for such contacts is
+// bound to your first *live* key exchange (see establish), not to the link, so an intercepted link is detectable.
+const INV_PLACEHOLDER="Invited friend";
+let _pendingInvite=null;   // {s, ck, url, saved} — the link shown on the New chat screen, saved as a contact once shared/opened
+async function ckFromInviteSecret(sB64){ return b64(await hkdf(unb64(sB64),"gz-invite/v1")); }
+function inviteLinkFromSecret(sB64){ return CANONICAL+"/#i="+b64url(enc.encode(JSON.stringify({s:sB64,n:realName(myName)?myName:""}))); }
+function parseInviteLink(text){ try{ const s=(text||"").trim(); const i=s.indexOf("#i="); if(i<0) return null;
+  const o=JSON.parse(dec.decode(unb64url(s.slice(i+3)))); if(o&&typeof o.s==="string"&&o.s.length>20) return o; }catch(e){} return null; }
+function contactFind(ck){ return contactsLoad().find(c=>c.ck===ck)||null; }
+function contactPatch(ck, fields){ const l=contactsLoad(); const c=l.find(x=>x.ck===ck); if(c){ Object.assign(c,fields); contactsSave(l); } }
+async function newPendingInvite(){
+  const s=b64(crypto.getRandomValues(new Uint8Array(32)));
+  _pendingInvite={ s, ck:await ckFromInviteSecret(s), url:inviteLinkFromSecret(s), saved:false };
+  const o=$("invLinkOut"); if(o) o.value=_pendingInvite.url;
+}
+function persistPendingInvite(){   // the inviter keeps a placeholder contact that becomes the person once they open the link
+  const pi=_pendingInvite; if(!pi||pi.saved) return;
+  if(!contactFind(pi.ck)){ const l=contactsLoad(); l.push({name:INV_PLACEHOLDER, ck:pi.ck, inv:1, is:pi.s, ts:Date.now()}); contactsSave(l); }
+  pi.saved=true; if(pushOn()) registerAllContacts();
+}
+function isPendingInvite(c){ return !!(c && c.inv && c.is && c.name===INV_PLACEHOLDER); }
+async function acceptInvite(inv){   // someone opened a link: become their contact and open the chat
+  const ck=await ckFromInviteSecret(inv.s);
+  const mine=contactFind(ck);
+  try{ history.replaceState(null,"","/"); }catch(e){}
+  if(mine && mine.is===inv.s){ toast("That's your own invite link — send it to a friend"); goHome(); return; }
+  const nm=realName(inv.n)?inv.n:"Friend";
+  if(!mine){ const l=contactsLoad(); l.push({name:nm, ck, inv:1, ts:Date.now()}); contactsSave(l); if(pushOn()) registerAllContacts(); }
+  else if(!realName(mine.name)||mine.name==="Friend"){ contactPatch(ck,{name:nm,ts:Date.now()}); }
+  await openContact(ck, nm);
+}
+// A contact who has written to us reveals their name inside the encrypted envelope — adopt it for placeholders.
+function adoptNameFromMessage(R, n){
+  if(!R||R.group||!R.fromContact||!realName(n)) return;
+  const c=contactFind(R.fromContact); if(!c || (c.name!==INV_PLACEHOLDER && c.name!=="Friend")) return;
+  contactPatch(R.fromContact,{name:n}); R.title=n; R.peerName=n; R.avatar=(n[0]||"?").toUpperCase();
+  if(R.code===active){ $("peerName").textContent=n; $("peerAvatar").textContent=R.avatar; } renderTabs();
+}
 function activeCK(){ const R=A(); return R&&R.fromContact||null; }
 function renderContacts(){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
@@ -652,9 +706,10 @@ function renderContacts(){
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
     const e=document.createElement("p"); e.style.margin="0 0 14px";
     if(gRestoring){ e.textContent="Restoring your chats…"; wrap.appendChild(e); el.appendChild(wrap); return; }
-    e.textContent="No chats yet. Start a secure chat or create a group — people you connect with are saved here.";
-    const btn=document.createElement("button"); btn.className="btn"; btn.textContent="＋ New chat"; btn.style.maxWidth="200px"; btn.addEventListener("click",showAddRoom);
-    wrap.appendChild(e); wrap.appendChild(btn); el.appendChild(wrap); return; }
+    e.textContent="To talk with someone, send them your invite link — when they open it, you're connected.";
+    const btn=document.createElement("button"); btn.className="btn"; btn.textContent="📤 Invite a friend"; btn.style.maxWidth="220px"; btn.addEventListener("click",showAddRoom);
+    const e2=document.createElement("p"); e2.className="sb-empty-sub"; e2.textContent="Got a link from a friend? Just open it.";
+    wrap.appendChild(e); wrap.appendChild(btn); wrap.appendChild(e2); el.appendChild(wrap); return; }
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
   items.forEach(it=>{
     const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":"");
@@ -666,7 +721,8 @@ function renderContacts(){
     const unread=openR&&openR.unread||0;
     if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=unread+" unread"; cn.appendChild(ub); }
     const cm=document.createElement("div"); cm.className="cm";
-    cm.textContent= it.id===activeId ? "● open here" : unread ? (unread+" new message"+(unread>1?"s":"")) : (it.t==="g"?"group · tap to open":"tap to reconnect");
+    const pendingInv = it.t==="c" && it.name===INV_PLACEHOLDER;
+    cm.textContent= it.id===activeId ? "● open here" : unread ? (unread+" new message"+(unread>1?"s":"")) : pendingInv ? "invite sent · waiting for them" : (it.t==="g"?"group · tap to open":"tap to reconnect");
     ci.appendChild(cn); ci.appendChild(cm);
     const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?"Leave group":"Remove contact"; x.setAttribute("aria-label",x.title);
     x.addEventListener("click",ev=>{ ev.stopPropagation(); if(it.t==="g") groupRemove(it.rid); else contactRemove(it.ck); });
@@ -790,6 +846,7 @@ async function fetchMailbox(R){
         if(it.mid) R.seen.add(it.mid);                           // claim it before awaiting so a parallel pass can't show it too
         try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
           const env=JSON.parse(dec.decode(pt)); const who=realName(env.n||it.data.name)||(R.group?"Member":"");
+          adoptNameFromMessage(R, env.n);
           if(env.t==="img"){ addImageRecvOnce(R.logEl,env, who||"delivered", ts); }
           else { addText(R.logEl,"recv",env.body, who, false, ts); histSave(histKeyOf(R),{dir:"recv",env,ts,who,mid:it.mid}); }
           if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); renderContacts(); }
@@ -826,7 +883,13 @@ async function openVerify(){
     $("verifyMark").style.display="none"; $("verifyModal").classList.add("show"); return;
   }
   $("verifyWho").textContent = R.title||R.peerName||"this contact";
-  try{ const b=await safetyBytes(R.fromContact); $("safetyEmoji").textContent=safetyEmoji(b); $("safetyCode").textContent=safetyHex(b); }
+  const c=contactFind(R.fromContact);
+  if(c && c.inv && !c.sv){      // connected through a link but never live together yet: no key exchange to verify
+    $("safetyEmoji").textContent="· · · · ·"; $("safetyCode").textContent="not yet";
+    $("verifyStatus").textContent="The code appears after your first chat while you're both online"; $("verifyStatus").classList.remove("ok");
+    $("verifyMark").style.display="none"; $("verifyModal").classList.add("show"); return;
+  }
+  try{ const b=(c&&c.inv&&c.sv) ? unb64(c.sv) : await safetyBytes(R.fromContact); $("safetyEmoji").textContent=safetyEmoji(b); $("safetyCode").textContent=safetyHex(b); }
   catch(e){ $("safetyCode").textContent="unavailable"; }
   const v=isVerified(R.fromContact);
   $("verifyStatus").textContent = v?"Verified ✓":"Not verified yet";
@@ -1144,10 +1207,15 @@ const CANONICAL="https://gizleme.com";
 function inviteLink(){ const u=new URL(CANONICAL); if(active) u.searchParams.set("room",active); return u.toString(); }
 function localRoomUrl(code){ const u=new URL(location.href); u.searchParams.set("room",code||active||""); u.hash=""; return u.toString(); }
 function inviteParts(){
-  // Only ever share a room the user is explicitly creating: the code in the New-chat field, or a plain
-  // manual room that's open. Never a contact's secret daily rendezvous code or a group id.
+  const inNew=$("join").dataset.mode==="newchat", adv=$("join").dataset.adv==="1";
+  if(inNew && !adv && _pendingInvite){            // the normal case: an invite link
+    persistPendingInvite();
+    const url=_pendingInvite.url;
+    return {room:"", url, msg:"Join me on Gizleme 🔒 private chat, no phone number needed — just open this link:\n"+url, invite:true};
+  }
+  // Legacy room code: only a room the user is explicitly creating (the code in the field, or a plain manual
+  // room that's open). Never a contact's secret daily rendezvous code or a group id.
   const R=active?rooms.get(active):null; const manual=!!(R&&!R.fromContact&&!R.group);
-  const inNew=$("join").dataset.mode==="newchat";
   const room=((inNew ? $("roomInput").value : (manual ? active : ""))||"").trim().toUpperCase();
   const u=new URL(CANONICAL); if(room) u.searchParams.set("room",room); const url=u.toString();
   const msg="Join me on Gizleme 🔒 encrypted chat — room code "+room+"\n"+url;
@@ -1169,7 +1237,10 @@ function shareWhatsApp(){
 function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!on; $("attachBtn").disabled=!on; }
 
 // ---------- session ----------
-function idleStatus(R){ return R&&R.fromContact ? "offline — messages will be delivered when they reconnect" : "waiting for peer…"; }
+function idleStatus(R){
+  if(!R||!R.fromContact) return "waiting for peer…";
+  if(isPendingInvite(contactFind(R.fromContact))) return "waiting for them to open your link — anything you write will be waiting for them";
+  return "offline — messages will be delivered when they reconnect"; }
 async function establish(R, other){
   if(R.establishing) return; R.establishing=true;          // back-to-back presence syncs must not pair twice
   let peerKey, secret, root, rootFp;
@@ -1192,6 +1263,9 @@ async function establish(R, other){
     // then save/refresh the contact — identical on both sides, no extra round-trip.
     if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){} }
     if(R.fromContact) contactUpsert(nm, R.fromContact);
+    // Link-based contact: the identity safety code is bound to this first live key exchange (both sides
+    // derive the same value), so someone who merely intercepted the link can't match it.
+    try{ const c=contactFind(R.fromContact); if(c && c.inv && !c.sv) contactPatch(R.fromContact,{sv:b64(await hkdf(secret,"gz-safety/v2",16))}); }catch(e){}
     renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
     if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
@@ -1347,30 +1421,34 @@ function showAuth(mode){
   $("bioOptWrap").style.display=((reg||login)&&bioSupported()&&!bioSet())?"flex":"none";
   $("bioBtn").hidden=!(unlock&&bioSupported()&&bioSet());
   $("backBtn").style.display=nw?"block":"none";
-  if(!nw){ $("roomField").style.display="none"; $("gnameField").style.display="none"; $("invField").style.display="none"; $("shareRow").style.display="none"; }
+  if(!nw){ $("roomField").style.display="none"; $("invLinkField").style.display="none"; $("gnameField").style.display="none"; $("invField").style.display="none"; $("shareRow").style.display="none"; }
   $("joinBtn").textContent=reg?"Create account":login?"Log in":unlock?"Unlock":"Connect";
   authMsg(""); if($("userHint")){ $("userHint").textContent=""; $("userHint").className=""; }
   const sl=$("switchLink");
   if(reg){ $("joinHint").textContent="Pick any name — no phone number or email needed — and a strong password (8+ characters)."; sl.style.display="block"; sl.textContent="Already have an account? Log in"; }
   else if(login){ $("joinHint").textContent="Log in to your Gizleme account from any device."; sl.style.display="block"; sl.textContent="New here? Create an account"; }
   else if(unlock){ const s=sessLoad(); $("joinHint").textContent=(s&&s.display)?("Welcome back, "+s.display+"."):"Welcome back."; sl.style.display="block"; sl.textContent="Log out / switch account"; }
-  else { sl.style.display="none"; $("roomInput").value=""; ncSet("direct"); }   // a fresh code each time New chat is opened
+  else { sl.style.display="none"; $("roomInput").value=""; _pendingInvite=null; $("join").dataset.adv="0"; ncSet("direct"); }   // a fresh link each time New chat is opened
   if(login){ const s=sessLoad(); if(s&&s.display) $("userInput").value=s.display; }
 }
 function ncSet(nc){
   $("join").dataset.nc=nc;
   const direct=nc==="direct", group=nc==="group", join=nc==="join";
-  $("roomField").style.display=direct?"block":"none";
+  const adv=$("join").dataset.adv==="1";                 // "room code" is the advanced form of a direct chat
+  $("invLinkField").style.display=(direct&&!adv)?"block":"none";
+  $("roomField").style.display=(direct&&adv)?"block":"none";
   $("shareRow").style.display=direct?"flex":"none";
   $("gnameField").style.display=group?"block":"none";
   $("invField").style.display=join?"block":"none";
-  $("joinBtn").textContent=direct?"Connect":group?"Create group":"Join group";
+  $("joinBtn").textContent=direct?(adv?"Connect":"Open chat"):group?"Create group":"Join";
   $("joinHint").textContent = direct
-    ? "Share this room code with one person. Once you both open it you're connected."
+    ? (adv ? "Share this room code with one person. You both need to open it at the same time."
+           : "Send this link to one person. When they open it you're connected — even if you're not online at the same time. Anyone with the link can reach you as this contact, so don't post it publicly.")
     : group ? "Create a named, encrypted group. Only people you invite with the link can join — the name alone gives no access."
-    : "Paste an invite link a group member shared with you to join their group.";
+    : "Paste a link a friend sent you — an invite or a group link.";
   [...document.querySelectorAll(".nctab")].forEach(b=>b.classList.toggle("on",b.dataset.nc===nc));
-  if(direct && !$("roomInput").value.trim()) $("roomInput").value=roomCode();   // keep a code the user may already have shared
+  if(direct && !adv && !_pendingInvite) newPendingInvite();
+  if(direct && adv && !$("roomInput").value.trim()) $("roomInput").value=roomCode();   // keep a code the user may already have shared
 }
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
@@ -1424,12 +1502,18 @@ async function openByNotifyKey(n){
 async function applyDeepLink(){
   const p=window.__pending||{}; window.__pending=null;
   if(p.group && p.group.rid && p.group.gk){ try{ await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name); return; }catch(e){} }
+  if(p.invite && p.invite.s){ try{ await acceptInvite(p.invite); return; }catch(e){} }
   if(p.room){ if(rooms.has(p.room)) switchTo(p.room); else await doJoin(p.room); return; }
   if(p.n){ const ok=await openByNotifyKey(p.n); if(ok) return; _pendingNotify=p.n; }   // contacts may still be restoring — retried after sync
   goHome();
 }
 async function connectRoom(){
   initAudio();
+  if($("join").dataset.adv!=="1"){                 // invite mode: open the chat now; a first message will wait for them
+    if(!_pendingInvite) await newPendingInvite();
+    persistPendingInvite(); const pi=_pendingInvite; _pendingInvite=null;
+    hideJoin(); await openContact(pi.ck, INV_PLACEHOLDER); return;
+  }
   const code=($("roomInput").value.trim()||roomCode()).toUpperCase();
   if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
   await doJoin(code);
@@ -1518,7 +1602,9 @@ function mergeContacts(remote){
   const lc=contactsLoad(), byCk={}; lc.forEach(c=>byCk[c.ck]=Object.assign({},c));
   (remote.contacts||[]).forEach(rc=>{ if(!rc||!rc.ck) return; const e=byCk[rc.ck];
     if(!e){ byCk[rc.ck]=Object.assign({},rc); }
-    else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1; } });
+    else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1;
+           if(rc.inv) e.inv=1; if(rc.is&&!e.is) e.is=rc.is; if(rc.sv&&!e.sv) e.sv=rc.sv;
+           if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
   (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];
     if(!e){ byRid[rg.rid]=Object.assign({},rg); }
@@ -1670,8 +1756,11 @@ function lockApp(){
   showAuth("unlock");
 }
 async function createGroupFromInput(){ initAudio(); await createGroup($("gnameInput").value.trim()); if($("gnameInput")) $("gnameInput").value=""; }
-async function joinFromInviteInput(){ initAudio(); const inv=parseInvite($("invInput").value);
-  if(!inv){ authMsg("That invite link doesn't look valid"); return; }
+async function joinFromInviteInput(){ initAudio(); const raw=$("invInput").value;
+  const pi=parseInviteLink(raw);
+  if(pi){ try{ $("invInput").value=""; hideJoin(); await acceptInvite(pi); }catch(e){ authMsg("Couldn't open that invite — try again"); } return; }
+  const inv=parseInvite(raw);
+  if(!inv){ authMsg("That link doesn't look like a Gizleme invite"); return; }
   try{ $("invInput").value=""; await doJoinGroup(inv.rid, unb64(inv.gk), inv.name); }catch(e){ authMsg("Couldn't join — try again"); } }
 async function join(){ const m=($("join").dataset.mode)||"register";
   if(m==="register") return doRegister();
@@ -1697,7 +1786,8 @@ async function rekey(){
   // pending deep-link (notification ?n= , invite ?room= , group invite #g=)
   const deepRoom=(params.get("room")||"").toUpperCase();
   let pendGroup=null; try{ const h=location.hash||""; if(h.indexOf("#g=")===0){ pendGroup=JSON.parse(dec.decode(unb64url(h.slice(3)))); } }catch(e){}
-  window.__pending={ n:params.get("n")||"", room:deepRoom, group:(pendGroup&&pendGroup.rid&&pendGroup.gk)?pendGroup:null };
+  const pendInvite=parseInviteLink(location.hash||"");
+  window.__pending={ n:params.get("n")||"", room:deepRoom, group:(pendGroup&&pendGroup.rid&&pendGroup.gk)?pendGroup:null, invite:pendInvite };
   // The #g= fragment is left in place until doJoinGroup consumes it (it strips it then): an in-app
   // browser's "Open in Safari/browser" and a reload before login both need it to still be there.
 
@@ -1709,6 +1799,9 @@ async function rekey(){
   $("homeNew").addEventListener("click",showAddRoom);
 
   $("genRoom").addEventListener("click",()=>$("roomInput").value=roomCode());
+  $("genInvite").addEventListener("click",()=>{ newPendingInvite(); toast("New link"); });
+  $("invLinkOut").addEventListener("focus",e=>{ try{ e.target.select(); }catch(x){} });
+  $("advRoom").addEventListener("click",()=>{ $("join").dataset.adv="1"; ncSet("direct"); });
   $("joinBtn").addEventListener("click",join);
   let _ucT=null;
   $("userInput").addEventListener("input",()=>{ if($("join").dataset.mode!=="register") return; clearTimeout(_ucT); _ucT=setTimeout(checkUsername,350); });
@@ -1843,7 +1936,7 @@ async function rekey(){
     try{ if(sessionStorage.getItem("gz-iab-dismiss")==="1") return; }catch(e){}
     const bar=$("iabBar"); if(!bar) return;
     const ua=navigator.userAgent||"", isAndroid=/Android/i.test(ua), iOS=/iPhone|iPad|iPod/i.test(ua);
-    const hasGroupFrag=(location.hash||"").indexOf("#g=")===0;
+    const hasGroupFrag=/^#(g|i)=/.test(location.hash||"");      // group or invite link: the secret rides in the fragment
     if(isAndroid && !hasGroupFrag){
       $("iabHint").textContent="Gizleme works best in your browser or app.";
       $("iabOpen").style.display="inline-block";
