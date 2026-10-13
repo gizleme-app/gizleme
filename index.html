@@ -766,7 +766,7 @@ async function doJoinGroup(rid, gkBytes, name){
   R.channel=ch;
   ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
-  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName}); setStatus(R,"🔒 encrypted group",true);
+  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); setStatus(R,"🔒 encrypted group",true);
       if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; } fetchMailbox(R); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); } });
   fetchMailbox(R);
@@ -797,7 +797,7 @@ async function onMsgGroup(R,{payload:p}){
     else { addText(R.logEl,"recv",env.body, who, true, now); histSave(histKeyOf(R),{dir:"recv",env,ts:now,who,mid:p.mid}); }
     if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
     soundRecv();
-  }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
+  }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
 }
 function groupInviteLink(R){ const payload=b64url(enc.encode(JSON.stringify({rid:R.rid,gk:b64(R.gk),name:R.title}))); return CANONICAL+"/#g="+payload; }
 async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
@@ -1276,12 +1276,27 @@ function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp="";
   R.peerName=known?R.title:"Waiting for peer…"; R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
   setStatus(R,idleStatus(R),false);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
+function presencePayload(R){ const p={id:R.id,name:myName,u:myUsername()}; if(!R.group) p.pub=R.pubB64; return p; }
 function onSync(R){
-  const st=R.channel.presenceState(); const others=[];
+  const st=R.channel.presenceState(); const me=myUsername(); let others=[];
   for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
-  if(others.length===0){ if(R.paired) unpair(R); else setStatus(R,idleStatus(R),false); return; }
-  if(others.length>1) sysline(R.logEl,"More than one other person is here — pairing with the first.",true);
-  const o=others[0];
+  others=others.filter(m=>!(me && m.u===me));          // my own account on another device/tab is not a peer
+  if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setStatus(R,idleStatus(R),false); return; }
+  // Presence lists are in join order, so after a reload the last entry is the live one and the earlier one is
+  // a ghost the relay hasn't expired yet: pair with the most recent.
+  let o=others[others.length-1];
+  // Several different people and one of them is the contact this chat is with: prefer them over a stranger.
+  if(others.length>1 && realName(R.title)){ const known=others.filter(m=>realName(m.name)===R.title); if(known.length) o=known[known.length-1]; }
+  if(others.length>1){
+    const sig=others.map(m=>m.id).sort().join(",");
+    if(sig!==R.multiSig){ R.multiSig=sig;
+      const names=[...new Set(others.map(m=>realName(m.name)||"someone"))];
+      if(names.length===1)
+        sysline(R.logEl, names[0]+" is connected from "+others.length+" devices — you're paired with the most recent one; their other device still receives your messages.", false);
+      else
+        sysline(R.logEl, "⚠ "+others.length+" people are in this chat: "+names.join(", ")+". You're paired with "+(realName(o.name)||"the most recent")+". If you weren't expecting anyone else, stop and compare the safety code (🛡) with them in person.", true);
+    }
+  } else R.multiSig="";
   if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o);
 }
 
@@ -1301,7 +1316,11 @@ async function onMsg(R, {payload:p}){
     else { addText(R.logEl,"recv",env.body,tag,true,now); histSave(histKeyOf(R),{dir:"recv",env,ts:now,mid:p.mid}); }
     if(R.code!==active){ R.unread=(R.unread||0)+1; renderTabs(); } else blinkEyes();
     soundRecv();
-  }catch(e){ addText(R.logEl,"fail","⚠ could not decrypt this message",""); }
+  }catch(e){
+    if(p.mid && R.seen) R.seen.delete(p.mid);            // not decrypted here: let the encrypted mailbox copy deliver it
+    if(R.fromContact){ setTimeout(()=>fetchMailbox(R),1500); }   // e.g. we're paired with their other device — the mailbox has it
+    else addText(R.logEl,"fail","⚠ could not decrypt this message","");   // manual room: nothing else will deliver it
+  }
 }
 async function broadcast(R, env, mid){
   const dir=R.id+">"+R.peer.id; const i=R.sendI++;
@@ -1391,7 +1410,7 @@ async function doJoin(code, opts){
   ch.on("presence",{event:"sync"},()=>onSync(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
   ch.subscribe(async st=>{
-    if(st==="SUBSCRIBED"){ await ch.track({id:R.id,name:myName,pub:R.pubB64}); if(!R.paired) setStatus(R,idleStatus(R),false); fetchMailbox(R); }
+    if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); if(!R.paired) setStatus(R,idleStatus(R),false); fetchMailbox(R); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,"connection problem — retrying…",false); }
   });
   fetchMailbox(R);   // pull anything that was queued while we were away
@@ -1774,7 +1793,7 @@ async function join(){ const m=($("join").dataset.mode)||"register";
 async function rekey(){
   const R=A(); if(!R||!R.channel) return;
   R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); R.rootFp="";
-  await R.channel.track({id:R.id,name:myName,pub:R.pubB64});
+  await R.channel.track(presencePayload(R));
   if(R.peer) await establish(R,R.peer);
   sysline(R.logEl,"↻ new keys — channel re-secured"); toast("New keys generated");
 }
@@ -1861,6 +1880,13 @@ async function rekey(){
   setInterval(()=>{ rooms.forEach(R=>fetchMailbox(R)); }, 20000);
   // when the app comes back to the foreground (e.g. tapped a push), pull right away
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ rooms.forEach(R=>fetchMailbox(R)); } });
+  // Presence hygiene: leave every room's presence the moment the page is going away (a reload otherwise leaves
+  // a ghost the relay keeps for a while, which the other side could pair with), and re-announce on return.
+  const untrackAll=()=>rooms.forEach(R=>{ try{ R.channel&&R.channel.untrack&&R.channel.untrack(); }catch(e){} });
+  const trackAll=()=>rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} });
+  window.addEventListener("pagehide",untrackAll);
+  window.addEventListener("pageshow",e=>{ if(e.persisted) trackAll(); });
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) trackAll(); });
 
   // ----- PWA install (surfaced in Settings) -----
   let deferredPrompt=null;
