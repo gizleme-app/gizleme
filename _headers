@@ -1,0 +1,16 @@
+# Security headers for every response (Cloudflare Workers static assets).
+# The app is a single page with same-origin scripts only; the only remote endpoints are the Supabase
+# project (functions, realtime websocket, public photo blobs). Inline <style> and style="" attributes
+# are used in the markup, hence 'unsafe-inline' for styles only — never for scripts.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://jypgewvqoifvorxgbvcs.supabase.co wss://jypgewvqoifvorxgbvcs.supabase.co; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+
+# Versioned third-party code: cache for a year (the file name changes with the version).
+/vendor/*
+  Cache-Control: public, max-age=31536000, immutable
