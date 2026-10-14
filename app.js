@@ -95,8 +95,9 @@ function contactByPrev(ckOld){ return contactsLoad().find(c=>c.prev===ckOld)||nu
 // rotated and the other hadn't come online to rotate yet: they would then land in different rendezvous rooms
 // AND different mailboxes, so each sees the other offline and no message (live or stored) ever arrives.
 // During a reconciliation window the rotated side also serves the pre-rotation (link) key — its rendezvous
-// room and its mailbox — so the not-yet-rotated side is still reached and converges onto the new key. Once
-// the peer is seen signing with the new key, reconciliation ends and the link key is dropped for good.
+// room and its mailbox — so the not-yet-rotated side is still reached and converges onto the new key. The
+// window ends only when BOTH sides have confirmed seeing each other on the new key (mutual rk in presence),
+// never unilaterally — otherwise the two could sit on different rooms and each see the other offline.
 const RECON_MS=1209600000;  // 14 days (matches mailbox retention)
 function reconActive(c){ return !!(c && c.prev && c.recon && (Date.now()-c.recon < RECON_MS)); }
 function rendezvousCKOf(c){ return reconActive(c) ? c.prev : (c?c.ck:null); }
@@ -168,6 +169,8 @@ function contactUpsert(name, ckB64){
   else list.push({name:nm||name||"Contact", ck:ckB64, ts:Date.now()});
   contactsSave(list);
 }
+// recon is per-device; never let it travel through the vault (a stale copy could resurrect a window we closed)
+function contactsForVault(){ return contactsLoad().map(c=>{ if(c.recon){ const d=Object.assign({},c); delete d.recon; return d; } return c; }); }
 function contactRemove(ckB64){
   [...rooms.values()].filter(R=>R.fromContact===ckB64).forEach(R=>leaveRoom(R.code));   // or the next presence sync re-saves them
   contactsSave(contactsLoad().filter(c=>c.ck!==ckB64)); }
@@ -1088,20 +1091,30 @@ async function establish(R, other, authed){
           sysline(R.logEl, t("🔐 Invite link retired — this chat now uses a key only your two devices know."));
         } }
     }catch(e){}
-    // The peer's tag verified against our current key (directly, or as the rotation we just performed): they
-    // are on the new key too, so reconciliation is complete and the link key can be dropped.
-    try{ if(authed){ const c=contactFind(R.fromContact); if(c && c.recon) contactPatch(R.fromContact,{recon:0}); } }catch(e){}
+    // Reconciliation ends only once BOTH sides have seen each other sign with the new (post-link) key —
+    // a mutual confirmation carried in presence (rk). Ending it unilaterally would let the two land on
+    // different rendezvous rooms (one still serving the link key, one not) and never see each other again —
+    // the exact "we're both offline to each other" failure this window exists to prevent. Until it ends the
+    // rotated side keeps serving the link room and mailbox (reconActive), so a peer who hasn't rotated yet
+    // stays reachable and converges onto the new key.
+    try{ const c=contactFind(R.fromContact);
+      if(c && c.prev){
+        const directNew=!!(other && other.tag && await authVerify(R.fromContact, other.pub, other.tag));
+        if(directNew!==!!R.peerNewKey){ R.peerNewKey=directNew; try{ if(R.channel) R.channel.track(presencePayload(R)); }catch(_e){} }
+        if(c.recon && directNew && other && other.rk) contactPatch(R.fromContact,{recon:0});
+      } else R.peerNewKey=false;
+    }catch(e){}
     renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
     if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
 }
-function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.authOk=false; R.recvI=-1;
+function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.authOk=false; R.recvI=-1; R.peerNewKey=false;
   // A saved contact keeps their name in the header while offline; only an anonymous manual room shows "Waiting for peer…".
   const known=!!(R.fromContact && realName(R.title));
   R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
   setStatus(R,idleStatus(R),false);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
-function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; } return p; }
+function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.peerNewKey) p.rk=1; } return p; }
 function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
 async function onSync(R){
   const st=R.channel.presenceState(); const me=_acct; let others=[];
@@ -1480,6 +1493,8 @@ function mergeContacts(remote){
     else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1;
            if(rc.inv) e.inv=1; if(rc.is&&!e.is&&!e.rot) e.is=rc.is; if(rc.sv&&!e.sv) e.sv=rc.sv;
            if(rc.hk&&!e.hk) e.hk=rc.hk; if(rc.prev&&!e.prev) e.prev=rc.prev; if(rc.rot&&!e.rot){ e.rot=rc.rot; delete e.is; }
+           // recon (the reconciliation window) is per-device state — what THIS device has confirmed with the
+           // peer — so it is never carried across a user's devices via the vault.
            if(rc.ats&&(rc.ats>(e.ats||0))){ e.alias=rc.alias; e.ats=rc.ats; if(!e.alias) delete e.alias; }
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
@@ -1510,11 +1525,11 @@ async function pullMerge(){
 async function pushBlob(){
   if(!gContactsKey) return false;
   const ep=gEpoch;
-  const cipher=await vaultEncrypt({ contacts:contactsLoad(), groups:groupsLoad(), ts:Date.now() });
+  const cipher=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ts:Date.now() });
   let res=await vaultFn("pushContacts",{contacts:cipher, cver:gVaultCver}); if(ep!==gEpoch) return false;
   if(res.data && res.data.conflict){            // another device advanced it — merge then retry once
     gVaultCver=res.data.cver||gVaultCver; try{ await pullMerge(); }catch(e){} if(ep!==gEpoch) return false;
-    const c2=await vaultEncrypt({ contacts:contactsLoad(), groups:groupsLoad(), ts:Date.now() });
+    const c2=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ts:Date.now() });
     res=await vaultFn("pushContacts",{contacts:c2, cver:gVaultCver}); if(ep!==gEpoch) return false;
   }
   if(res.data && res.data.ok){ gVaultCver=res.data.cver||gVaultCver; return true; }
