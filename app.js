@@ -91,6 +91,16 @@ async function rotatedCKFromSecret(secret){ return b64(await hkdf(secret,"gz-con
 async function rotatedCKFor(R, peerPubB64){ const pk=await importPub(unb64(peerPubB64)); return rotatedCKFromSecret(await sharedSecret(R.kp.privateKey,pk)); }
 function ckHistKey(ck){ const c=contactFind(ck); return (c&&c.hk)||("c:"+ck); }
 function contactByPrev(ckOld){ return contactsLoad().find(c=>c.prev===ckOld)||null; }
+// After a single-use invite link is retired, the two devices briefly run on different contact keys when one
+// rotated and the other hadn't come online to rotate yet: they would then land in different rendezvous rooms
+// AND different mailboxes, so each sees the other offline and no message (live or stored) ever arrives.
+// During a reconciliation window the rotated side also serves the pre-rotation (link) key — its rendezvous
+// room and its mailbox — so the not-yet-rotated side is still reached and converges onto the new key. Once
+// the peer is seen signing with the new key, reconciliation ends and the link key is dropped for good.
+const RECON_MS=1209600000;  // 14 days (matches mailbox retention)
+function reconActive(c){ return !!(c && c.prev && c.recon && (Date.now()-c.recon < RECON_MS)); }
+function rendezvousCKOf(c){ return reconActive(c) ? c.prev : (c?c.ck:null); }
+function contactCKSet(ckB64){ const c=contactFind(ckB64); const out=[ckB64]; if(reconActive(c) && c.prev && c.prev!==ckB64) out.push(c.prev); return out; }
 // "ok" | "bad" | "missing" | "stale" | "n/a" (no shared key yet in this room: first-ever connection via a room code)
 async function verifyPeerTag(R, other){
   if(!R.fromContact) return "n/a";
@@ -169,7 +179,8 @@ async function rvCodeFromCK(ckB64){         // secret room code for today's wind
 }
 async function openContact(ckB64, name){
   closeSidebar();
-  const code=await rvCodeFromCK(ckB64);
+  const rvck=rendezvousCKOf(contactFind(ckB64))||ckB64;    // while reconciling, meet on the pre-rotation room
+  const code=await rvCodeFromCK(rvck);
   if(rooms.has(code)){ switchTo(code); return; }
   await doJoin(code,{fromContact:ckB64,title:name});
 }
@@ -350,18 +361,28 @@ const MBOX_FN="gizleme-mbox", LS_MBTS="gz-mboxts";
 function myUsername(){ const s=sessLoad(); return (s&&s.username)||""; }
 async function mboxFn(action,extra){ return client.functions.invoke(MBOX_FN,{body:Object.assign({action},extra||{})}); }
 function roomSecretB64(R){ return R.group ? (R.gk?b64(R.gk):null) : (R.fromContact||null); }
-async function mboxIdFor(R){ const sec=roomSecretB64(R); if(!sec) return null; return b64url(new Uint8Array(await hkdf(unb64(sec),"gz-mbox/v1",16))); }
-async function mboxKeyFor(R){ if(R.group) return R.gkMsg; const sec=roomSecretB64(R); if(!sec) return null; return aesKey(await hkdf(unb64(sec),"gz-mbox-key/v1")); }
+async function mboxIdForSecret(secB64){ return b64url(new Uint8Array(await hkdf(unb64(secB64),"gz-mbox/v1",16))); }
+async function mboxKeyForSecret(secB64){ return aesKey(await hkdf(unb64(secB64),"gz-mbox-key/v1")); }
+async function mboxIdFor(R){ const sec=roomSecretB64(R); if(!sec) return null; return mboxIdForSecret(sec); }
+async function mboxKeyFor(R){ if(R.group) return R.gkMsg; const sec=roomSecretB64(R); if(!sec) return null; return mboxKeyForSecret(sec); }
 function mbtsLoad(){ try{ return JSON.parse(localStorage.getItem(LS_MBTS)||"{}")||{}; }catch(e){ return {}; } }
 function mbtsGet(id){ return mbtsLoad()[id]||0; }
 function mbtsSet(id,ts){ const m=mbtsLoad(); if(ts>(m[id]||0)){ m[id]=ts; try{ localStorage.setItem(LS_MBTS,JSON.stringify(m)); }catch(e){} } }
-async function depositMailbox(R, mid, env){
-  try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return false;
-    const iv=crypto.getRandomValues(new Uint8Array(12));
+async function depositOne(id, key, mid, env){
+  try{ const iv=crypto.getRandomValues(new Uint8Array(12));
     // the sender's display name travels inside the ciphertext, not beside it
     const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(JSON.stringify(Object.assign({},env,{n:myName,mid}))));
     const r=await mboxFn("put",{mbox:id, mid, from:_acct||undefined, data:{iv:b64(iv),ct:b64(ct)}});
     return !!(r && r.data && r.data.ok);
+  }catch(e){ return false; }
+}
+async function depositMailbox(R, mid, env){
+  try{
+    if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return false; return depositOne(id,key,mid,env); }
+    if(!R.fromContact) return false;
+    let ok=false;
+    for(const ck of contactCKSet(R.fromContact)){ if(await depositOne(await mboxIdForSecret(ck), await mboxKeyForSecret(ck), mid, env)) ok=true; }
+    return ok;
   }catch(e){ return false; }
 }
 async function fetchMailbox(R){
@@ -369,34 +390,44 @@ async function fetchMailbox(R){
   if(R.fetching) return R.fetching;          // coalesce overlapping fetches (open + subscribe + poll)
   R.fetching=(async()=>{
     let delivered=0;
-    try{ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return 0;
-      const since=mbtsGet(id);
-      const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
-      const items=(data&&data.items)||[]; if(!items.length) return 0;
+    try{
       if(!R.seen) R.seen=new Set();
-      let maxTs=since; const mine=_acct;
-      const dur=expFor(histKeyOf(R)); const cut=dur?Date.now()-dur:0;
-      for(const it of items){ const ts=Date.parse(it.ts)||Date.now(); if(ts>maxTs) maxTs=ts;
-        const own=!!(mine && it.from_user===mine);               // written by our own account's other device
-        if(it.mid && R.seen.has(it.mid)) continue;
-        if(dur && ts<=cut) continue;                             // already past this chat's disappearing window
-        if(it.mid) R.seen.add(it.mid);                           // claim it before awaiting so a parallel pass can't show it too
-        try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
-          const env=JSON.parse(dec.decode(pt));
-          if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
-          if(env.mid && it.mid && env.mid!==it.mid) throw new Error("id mismatch");
-          const who=realName(env.n)||(R.group?t("Member"):"");
-          if(!own) adoptNameFromMessage(R, env.n);
-          onInbound(R, env, who, ts, it.mid, own, false);
-          if(!own) delivered++;
-        }catch(e){ if(it.mid) R.seen.delete(it.mid); }
-      }
-      mbtsSet(id,maxTs);
-      if(delivered && !R.shadow){ soundRecv(); if(R.code===active) blinkEyes(); }
+      let variants=[];
+      if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(id&&key) variants=[[id,key]]; }
+      else if(R.fromContact){ for(const ck of contactCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck)]); }
+      for(const [id,key] of variants) delivered += await fetchMailboxId(R, id, key);
     }catch(e){}
     return delivered;
   })();
   try{ return await R.fetching; } finally { R.fetching=null; }
+}
+async function fetchMailboxId(R, id, key){
+  let delivered=0;
+  try{
+    const since=mbtsGet(id);
+    const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
+    const items=(data&&data.items)||[]; if(!items.length) return 0;
+    let maxTs=since; const mine=_acct;
+    const dur=expFor(histKeyOf(R)); const cut=dur?Date.now()-dur:0;
+    for(const it of items){ const ts=Date.parse(it.ts)||Date.now(); if(ts>maxTs) maxTs=ts;
+      const own=!!(mine && it.from_user===mine);               // written by our own account's other device
+      if(it.mid && R.seen.has(it.mid)) continue;
+      if(dur && ts<=cut) continue;                             // already past this chat's disappearing window
+      if(it.mid) R.seen.add(it.mid);                           // claim it before awaiting so a parallel pass can't show it too
+      try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
+        const env=JSON.parse(dec.decode(pt));
+        if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
+        if(env.mid && it.mid && env.mid!==it.mid) throw new Error("id mismatch");
+        const who=realName(env.n)||(R.group?t("Member"):"");
+        if(!own) adoptNameFromMessage(R, env.n);
+        onInbound(R, env, who, ts, it.mid, own, false);
+        if(!own) delivered++;
+      }catch(e){ if(it.mid) R.seen.delete(it.mid); }
+    }
+    mbtsSet(id,maxTs);
+    if(delivered && !R.shadow){ soundRecv(); if(R.code===active) blinkEyes(); }
+  }catch(e){}
+  return delivered;
 }
 // One place where every inbound message lands (live, mailbox, background): render if the chat is open,
 // always save, count as unread when not being looked at, and tell the sender it arrived.
@@ -422,17 +453,22 @@ function stateFor(mid){ return mid && _meta.rcpt[mid] ? "rcvd" : "sent"; }
 const _rcptQ={}; let _rcptT=null;
 function queueRcpt(ck, mid){ (_rcptQ[ck]=_rcptQ[ck]||[]).push(mid); clearTimeout(_rcptT); _rcptT=setTimeout(()=>{ for(const k in _rcptQ){ const mids=_rcptQ[k]; delete _rcptQ[k]; flushRcpt(k,mids).catch(()=>{}); } },800); }
 async function flushRcpt(ck, mids){
-  const S={fromContact:ck,group:false}; const id=await mboxIdFor(S), key=await mboxKeyFor(S); if(!id||!key) return;
-  const iv=crypto.getRandomValues(new Uint8Array(12));
-  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(JSON.stringify({t:"rcpt",mids})));
-  const data={iv:b64(iv),ct:b64(ct)};
-  rooms.forEach(R=>{ if(R.fromContact===ck && R.paired && R.channel){ try{ R.channel.send({type:"broadcast",event:"rcpt",payload:{from:R.id,iv:data.iv,ct:data.ct}}); }catch(e){} } });
-  try{ await mboxFn("put",{mbox:id, mid:"r"+rid(), from:_acct||undefined, data}); }catch(e){}
+  const env={t:"rcpt",mids};
+  // live copy (broadcast) to whoever we're paired with
+  rooms.forEach(R=>{ if(R.fromContact===ck && R.paired && R.channel){ try{
+    mboxKeyForSecret(ck).then(async key=>{ const iv=crypto.getRandomValues(new Uint8Array(12));
+      const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,enc.encode(JSON.stringify(env)));
+      R.channel.send({type:"broadcast",event:"rcpt",payload:{from:R.id,iv:b64(iv),ct:b64(ct)}}); }).catch(()=>{});
+  }catch(e){} } });
+  // stored copy to every key this contact is reachable on (current + link while reconciling)
+  for(const k of contactCKSet(ck)){ try{ await depositOne(await mboxIdForSecret(k), await mboxKeyForSecret(k), "r"+rid(), env); }catch(e){} }
 }
 async function onRcpt(R,{payload:p}){
   if(!p||p.from===R.id||!R.fromContact) return;
-  try{ const key=await mboxKeyFor(R); const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)},key,unb64(p.ct));
-    const env=JSON.parse(dec.decode(pt)); if(env.t==="rcpt") markReceived(histKeyOf(R), env.mids||[]); }catch(e){}
+  for(const ck of contactCKSet(R.fromContact)){
+    try{ const key=await mboxKeyForSecret(ck); const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)},key,unb64(p.ct));
+      const env=JSON.parse(dec.decode(pt)); if(env.t==="rcpt"){ markReceived(histKeyOf(R), env.mids||[]); return; } }catch(e){}
+  }
 }
 function markReceived(hk, mids){
   if(!mids.length) return;
@@ -1046,12 +1082,15 @@ async function establish(R, other, authed){
         const old=R.fromContact, nk=await rotatedCKFromSecret(secret);
         const l=contactsLoad(); const i=l.findIndex(x=>x.ck===old);
         if(i>=0 && !l.some(x=>x.ck===nk)){
-          const e=l[i]; e.prev=old; e.hk=e.hk||("c:"+old); e.ck=nk; e.rot=Date.now(); delete e.is; e.ts=Date.now();
+          const e=l[i]; e.prev=old; e.hk=e.hk||("c:"+old); e.ck=nk; e.rot=Date.now(); e.recon=Date.now(); delete e.is; e.ts=Date.now();
           contactsSave(l);
           R.fromContact=nk; await ensureTag(R); if(R.tag && R.channel) R.channel.track(presencePayload(R));
           sysline(R.logEl, t("🔐 Invite link retired — this chat now uses a key only your two devices know."));
         } }
     }catch(e){}
+    // The peer's tag verified against our current key (directly, or as the rotation we just performed): they
+    // are on the new key too, so reconciliation is complete and the link key can be dropped.
+    try{ if(authed){ const c=contactFind(R.fromContact); if(c && c.recon) contactPatch(R.fromContact,{recon:0}); } }catch(e){}
     renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
     if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
