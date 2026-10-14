@@ -27,6 +27,11 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 - Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
   phone's own maps app — Gizleme never fetches anything from a map provider.
 - Web Push ("New message from X"; never message content).
+- Audio and video calls (WebRTC): media goes peer-to-peer and is end-to-end encrypted by construction
+  (DTLS-SRTP); the signalling travels inside the chat's already-encrypted channel, so the relay sees
+  nothing but ciphertext. Group calls are a mesh of up to 4 people. A contact who is offline is woken
+  with a push ("X is calling you"). A TURN relay (Cloudflare, optional — see SECURITY.md) only forwards
+  ciphertext and is used when both sides sit behind strict NATs.
 
 ## Security
 

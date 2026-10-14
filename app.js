@@ -141,7 +141,7 @@ async function swNames(clear){
   if(!("serviceWorker" in navigator)) return;
   const names={};
   if(!clear) for(const c of contactsLoad()){ try{ const nm=c.alias||(DN_KEYS[c.name]?"":realName(c.name)); if(nm) names[await notifyKeyFor(c.ck)]=nm; }catch(e){} }
-  const msg={type:"names", names, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), anyMsg:t("New message"), anyChat:t("A contact wants to chat") }};
+  const msg={type:"names", names, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), call:t("{name} is calling you"), anyMsg:t("New message"), anyChat:t("A contact wants to chat"), anyCall:t("Incoming call") }};
   try{ const reg=await navigator.serviceWorker.ready; (reg.active||navigator.serviceWorker.controller)?.postMessage(msg); }catch(e){}
 }
 async function localSave(){ if(!gHistKey) return; const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify({contacts:_contacts,groups:_groups,meta:_meta})));
@@ -323,8 +323,11 @@ async function doJoinGroup(rid, gkBytes, name){
   renderContacts(); updateVerifyUI();
 }
 function onSyncGroup(R){
-  const st=R.channel.presenceState(); const ids=new Set(); const names=[];
-  for(const k in st) for(const m of st[k]){ if(!m.id) continue; ids.add(m.id); if(m.id!==R.id && m.name) names.push(m.name); }
+  const st=R.channel.presenceState(); const ids=new Set(); const names=[]; let cc=null, ccBy="";
+  for(const k in st) for(const m of st[k]){ if(!m.id) continue; ids.add(m.id); if(m.id!==R.id && m.name) names.push(m.name); if(m.cc && m.id!==R.id && !cc){ cc=m.cc; ccBy=m.name||""; } }
+  if(cc){ if(!R.gcall || R.gcall.cid!==cc) R.gcall={cid:cc, video:!!(R.gcall&&R.gcall.video), by:ccBy, ts:Date.now()}; }
+  else if(!(call && call.R===R)) R.gcall=null;
+  showCallBanner(R);
   const n=ids.size;
   const extra=names.length?(" · "+names.slice(0,3).join(", ")+(names.length>3?" +"+(names.length-3):"")):"";
   setStatus(R,(n>1?t("🔒 group · {n} online",{n}):t("🔒 group · 1 (just you)"))+extra,true,"online",n>1?t("{n} online",{n}):t("just you"));
@@ -344,6 +347,7 @@ async function onMsgGroup(R,{payload:p}){
     const env=JSON.parse(dec.decode(pt)); const now=Date.now();
     if(env.mid && p.mid && env.mid!==p.mid) throw new Error("id mismatch");
     const who=(realName(env.n)||realName(p.name)||t("Member"));          // the name the sender sealed inside, never the relay's
+    if(env.t==="call"){ callSignal(R, env, who).catch(()=>{}); return; }
     onInbound(R, env, who, now, p.mid, false, true);
     if(R.code===active) blinkEyes();
     soundRecv();
@@ -608,12 +612,12 @@ async function notifyPeer(ckB64, kind){
   if(!ckB64) return false;
   const nk=await notifyKeyFor(ckB64);
   let map={}; try{ map=JSON.parse(localStorage.getItem(LS_NOTIFIED)||"{}"); }catch(e){}
-  const now=Date.now(); if(map[nk]&&now-map[nk]<90000) return false;   // debounce 90s per contact
+  const now=Date.now(); if(kind!=="call" && map[nk]&&now-map[nk]<90000) return false;   // debounce 90s per contact (not for calls)
   map[nk]=now; try{ localStorage.setItem(LS_NOTIFIED,JSON.stringify(map)); }catch(e){}
   const nm=realName(myName);
   try{ await fn("notify",{notify_key:nk, from:deviceId(), title:"Gizleme",
-    body: kind==="msg" ? (nm?t("New message from {name}",{name:nm}):t("New message")) : (nm?t("{name} wants to chat on Gizleme",{name:nm}):t("A contact wants to chat")),
-    kind: kind==="msg"?"msg":"chat", url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined}); return true; }catch(e){ return false; }
+    body: kind==="msg" ? (nm?t("New message from {name}",{name:nm}):t("New message")) : kind==="call" ? (nm?t("{name} is calling you",{name:nm}):t("Incoming call")) : (nm?t("{name} wants to chat on Gizleme",{name:nm}):t("A contact wants to chat")),
+    kind: kind==="msg"?"msg":kind==="call"?"call":"chat", url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined}); return true; }catch(e){ return false; }
 }
 async function nudgeContact(){           // manual "notify this contact" from the chat
   const R=A(); if(!R||!R.fromContact) return;
@@ -830,7 +834,7 @@ function scramble(el,final,done){
 let audioCtx=null, soundOn=true;
 try{ soundOn = localStorage.getItem("vesper-sound")!=="off"; }catch(e){}
 function initAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state!=="running") return audioCtx.resume(); }catch(e){} return Promise.resolve(); }
-function beep(seq){ if(!soundOn||!audioCtx) return; const now=audioCtx.currentTime;
+function beep(seq, force){ if((!soundOn&&!force)||!audioCtx) return; const now=audioCtx.currentTime;
   seq.forEach(n=>{ const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type=n.type||"sine"; o.frequency.value=n.f;
     g.gain.setValueAtTime(0, now+n.t0); g.gain.linearRampToValueAtTime(n.gain||0.06, now+n.t0+0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, now+n.t0+n.dur); o.connect(g).connect(audioCtx.destination);
@@ -856,6 +860,212 @@ function soundRecv(){ beep(TONES[toneName()]); }
 // Preview from Settings. Must run inside a tap (iOS only unlocks audio in a user gesture) and waits for the
 // context to actually be running. On iPhone, Web Audio follows the silent switch; for the preview alone we
 // ask for the "playback" session so the chosen tone can be heard even then, and hand the session back after.
+
+// ---------- calls: audio / video over WebRTC ----------
+// Media goes peer-to-peer (DTLS-SRTP — encrypted end to end by construction; a TURN relay, when one is
+// configured, only forwards ciphertext). Signalling (offers, answers, ICE candidates) travels inside the
+// chat's existing encrypted and authenticated channel, so the relay sees nothing about a call but
+// ciphertext and the DTLS fingerprints are protected by the same session that protects messages. Groups
+// use a mesh (every participant streams to every other) — fine for a few people, capped at CALL_MAX.
+const CALL_RING_MS=45000, CALL_MAX=4, TURN_FN="gizleme-turn";
+let call=null;        // the one call this device is in
+let _iceCache=null;
+async function iceServers(){
+  const dflt=[{urls:["stun:stun.cloudflare.com:3478","stun:stun.l.google.com:19302"]}];
+  if(_iceCache && _iceCache.exp>Date.now()) return _iceCache.servers;
+  try{ const {data}=await client.functions.invoke(TURN_FN,{body:{}});
+    if(data && data.ok && Array.isArray(data.iceServers) && data.iceServers.length){ _iceCache={servers:data.iceServers, exp:Date.now()+Math.max(60,(data.ttl||600)-60)*1000}; return data.iceServers; } }catch(e){}
+  return dflt;
+}
+function callSig(R, env){ if(!R) return Promise.resolve(false); const e=Object.assign({t:"call"},env); return R.group ? broadcastGroup(R, e, rid()) : (R.paired ? broadcast(R, e, rid()) : Promise.resolve(false)); }
+function callSend(env){ return call ? callSig(call.R, env) : Promise.resolve(false); }
+function callUIShow(on){ $("callUI").hidden=!on; document.body.classList.toggle("in-call",!!on); }
+function callStatus(txt){ const e=$("callStatus"); if(e) e.textContent=txt; }
+function fmtDur(ms){ const s=Math.max(0,Math.floor(ms/1000)); return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0"); }
+function mediaErr(e){ const n=e&&e.name||"";
+  if(n==="NotAllowedError"||n==="SecurityError") return t("Microphone / camera access was denied — allow it for gizleme.com in your browser settings");
+  if(n==="NotFoundError"||n==="OverconstrainedError") return t("No microphone or camera found");
+  if(n==="NotReadableError") return t("The microphone or camera is in use by another app");
+  return t("Couldn't start the microphone / camera"); }
+async function callMedia(video, facing){
+  const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
+  const v= video ? {facingMode:facing||"user", width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:24}} : false;
+  try{ return await navigator.mediaDevices.getUserMedia({audio, video:v}); }
+  catch(e){ if(video){ return navigator.mediaDevices.getUserMedia({audio, video:false}); } throw e; }
+}
+// ----- ring sounds (synthesized; the ringtone plays even if message sounds are off) -----
+let _ringI=null;
+function startRing(kind){ stopRing(); const play=()=>{ initAudio();
+    if(kind==="tone") beep([{f:659.25,t0:0,dur:.3,gain:.05},{f:880,t0:.35,dur:.3,gain:.05},{f:659.25,t0:.7,dur:.3,gain:.05},{f:880,t0:1.05,dur:.45,gain:.05}], true);
+    else beep([{f:425,t0:0,dur:1.0,gain:.028},{f:450,t0:0,dur:1.0,gain:.022}]); };
+  play(); _ringI=setInterval(play, kind==="tone"?2600:3200); }
+function stopRing(){ clearInterval(_ringI); _ringI=null; }
+function soundEnd(){ beep([{f:523.25,t0:0,dur:.14,gain:.04},{f:392,t0:.15,dur:.24,gain:.04}]); }
+// ----- stage (remote participants) -----
+function peerEl(pid, name){
+  const st=$("callStage"); let d=st.querySelector('[data-pid="'+CSS.escape(pid)+'"]');
+  if(!d){ d=st.querySelector('[data-pid="?"]'); if(d){ d.dataset.pid=pid; d.querySelector(".pname").textContent=name||""; d.querySelector(".pav").textContent=((name||"?")[0]||"?").toUpperCase(); } }
+  if(!d){ d=document.createElement("div"); d.className="peer audio"; d.dataset.pid=pid;
+    const v=document.createElement("video"); v.autoplay=true; v.playsInline=true; d.appendChild(v);
+    const av=document.createElement("div"); av.className="pav"; av.textContent=((name||"?")[0]||"?").toUpperCase(); d.appendChild(av);
+    const nm=document.createElement("div"); nm.className="pname"; nm.textContent=name||""; d.appendChild(nm);
+    st.appendChild(d); }
+  st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); return d;
+}
+function restage(){ const st=$("callStage"); st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); }
+async function newPeer(pid, name, initiator){
+  if(!call) return null;
+  const pc=new RTCPeerConnection({iceServers:await iceServers(), bundlePolicy:"max-bundle"});
+  if(!call) { try{ pc.close(); }catch(e){} return null; }
+  const P={pid, name, pc, cands:[], remoteSet:false, el:peerEl(pid,name), stream:new MediaStream(), connected:false};
+  call.peers.set(pid,P);
+  if(call.local) call.local.getTracks().forEach(tr=>pc.addTrack(tr, call.local));
+  pc.onicecandidate=e=>{ if(e.candidate && call) callSend({a:"ice",cid:call.cid,to:pid,from:call.me,cand:e.candidate.toJSON()}); };
+  pc.ontrack=e=>{ P.stream.addTrack(e.track); const v=P.el.querySelector("video"); if(v.srcObject!==P.stream) v.srcObject=P.stream; v.play().catch(()=>{});
+    if(e.track.kind==="video"){ P.el.classList.remove("audio"); e.track.onmute=()=>P.el.classList.add("audio"); e.track.onunmute=()=>P.el.classList.remove("audio"); } };
+  pc.onconnectionstatechange=()=>{ const st=pc.connectionState;
+    if(st==="connected"){ clearTimeout(P.discT); P.connected=true; onCallConnected(); }
+    else if(st==="failed"){ dropPeer(pid,"failed"); }
+    else if(st==="disconnected"){ clearTimeout(P.discT); P.discT=setTimeout(()=>{ if(pc.connectionState==="disconnected") dropPeer(pid,"lost"); },8000); } };
+  if(initiator){ const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
+    callSend({a:"offer",cid:call.cid,to:pid,from:call.me,sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp},video:call.video,n:myName}); }
+  return P;
+}
+function dropPeer(pid, why){
+  if(!call) return; const P=call.peers.get(pid); if(!P) return; call.peers.delete(pid); clearTimeout(P.discT);
+  try{ P.pc.close(); }catch(e){} if(P.el) P.el.remove(); restage();
+  if(!call.group){ endCall(call.t1?"ended":"failed", true); return; }      // 1:1: the call is over
+  if(call.peers.size===0) callStatus(t("Waiting for others…"));
+}
+function anyConnected(){ return !!(call && [...call.peers.values()].some(P=>P.connected)); }
+function onCallConnected(){
+  if(!call) return;
+  if(!call.t1){ call.t1=Date.now(); call.state="live"; stopRing(); clearTimeout(call.ringT); clearTimeout(call.pushT); soundConnect(); }
+  if(!call.timer) call.timer=setInterval(()=>{ if(!call||!call.t1) return;
+    if(call.group && call.peers.size===0) callStatus(t("Waiting for others…"));
+    else callStatus(fmtDur(Date.now()-call.t1)+(call.group?" · "+t("{n} in the call",{n:call.peers.size+1}):"")); },1000);
+  callStatus(call.group && call.peers.size===0 ? t("Waiting for others…") : "00:00");
+}
+function setLocalPreview(){ const v=$("callLocal"); if(!call||!call.local){ v.hidden=true; v.srcObject=null; return; }
+  const hasV=call.local.getVideoTracks().some(tr=>tr.enabled); v.srcObject=call.local; v.hidden=!hasV; v.play().catch(()=>{});
+  $("callCam").hidden=!call.local.getVideoTracks().length; $("callFlip").hidden=!call.local.getVideoTracks().length || !/iphone|ipad|ipod|android/i.test(navigator.userAgent);
+  $("callMute").classList.toggle("on", !call.local.getAudioTracks().every(tr=>tr.enabled));
+  $("callCam").classList.toggle("on", call.local.getVideoTracks().length>0 && !hasV); }
+function showOutgoing(){ callUIShow(true); $("callName").textContent=call.name||""; $("callIncoming").hidden=true; $("callCtl").hidden=false; $("callStage").innerHTML=""; setLocalPreview(); }
+function showIncoming(){ callUIShow(true); $("callName").textContent=call.name||""; callStatus(call.video?t("Incoming video call"):t("Incoming audio call")); $("callIncoming").hidden=false; $("callCtl").hidden=true; $("callLocal").hidden=true; $("callStage").innerHTML=""; peerEl(call.from||"?", call.name); startRing("tone"); }
+// ----- 1:1 -----
+async function startCall(video){
+  const R=A(); if(!R) return;
+  if(call){ toast(t("You're already in a call")); return; }
+  if(!navigator.mediaDevices || !window.RTCPeerConnection){ toast(t("Calls aren't supported in this browser")); return; }
+  if(R.group) return startGroupCall(R, video);
+  if(!R.fromContact && !R.paired) return;
+  initAudio();
+  let local; try{ local=await callMedia(video); }catch(e){ toast(mediaErr(e)); return; }
+  video = video && local.getVideoTracks().length>0;
+  call={R, cid:rid(), dir:"out", group:false, video, state:"calling", peers:new Map(), me:R.id, local, name:R.peerName||dn(R.title), t0:Date.now(), ackd:false};
+  showOutgoing(); peerEl("?", call.name); callStatus(t("Calling…")); startRing("back");
+  call.ringT=setTimeout(()=>{ if(call && !call.t1){ callSend({a:"cancel",cid:call.cid,to:call.from,from:call.me}); endCall("noanswer",true); } }, CALL_RING_MS);
+  // not answered quickly (or not even online): wake their phone — "X is calling you"
+  call.pushT=setTimeout(()=>{ if(call && !call.ackd && R.fromContact) notifyPeer(R.fromContact,"call").catch(()=>{}); }, R.paired?4000:0);
+  callTryInvite();
+  // the invitation is repeated until the other side acknowledges it ("ringing"): it may have been sent while
+  // they were still finishing their own pairing, or simply lost on the way
+  call.inviteT=setInterval(()=>{ if(call && call.state==="calling" && !call.ackd) callTryInvite(); else clearInterval(call && call.inviteT); }, 2000);
+}
+function callTryInvite(){
+  if(!call || call.group || call.dir!=="out" || call.state!=="calling") return;
+  const R=call.R; if(!R.paired || !R.peer){ callStatus(t("Reaching them…")); return; }
+  call.from=R.peer.id; peerEl(R.peer.id, call.name); if(!call.ackd) callStatus(t("Calling…"));
+  callSig(R,{a:"invite",cid:call.cid,from:R.id,to:R.peer.id,video:call.video,n:myName});
+}
+async function acceptCall(){
+  if(!call || call.dir!=="in" || call.state!=="ringing") return; stopRing(); clearTimeout(call.ringT); initAudio();
+  let local; try{ local=await callMedia(call.video); }catch(e){ toast(mediaErr(e)); declineCall(); return; }
+  if(!call) { local.getTracks().forEach(tr=>tr.stop()); return; }
+  call.local=local; call.video=call.video && local.getVideoTracks().length>0; call.state="connecting";
+  $("callIncoming").hidden=true; $("callCtl").hidden=false; setLocalPreview(); callStatus(t("Connecting…"));
+  callSend({a:"accept",cid:call.cid,to:call.from,from:call.me,video:call.video});
+}
+function declineCall(){ if(!call) return; callSend({a:"decline",cid:call.cid,to:call.from,from:call.me}); endCall("declined",true); }
+function hangup(){ if(!call) return; endCall("ended"); }
+function endCall(reason, silent){
+  const c=call; if(!c) return; call=null;
+  stopRing(); clearTimeout(c.ringT); clearTimeout(c.pushT); clearInterval(c.timer); clearInterval(c.inviteT);
+  if(!silent && c.R){ try{ callSig(c.R, c.group ? {a:"hangup",cid:c.cid,from:c.me} : {a:(c.dir==="out"&&!c.t1)?"cancel":"hangup", cid:c.cid, from:c.me, to:c.from}); }catch(e){} }
+  c.peers.forEach(P=>{ clearTimeout(P.discT); try{ P.pc.close(); }catch(e){} });
+  if(c.local) c.local.getTracks().forEach(tr=>tr.stop());
+  $("callStage").innerHTML=""; $("callLocal").srcObject=null; callUIShow(false);
+  const kind=c.video?t("Video call"):t("Audio call"); const dur=c.t1?fmtDur(Date.now()-c.t1):null;
+  const line = dur ? "📞 "+kind+" · "+dur
+    : reason==="declined" ? t("📞 {kind} declined",{kind}) : reason==="busy" ? t("📞 {kind} — busy",{kind})
+    : reason==="missed" ? t("📞 Missed {kind}",{kind}) : reason==="noanswer" ? t("📞 {kind} — no answer",{kind})
+    : reason==="failed" ? t("📞 {kind} — connection failed",{kind}) : t("📞 {kind} ended",{kind});
+  if(c.R && c.R.logEl) sysline(c.R.logEl, line);
+  if(c.group && c.R){ if(c.R.gcall && c.R.gcall.cid===c.cid && !anyOtherInCall(c.R)) c.R.gcall=null; try{ c.R.channel && c.R.channel.track(presencePayload(c.R)); }catch(e){} showCallBanner(c.R); }
+  if(c.t1 || reason==="declined" || reason==="busy") soundEnd();
+  updateCallUI();
+}
+function anyOtherInCall(R){ try{ const st=R.channel.presenceState(); for(const k in st) for(const m of st[k]) if(m.cc && m.id!==R.id) return true; }catch(e){} return false; }
+// ----- signalling -----
+async function callSignal(R, env, who){
+  const a=env.a; if(!a) return;
+  if(a==="gstart"){ if(R.group){ R.gcall={cid:env.cid, video:!!env.video, by:who, ts:Date.now()}; showCallBanner(R); if(!call){ if(R.logEl) sysline(R.logEl, t("📞 {name} started a {kind}",{name:who, kind:env.video?t("video call"):t("audio call")})); soundRecv(); } } return; }
+  if(a==="invite"){
+    if(call){ if(call.cid!==env.cid) callSig(R,{a:"busy",cid:env.cid,to:env.from,from:R.id}); else callSig(R,{a:"ringing",cid:env.cid,to:env.from,from:R.id}); return; }
+    call={R, cid:env.cid, dir:"in", group:false, video:!!env.video, state:"ringing", peers:new Map(), me:R.id, from:env.from, name:who||R.peerName||dn(R.title), t0:Date.now()};
+    showIncoming(); callSig(R,{a:"ringing",cid:env.cid,to:env.from,from:R.id});
+    call.ringT=setTimeout(()=>{ if(call && call.state==="ringing") endCall("missed",true); }, CALL_RING_MS);
+    updateCallUI(); return; }
+  if(!call || env.cid!==call.cid) return;
+  if(env.to && env.to!==call.me) return;
+  switch(a){
+    case "ringing": call.ackd=true; clearTimeout(call.pushT); if(call.state==="calling") callStatus(t("Ringing…")); break;
+    case "accept": if(call.dir!=="out" || call.group) break; call.state="connecting"; stopRing(); callStatus(t("Connecting…")); await newPeer(env.from||call.from, call.name, true); break;
+    case "offer": { if(!env.sdp) break; let P=call.peers.get(env.from); if(!P){ if(call.group && call.peers.size>=CALL_MAX-1) break; P=await newPeer(env.from, env.n||who||call.name, false); if(!P) break; }
+      await P.pc.setRemoteDescription(env.sdp); P.remoteSet=true; for(const c of P.cands){ try{ await P.pc.addIceCandidate(c); }catch(e){} } P.cands=[];
+      const ans=await P.pc.createAnswer(); await P.pc.setLocalDescription(ans);
+      callSend({a:"answer",cid:call.cid,to:env.from,from:call.me,sdp:{type:P.pc.localDescription.type,sdp:P.pc.localDescription.sdp}}); break; }
+    case "answer": { const P=call.peers.get(env.from); if(!P||!env.sdp) break; await P.pc.setRemoteDescription(env.sdp); P.remoteSet=true; for(const c of P.cands){ try{ await P.pc.addIceCandidate(c); }catch(e){} } P.cands=[]; break; }
+    case "ice": { const P=call.peers.get(env.from); if(!P||!env.cand) break; if(P.remoteSet){ try{ await P.pc.addIceCandidate(env.cand); }catch(e){} } else P.cands.push(env.cand); break; }
+    case "decline": if(!call.group) endCall("declined",true); break;
+    case "busy": if(!call.group) endCall("busy",true); break;
+    case "cancel": if(!call.group) endCall("missed",true); break;
+    case "hangup": if(call.group) dropPeer(env.from,"left"); else endCall("ended",true); break;
+    case "gjoin": if(call.group && env.from!==call.me){ if(call.peers.size>=CALL_MAX-1) break; if(!call.peers.has(env.from)) await newPeer(env.from, env.n||who, true); } break;
+  }
+}
+// ----- groups: "there is a call, join it" (no ringing; presence tells who is in) -----
+async function startGroupCall(R, video){
+  initAudio(); let local; try{ local=await callMedia(video); }catch(e){ toast(mediaErr(e)); return; }
+  video = video && local.getVideoTracks().length>0;
+  call={R, cid:rid(), dir:"out", group:true, video, state:"live", peers:new Map(), me:R.id, local, name:R.title||t("Group"), t0:Date.now()};
+  showOutgoing(); onCallConnected();
+  R.gcall={cid:call.cid, video, by:myName, ts:Date.now()}; try{ R.channel && R.channel.track(presencePayload(R)); }catch(e){}
+  callSig(R,{a:"gstart",cid:call.cid,from:R.id,video,n:myName}); showCallBanner(R); updateCallUI();
+}
+async function joinGroupCall(){
+  const R=A(); if(!R||!R.group||!R.gcall) return; if(call){ toast(t("You're already in a call")); return; }
+  initAudio(); let local; try{ local=await callMedia(R.gcall.video); }catch(e){ toast(mediaErr(e)); return; }
+  call={R, cid:R.gcall.cid, dir:"in", group:true, video:!!(R.gcall.video && local.getVideoTracks().length), state:"connecting", peers:new Map(), me:R.id, local, name:R.title||t("Group"), t0:Date.now()};
+  showOutgoing(); callStatus(t("Connecting…")); try{ R.channel && R.channel.track(presencePayload(R)); }catch(e){}
+  callSig(R,{a:"gjoin",cid:call.cid,from:R.id,n:myName,video:call.video}); showCallBanner(R); updateCallUI();
+}
+function showCallBanner(R){ const b=$("callBanner"); if(!b) return; if(!R || R.code!==active){ if(!R) b.hidden=true; return; }
+  const on=!!(R.group && R.gcall && !(call && call.cid===R.gcall.cid)); b.hidden=!on;
+  if(on) $("callBannerText").textContent= R.gcall.by ? t("{name} is in a call",{name:R.gcall.by}) : t("Call in progress"); }
+function updateCallUI(){ const R=A(); const ok=!!(R && (R.group || R.fromContact || R.paired)) && !!(navigator.mediaDevices && window.RTCPeerConnection);
+  const cb=$("callBtn"), vb=$("videoBtn"); if(cb) cb.hidden=!ok; if(vb) vb.hidden=!ok; }
+// ----- in-call controls -----
+function toggleMute(){ if(!call||!call.local) return; const on=!call.local.getAudioTracks().every(tr=>tr.enabled); call.local.getAudioTracks().forEach(tr=>tr.enabled=on); setLocalPreview(); }
+function toggleCam(){ if(!call||!call.local) return; const vts=call.local.getVideoTracks(); if(!vts.length) return; const on=!vts.every(tr=>tr.enabled); vts.forEach(tr=>tr.enabled=on); setLocalPreview(); }
+async function flipCam(){ if(!call||!call.local) return; const cur=call.local.getVideoTracks()[0]; if(!cur) return;
+  const facing=(cur.getSettings().facingMode==="environment")?"user":"environment";
+  let ns; try{ ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:facing}, width:{ideal:640}, height:{ideal:480}}}); }catch(e){ toast(t("Couldn't switch camera")); return; }
+  const nt=ns.getVideoTracks()[0]; if(!nt) return;
+  call.peers.forEach(P=>{ const sn=P.pc.getSenders().find(x=>x.track && x.track.kind==="video"); if(sn) sn.replaceTrack(nt).catch(()=>{}); });
+  call.local.removeTrack(cur); cur.stop(); call.local.addTrack(nt); $("callLocal").style.transform=facing==="user"?"scaleX(-1)":"none"; setLocalPreview();
+}
 async function previewTone(n){
   setTone(n); const p=initAudio();
   let as=null; try{ as=navigator.audioSession; if(as && as.type!=="playback"){ as.type="playback"; setTimeout(()=>{ try{ as.type="auto"; }catch(e){} },1500); } }catch(e){}
@@ -1165,7 +1375,7 @@ async function establish(R, other, authed){
         if(c.recon && directNew && other && other.rk) contactPatch(R.fromContact,{recon:0});
       } else R.peerNewKey=false;
     }catch(e){}
-    renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
+    renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI(); updateCallUI(); callTryInvite();
     if(pushOn()) registerAllContacts();      // make sure we're reachable under this contact
   }
 }
@@ -1175,7 +1385,7 @@ function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.aut
   R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
   setIdle(R);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
-function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.peerNewKey) p.rk=1; } return p; }
+function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.peerNewKey) p.rk=1; } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
 function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
 async function onSync(R){
   const st=R.channel.presenceState(); const me=_acct; let others=[];
@@ -1232,6 +1442,7 @@ async function onMsg(R, {payload:p}){
     const env=JSON.parse(dec.decode(pt));
     if(env.mid && env.mid!==p.mid) throw new Error("id mismatch");    // the id outside must be the id the sender sealed inside
     const now=Date.now();
+    if(env.t==="call"){ callSignal(R, env, R.peerName).catch(()=>{}); return; }
     onInbound(R, env, "", now, p.mid, false, true);
     if(R.code===active) blinkEyes();
     soundRecv();
@@ -1423,7 +1634,7 @@ function ncSet(nc){
 }
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
-  active=code; $("app").classList.remove("home");
+  active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   clearUnread(R);
   $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar;
@@ -1712,6 +1923,7 @@ async function doUnlockBio(){
   catch(e){ authMsg(t("{bio} didn't work — use your password",{bio:bioLabel()})); }
 }
 async function logoutAccount(){
+  if(call) endCall("ended");
   const s=sessLoad();
   let flushed=false;
   try{ clearTimeout(_syncT); if(gContactsKey) flushed=await pushBlob(); }catch(e){}   // flush pending changes before the token dies
@@ -1745,7 +1957,7 @@ function autoLockMs(){ try{ return +localStorage.getItem(LS_AUTOLOCK)||0; }catch
 function setAutoLock(ms){ try{ localStorage.setItem(LS_AUTOLOCK,String(ms||0)); }catch(e){} armAutoLock(); }
 let _lockT=null, _hiddenAt=0;
 function armAutoLock(){ clearTimeout(_lockT); const ms=autoLockMs(); if(!ms||!gHistKey) return; _lockT=setTimeout(lockApp, ms); }
-function lockApp(){
+function lockApp(){ if(call) endCall("ended");
   const s=sessLoad(); if(!s||!gHistKey) return;                 // not signed in, or already locked
   clearTimeout(_lockT); clearTimeout(_syncT);
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
@@ -1866,6 +2078,11 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
+  $("callBtn").addEventListener("click",()=>startCall(false)); $("videoBtn").addEventListener("click",()=>startCall(true));
+  $("callEnd").addEventListener("click",hangup); $("callAccept").addEventListener("click",acceptCall); $("callDecline").addEventListener("click",declineCall);
+  $("callMute").addEventListener("click",toggleMute); $("callCam").addEventListener("click",toggleCam); $("callFlip").addEventListener("click",flipCam);
+  $("callBannerJoin").addEventListener("click",joinGroupCall);
+  window.addEventListener("pagehide",()=>{ if(call) endCall("ended"); });
   const ginvLink=()=>{ const g=_ginvPending; if(!g) return ""; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify({rid:g.rid,gk:g.gk,name:g.name}))); };
   $("ginvShare").addEventListener("click",async()=>{ const g=_ginvPending; if(!g) return; const url=ginvLink(); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:g.name,url});
     if(navigator.share){ try{ await navigator.share({text:msg}); $("ginvModal").classList.remove("show"); return; }catch(e){ if(e&&e.name==="AbortError") return; } }

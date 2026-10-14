@@ -67,6 +67,15 @@ rate-limit counters.
   (a calm note, not an alarm) and the old mailbox is no longer read. An impostor who opened the link and
   paired *before* the real invitee still becomes the contact — the in-person safety code is the check for
   that.
+- **Calls reveal IP addresses to the other party.** Media is peer-to-peer (DTLS-SRTP, keyed on the
+  wire by the two devices; the fingerprints are exchanged inside the chat's encrypted, authenticated
+  channel, so the relay cannot sit in the middle). Like any P2P call, each side learns the other's IP
+  address — unless a TURN relay carries the media, which is also what makes calls work when both phones
+  are behind strict (carrier-grade) NATs. TURN is optional: set the Cloudflare TURN key id and token as
+  the `gizleme-turn` function's secrets (`CF_TURN_KEY_ID`, `CF_TURN_KEY_TOKEN`); the function hands out
+  short-lived credentials and the relay only ever forwards ciphertext. Group calls are a mesh (every
+  participant to every other), capped at 4. A web app cannot ring while closed the way a phone app does:
+  an offline contact gets a push ("X is calling you") and the call connects when they open the chat.
 - **Groups have no sender authentication and no key rotation.** Any member or the relay could re-label a
   group message; leaving a group does not revoke the key. Create a new group to exclude someone.
 - **Offline password guessing by the server.** The verifier is derived with PBKDF2-200k; a weak password
