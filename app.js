@@ -889,16 +889,17 @@ function scrollEl(el){ try{ el.scrollTop=el.scrollHeight; requestAnimationFrame(
 const vv=window.visualViewport;
 let _fitT=null, _maxVH=0, _logRO=null;
 function viewH(){ return Math.round((vv&&vv.height)||window.innerHeight||0); }
+function fitTarget(){ const b=document.body.classList; return b.contains("in-app") ? $("app") : b.contains("in-auth") ? $("join") : null; }
 function fitViewport(){
-  const app=$("app"); if(!app||!document.body.classList.contains("in-app")) return;
+  const el=fitTarget(); if(!el) return;
   const h=viewH(); if(!h) return;
   if(h>_maxVH) _maxVH=h;
   const kb=(_maxVH-h)>120;
-  app.style.height=h+"px";
-  const top=vv?Math.round(vv.offsetTop):0; app.style.transform=top>1?("translateY("+top+"px)"):"";
+  el.style.height=h+"px";
+  const top=vv?Math.round(vv.offsetTop):0; el.style.transform=top>1?("translateY("+top+"px)"):"";
   document.body.classList.toggle("kb",kb);
   if(window.scrollY) try{ window.scrollTo(0,0); }catch(e){}
-  stickLog();
+  if(el.id==="app") stickLog();
 }
 // The latest messages stay in view whenever the conversation area changes size (keyboard, rotation, the
 // composer growing to several lines) — unless the reader has scrolled up on purpose.
@@ -911,11 +912,11 @@ function watchLog(l){
 // toggle on the full-height element makes WebKit measure again.
 function healViewport(){
   if(!(window.navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches))) return;
-  const app=$("app"); if(!app||!document.body.classList.contains("in-app")) return;
+  const el=fitTarget(); if(!el) return;
   if(viewH() >= _maxVH-4) return;
-  const R=A(), st=R&&R.logEl?R.logEl.scrollTop:0;
-  const d=app.style.display; app.style.display="none"; void app.offsetHeight; app.style.display=d||"flex";
-  if(R&&R.logEl) R.logEl.scrollTop=st;
+  const R=A(), st=R&&R.logEl?R.logEl.scrollTop:0, js=el.scrollTop;
+  const d=el.style.display; el.style.display="none"; void el.offsetHeight; el.style.display=d||"flex";
+  if(R&&R.logEl) R.logEl.scrollTop=st; el.scrollTop=js;
   setTimeout(fitViewport,50);
 }
 if(vv){ vv.addEventListener("resize",fitViewport); vv.addEventListener("scroll",fitViewport); }
@@ -1289,15 +1290,16 @@ async function doJoin(code, opts){
   try{ history.replaceState(null,"", opts.fromContact ? "/" : localRoomUrl(code)); }catch(e){}
 }
 let _installChecked=false, _showInstallInvite=null;
-function enterApp(){ $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
+function enterApp(){ $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
 function goHome(){ active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
-  $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.add("in-app"); fitViewport();
+  $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 function showAuth(mode){
   $("app").style.display="none"; $("join").style.display="flex"; $("join").dataset.mode=mode;
-  document.body.classList.remove("in-app","kb"); const ap=$("app"); ap.style.height=""; ap.style.transform=""; try{ window.scrollTo(0,0); }catch(e){}
+  document.body.classList.remove("in-app","kb"); document.body.classList.add("in-auth"); const ap=$("app"); ap.style.height=""; ap.style.transform=""; try{ window.scrollTo(0,0); }catch(e){}
+  $("join").scrollTop=0; fitViewport();
   const reg=mode==="register", login=mode==="login", unlock=mode==="unlock", nw=mode==="newchat";
   $("userField").style.display=(reg||login)?"block":"none";
   if($("promises")) $("promises").style.display=reg?"grid":"none";   // the pitch belongs on the first screen only
@@ -1802,6 +1804,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("attachBtn").addEventListener("mousedown",e=>e.preventDefault());
   $("msgInput").addEventListener("focus",()=>{ [120,350,700].forEach(ms=>setTimeout(()=>{ fitViewport(); stickLog(); },ms)); });
   $("msgInput").addEventListener("blur",()=>{ setTimeout(healViewport,160); setTimeout(fitViewport,400); });
+  $("join").addEventListener("focusin",e=>{ const el=e.target; if(!el||!/^(INPUT|TEXTAREA)$/.test(el.tagName)) return;
+    [150,400,750].forEach(ms=>setTimeout(()=>{ fitViewport(); try{ el.scrollIntoView({block:"center",behavior:ms===150?"auto":"smooth"}); }catch(_e){} },ms)); });
+  $("join").addEventListener("focusout",()=>{ setTimeout(healViewport,160); setTimeout(fitViewport,400); });
   // Enter sends (the mobile keyboard shows "send" via enterkeyhint); Shift+Enter makes a new line. The box grows up to ~5 lines.
   $("msgInput").addEventListener("keydown",e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendText(); } });
   const growBox=()=>{ const el=$("msgInput"); el.style.height="auto"; el.style.height=Math.min(120, el.scrollHeight)+"px"; };
