@@ -293,7 +293,7 @@ async function doJoinGroup(rid, gkBytes, name){
   { const g=groupsLoad().find(x=>x.rid===rid); if(g&&g.alias){ R.title=g.alias; R.peerName=g.alias; } }
   try{ R.gkMsg=await gkMsgKey(gkBytes); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }
-  const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl;
+  const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl; watchLog(logEl);
   rooms.set(code,R); hideJoin(); switchTo(code);
   if(gHistKey){ renderHistory(R, await histLoad(code)); }
   if(!R.seen) R.seen=new Set();
@@ -845,19 +845,43 @@ function scrollEl(el){ try{ el.scrollTop=el.scrollHeight; requestAnimationFrame(
 // Safari shifts the page to reveal the input, taking the header (and its back button) off-screen for good.
 // Size the app to the visual viewport and pin it to its top: header stays, composer sits on the keyboard,
 // and the conversation keeps showing its latest messages.
+// Installed on an iPhone (standalone), window.innerHeight follows the keyboard too, so "keyboard open" is
+// judged against the tallest viewport seen in this orientation rather than against innerHeight.
 const vv=window.visualViewport;
-let _kbOpen=false, _fitT=null;
+let _fitT=null, _maxVH=0, _logRO=null;
+function viewH(){ return Math.round((vv&&vv.height)||window.innerHeight||0); }
 function fitViewport(){
-  if(!vv) return; const app=$("app"); if(!app||!document.body.classList.contains("in-app")) return;
-  const h=Math.round(vv.height); if(!h) return;
-  const kb=(window.innerHeight-h)>120;
-  app.style.height=h+"px"; app.style.transform=vv.offsetTop>1?("translateY("+Math.round(vv.offsetTop)+"px)"):"";
+  const app=$("app"); if(!app||!document.body.classList.contains("in-app")) return;
+  const h=viewH(); if(!h) return;
+  if(h>_maxVH) _maxVH=h;
+  const kb=(_maxVH-h)>120;
+  app.style.height=h+"px";
+  const top=vv?Math.round(vv.offsetTop):0; app.style.transform=top>1?("translateY("+top+"px)"):"";
   document.body.classList.toggle("kb",kb);
   if(window.scrollY) try{ window.scrollTo(0,0); }catch(e){}
-  if(kb!==_kbOpen){ _kbOpen=kb; const R=A(); if(R&&R.logEl) requestAnimationFrame(()=>scrollEl(R.logEl)); }
+  stickLog();
 }
-if(vv){ vv.addEventListener("resize",fitViewport); vv.addEventListener("scroll",fitViewport);
-  window.addEventListener("orientationchange",()=>{ clearTimeout(_fitT); _fitT=setTimeout(fitViewport,350); }); }
+// The latest messages stay in view whenever the conversation area changes size (keyboard, rotation, the
+// composer growing to several lines) — unless the reader has scrolled up on purpose.
+function stickLog(){ const R=A(); if(R&&R.logEl&&R.logEl._stick!==false) scrollEl(R.logEl); }
+function watchLog(l){
+  l.addEventListener("scroll",()=>{ l._stick=(l.scrollHeight-l.scrollTop-l.clientHeight)<56; },{passive:true});
+  if(window.ResizeObserver){ if(!_logRO) _logRO=new ResizeObserver(()=>stickLog()); _logRO.observe(l); }
+}
+// iOS 17/18 installed apps sometimes keep the shrunken viewport after the keyboard has gone; a display
+// toggle on the full-height element makes WebKit measure again.
+function healViewport(){
+  if(!(window.navigator.standalone || (window.matchMedia && matchMedia("(display-mode: standalone)").matches))) return;
+  const app=$("app"); if(!app||!document.body.classList.contains("in-app")) return;
+  if(viewH() >= _maxVH-4) return;
+  const R=A(), st=R&&R.logEl?R.logEl.scrollTop:0;
+  const d=app.style.display; app.style.display="none"; void app.offsetHeight; app.style.display=d||"flex";
+  if(R&&R.logEl) R.logEl.scrollTop=st;
+  setTimeout(fitViewport,50);
+}
+if(vv){ vv.addEventListener("resize",fitViewport); vv.addEventListener("scroll",fitViewport); }
+window.addEventListener("resize",fitViewport);
+window.addEventListener("orientationchange",()=>{ _maxVH=0; clearTimeout(_fitT); _fitT=setTimeout(fitViewport,350); });
 function fmtTime(ts){ return new Date(ts).toLocaleTimeString(LOC(), {hour:"2-digit",minute:"2-digit"}); }
 function dayLabel(ts){ const d=new Date(ts), now=new Date(); if(d.toDateString()===now.toDateString()) return t("Today");
   const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return t("Yesterday");
@@ -1165,7 +1189,7 @@ async function doJoin(code, opts){
   try{ R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); await ensureTag(R); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }          // someone joined it while we were generating keys
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none";
-  $("logs").appendChild(logEl); R.logEl=logEl;
+  $("logs").appendChild(logEl); R.logEl=logEl; watchLog(logEl);
   rooms.set(code,R);
   hideJoin();
   switchTo(code);
@@ -1697,7 +1721,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("sendBtn").addEventListener("click",sendText);
   $("sendBtn").addEventListener("mousedown",e=>e.preventDefault());        // keep the keyboard open while sending
   $("attachBtn").addEventListener("mousedown",e=>e.preventDefault());
-  $("msgInput").addEventListener("focus",()=>{ const R=A(); setTimeout(()=>{ fitViewport(); if(R&&R.logEl) scrollEl(R.logEl); },350); });
+  $("msgInput").addEventListener("focus",()=>{ [120,350,700].forEach(ms=>setTimeout(()=>{ fitViewport(); stickLog(); },ms)); });
+  $("msgInput").addEventListener("blur",()=>{ setTimeout(healViewport,160); setTimeout(fitViewport,400); });
   // Enter sends (the mobile keyboard shows "send" via enterkeyhint); Shift+Enter makes a new line. The box grows up to ~5 lines.
   $("msgInput").addEventListener("keydown",e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendText(); } });
   const growBox=()=>{ const el=$("msgInput"); el.style.height="auto"; el.style.height=Math.min(120, el.scrollHeight)+"px"; };
