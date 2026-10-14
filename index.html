@@ -93,7 +93,31 @@
   @media (hover:none){ .ct .cx{opacity:.55} }
   #join .remember input{width:16px;height:16px;accent-color:#a855f7}
   .brandhero{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:4px}
-  .brandhero img{width:min(230px,70%);height:auto;border-radius:20px;box-shadow:0 10px 36px rgba(109,40,217,.4),0 0 0 1px rgba(168,85,247,.18)}
+  .logo-anim{position:relative;width:min(230px,70%);aspect-ratio:460/338;background:#04050a;border-radius:20px;box-shadow:0 10px 36px rgba(109,40,217,.4),0 0 0 1px rgba(168,85,247,.18);overflow:hidden;perspective:700px;cursor:pointer;user-select:none;-webkit-user-select:none}
+  .logo-anim img{position:absolute;display:block;pointer-events:none}
+  .lg-head{left:23.9%;top:0;width:52.2%;transform-origin:50% 50%}
+  .lg-word{left:8.7%;top:69.8%;width:87%}
+  .lg-dot{left:25.9%;top:72.8%;width:6.96%;transform-origin:50% 100%}
+  /* 1) the head spins on itself (a coin flip), 2) the dot pops out of the bubble's mouth, 3) two little hops
+     onto the "i". Plays once on first open, again on tap; never with prefers-reduced-motion. */
+  .logo-anim.play .lg-head{animation:lgSpin 1.25s cubic-bezier(.45,0,.2,1) both}
+  .logo-anim.play .lg-word{animation:lgWord 2.6s ease-out both}
+  .logo-anim.play .lg-dot{animation:lgDot 2.55s linear both}
+  @keyframes lgSpin{0%{transform:rotateY(0) scale(.96)}100%{transform:rotateY(1080deg) scale(1)}}
+  @keyframes lgWord{0%,38%{opacity:0;transform:translateY(6px)}48%,100%{opacity:1;transform:none}}
+  @keyframes lgDot{
+    0%,43%{left:30.7%;top:62.7%;transform:scale(0);opacity:0}
+    48%{left:30.7%;top:62.7%;transform:scale(1.1);opacity:1;animation-timing-function:ease-out}
+    58%{left:33.6%;top:54%;transform:scale(1);animation-timing-function:ease-in}
+    67%{left:36.5%;top:72.4%;transform:scale(1);animation-timing-function:ease-out}
+    69%{left:36.5%;top:73.5%;transform:scale(1.18,.72);animation-timing-function:ease-out}
+    79%{left:31.5%;top:58%;transform:scale(1);animation-timing-function:ease-in}
+    89%{left:25.9%;top:72.8%;transform:scale(1);animation-timing-function:ease-out}
+    92%{left:25.9%;top:73.6%;transform:scale(1.16,.74)}
+    96%{left:25.9%;top:72.3%;transform:scale(.96,1.06)}
+    100%{left:25.9%;top:72.8%;transform:scale(1)}
+  }
+  @media (prefers-reduced-motion:reduce){ .logo-anim.play img{animation:none!important} }
   .hero-tag{font-size:.74rem;letter-spacing:.14em;text-transform:uppercase;color:#b9b4cc;font-weight:600}
   .hero-tag b{color:#c4b5fd;font-weight:700}
   /* inline SVG icon system (replaces emoji controls, which render differently on every platform) */
@@ -356,7 +380,12 @@
 <div class="screen pad" id="join">
   <div class="glow g1"></div><div class="glow g2"></div><div class="glow g3"></div>
   <div class="card">
-    <div class="brandhero"><img src="/hero.jpg" alt="Gizleme"/><div class="hero-tag">Message secure. Mood unfiltered.</div></div>
+    <div class="brandhero">
+      <!-- the logo in three layers so it can come alive on first open: the head spins, the dot of the "i" hops out of its mouth onto the i -->
+      <div class="logo-anim" id="logoAnim" role="img" aria-label="Gizleme" title="Replay">
+        <img class="lg-head" src="/logo-head.png" alt=""/><img class="lg-word" src="/logo-word.png" alt=""/><img class="lg-dot" src="/logo-dot.png" alt=""/>
+      </div>
+      <div class="hero-tag">Message secure. Mood unfiltered.</div></div>
     <div id="lockHead" style="display:none">
       <div class="logo"><span class="lock" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><div><h1 style="font-size:1.05rem">Gizleme is locked</h1><p id="lockSub">Unlock to read your chats</p></div></div>
     </div>

@@ -1846,6 +1846,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   if("serviceWorker" in navigator){ navigator.serviceWorker.ready.then(()=>pushInit()).catch(()=>updateNotifyUI()); }
   else updateNotifyUI();
 
+  // ----- the logo comes alive on first open (and on tap) -----
+  const la=$("logoAnim");
+  if(la){ const play=()=>{ la.classList.remove("play"); void la.offsetWidth; la.classList.add("play"); };
+    la.addEventListener("click",play); setTimeout(play, 150); }
   // ----- boot: account-based, permanent login -----
   applyI18n();
   const sess=sessLoad();
