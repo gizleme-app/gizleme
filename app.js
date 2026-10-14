@@ -201,15 +201,15 @@ async function acceptInvite(inv){   // someone opened a link: become their conta
 function adoptNameFromMessage(R, n){
   if(!R||R.group||!R.fromContact||!realName(n)) return;
   const c=contactFind(R.fromContact); if(!c || (c.name!==INV_PLACEHOLDER && c.name!=="Friend")) return;
-  contactPatch(R.fromContact,{name:n}); R.title=n; R.peerName=dn(n); R.avatar=(n[0]||"?").toUpperCase();
+  contactPatch(R.fromContact,{name:n}); if(c.alias) return; R.title=n; R.peerName=dn(n); R.avatar=(n[0]||"?").toUpperCase();
   if(R.code===active){ $("peerName").textContent=n; $("peerAvatar").textContent=R.avatar; } renderTabs();
 }
 function activeCK(){ const R=A(); return R&&R.fromContact||null; }
 function renderContacts(fromPreview){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
   const lastTs=it=>Math.max(it.ts||0, (_prev[previewKeyOf(it)]||{}).ts||0);
-  const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,ts:g.ts||0}))
-    .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,v:c.v,ts:c.ts||0})))
+  const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,alias:g.alias,ts:g.ts||0}))
+    .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,alias:c.alias,v:c.v,ts:c.ts||0})))
     .sort((a,b)=>lastTs(b)-lastTs(a));                 // most recent activity first, like any chats list
   if(!fromPreview) refreshPreviews();
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
@@ -222,11 +222,11 @@ function renderContacts(fromPreview){
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
   items.forEach(it=>{
     const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":"");
-    const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":((it.name&&it.name[0]||"?").toUpperCase());
+    const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":(((it.alias||it.name)&&(it.alias||it.name)[0]||"?").toUpperCase());
     const ci=document.createElement("div"); ci.className="ci";
     // line 1: name (+ verified) ……… time of the last message
     const r1=document.createElement("div"); r1.className="crow";
-    const cn=document.createElement("div"); cn.className="cn"; cn.textContent=dn(it.name)||(it.t==="g"?t("Group"):t("Contact"));
+    const cn=document.createElement("div"); cn.className="cn"; cn.textContent=it.alias||dn(it.name)||(it.t==="g"?t("Group"):t("Contact"));
     if(it.t==="c"&&it.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title=t("Verified"); cn.appendChild(vb); }
     const pv=_prev[previewKeyOf(it)]||null;
     const ct=document.createElement("span"); ct.className="ctime"; ct.textContent=pv?fmtListTime(pv.ts):"";
@@ -250,7 +250,7 @@ function renderContacts(fromPreview){
       if(it.t==="g"){ if(confirm(t("Leave the group “{name}”?\n\nYou'll need a new invite link to come back.",{name:dn(it.name)||t("Group")}))) groupRemove(it.rid); }
       else { if(confirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(it.name)||t("this contact")}))) contactRemove(it.ck); } });
     row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
-    row.addEventListener("click",()=> it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.name));
+    row.addEventListener("click",()=> it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.alias||it.name));
     el.appendChild(row);
   });
 }
@@ -276,6 +276,7 @@ async function doJoinGroup(rid, gkBytes, name){
   if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
   R.group=true; R.rid=rid; R.gk=gkBytes; R.title=name||"Group"; R.peerName=dn(name||"Group"); R.avatar="👥"; R.paired=true;
+  { const g=groupsLoad().find(x=>x.rid===rid); if(g&&g.alias){ R.title=g.alias; R.peerName=g.alias; } }
   try{ R.gkMsg=await gkMsgKey(gkBytes); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl;
@@ -320,7 +321,7 @@ async function onMsgGroup(R,{payload:p}){
     soundRecv();
   }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail",t("⚠ could not decrypt this message"),""); }
 }
-function groupInviteLink(R){ const payload=b64url(enc.encode(JSON.stringify({rid:R.rid,gk:b64(R.gk),name:R.title}))); return CANONICAL+"/#g="+payload; }
+function groupInviteLink(R){ const g=groupsLoad().find(x=>x.rid===R.rid); const payload=b64url(enc.encode(JSON.stringify({rid:R.rid,gk:b64(R.gk),name:(g&&g.name)||R.title}))); return CANONICAL+"/#g="+payload; }
 async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
   const url=groupInviteLink(R); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:R.title,url});
   if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
@@ -761,11 +762,18 @@ function soundSend(){ beep([
   {f:880.00,t0:0.05,dur:0.20,gain:0.038},   // A5 (fifth)
   {f:1174.66,t0:0.05,dur:0.22,gain:0.015}   // D6 shimmer
 ]); }
-function soundRecv(){ beep([
-  {f:783.99,t0:0,   dur:0.18,gain:0.042},   // G5
-  {f:587.33,t0:0.07,dur:0.26,gain:0.040},   // D5 (settling down a fourth)
-  {f:392.00,t0:0.07,dur:0.30,gain:0.016}    // G4 warmth
-]); }
+// Message tones, all synthesized (no audio files, works offline). "classic" is the original.
+const LS_TONE="gz-tone";
+const TONES={
+  classic:[{f:783.99,t0:0,dur:0.18,gain:0.042},{f:587.33,t0:0.07,dur:0.26,gain:0.040},{f:392.00,t0:0.07,dur:0.30,gain:0.016}],
+  pop:    [{f:659.25,t0:0,dur:0.07,gain:0.05,type:"triangle"},{f:987.77,t0:0.06,dur:0.12,gain:0.045,type:"triangle"}],
+  chime:  [{f:1046.50,t0:0,dur:0.55,gain:0.038},{f:2093.00,t0:0,dur:0.30,gain:0.010},{f:1318.51,t0:0.14,dur:0.50,gain:0.030},{f:1567.98,t0:0.28,dur:0.55,gain:0.022}],
+  marimba:[{f:523.25,t0:0,dur:0.16,gain:0.034,type:"triangle"},{f:659.25,t0:0.11,dur:0.16,gain:0.034,type:"triangle"},{f:783.99,t0:0.22,dur:0.24,gain:0.034,type:"triangle"}],
+  soft:   [{f:392.00,t0:0,dur:0.38,gain:0.030},{f:523.25,t0:0.16,dur:0.42,gain:0.026}]
+};
+function toneName(){ try{ const v=localStorage.getItem(LS_TONE); return TONES[v]?v:"classic"; }catch(e){ return "classic"; } }
+function setTone(n){ if(!TONES[n]) return; try{ localStorage.setItem(LS_TONE,n); }catch(e){} }
+function soundRecv(){ beep(TONES[toneName()]); }
 // Warm ascending arpeggio when a secure channel opens with a contact.
 function soundConnect(){ initAudio(); beep([
   {f:523.25,t0:0,   dur:0.22,gain:0.040},   // C5
@@ -929,11 +937,13 @@ async function establish(R, other, authed){
   const changed=rootFp!==R.rootFp;
   R.peer=other; R.root=root; R.rootFp=rootFp; if(changed){ R.sendI=0; R.recvI=-1; } R.paired=true; R.authOk=!!authed;
   const nm=other.name||"Peer"; R.peerName=dn(nm); R.avatar=(nm[0]||"?").toUpperCase();
-  if(realName(nm)) R.title=nm;                         // show the person's name in the tab/header
+  const alias=R.fromContact ? (contactFind(R.fromContact)||{}).alias : "";
+  if(alias){ R.title=alias; R.peerName=alias; R.avatar=(alias[0]||"?").toUpperCase(); }
+  else if(realName(nm)) R.title=nm;                    // show the person's name in the tab/header
   setStatus(R, authed ? t("🔒 secure · same key as your first connection ✓") : t("🔒 secure · key {fp}",{fp:rootFp}), true);
-  if(R.code===active){ $("peerName").textContent=dn(nm); $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
+  if(R.code===active){ $("peerName").textContent=alias||dn(nm); $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
   if(changed){
-    sysline(R.logEl, authed ? t("✅ {name} verified automatically — same shared key as when you first connected.",{name:dn(nm)}) : t("🔒 secure channel established with {name}",{name:dn(nm)}));
+    sysline(R.logEl, authed ? t("✅ {name} verified automatically — same shared key as when you first connected.",{name:alias||dn(nm)}) : t("🔒 secure channel established with {name}",{name:alias||dn(nm)}));
     soundConnect();
     // Derive a stable per-contact key from the first shared secret (relay never sees it),
     // then save/refresh the contact — identical on both sides, no extra round-trip.
@@ -986,7 +996,8 @@ async function onSync(R){
   // Presence lists are in join order: after a reload the last entry is the live one. Among several different
   // people, prefer the contact this chat is with.
   let o=eligible.length?eligible[eligible.length-1]:null;
-  if(eligible.length>1 && realName(R.title)){ const known=eligible.filter(m=>realName(m.name)===R.title); if(known.length) o=known[known.length-1]; }
+  const realTitle=(R.fromContact && (contactFind(R.fromContact)||{}).name) || R.title;
+  if(eligible.length>1 && realName(realTitle)){ const known=eligible.filter(m=>realName(m.name)===realTitle); if(known.length) o=known[known.length-1]; }
   const sig=others.map(m=>m.id).sort().join(",")+"|"+auth.join(",");
   if(sig!==R.multiSig){ R.multiSig=sig;
     const nm=dn(R.title)||t("your contact");
@@ -1345,11 +1356,13 @@ function mergeContacts(remote){
     else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1;
            if(rc.inv) e.inv=1; if(rc.is&&!e.is&&!e.rot) e.is=rc.is; if(rc.sv&&!e.sv) e.sv=rc.sv;
            if(rc.hk&&!e.hk) e.hk=rc.hk; if(rc.prev&&!e.prev) e.prev=rc.prev; if(rc.rot&&!e.rot){ e.rot=rc.rot; delete e.is; }
+           if(rc.ats&&(rc.ats>(e.ats||0))){ e.alias=rc.alias; e.ats=rc.ats; if(!e.alias) delete e.alias; }
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
   (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];
     if(!e){ byRid[rg.rid]=Object.assign({},rg); }
-    else if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk) e.gk=rg.gk; } });
+    else { if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk) e.gk=rg.gk; }
+           if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; } } });
   return { contacts:Object.values(byCk), groups:Object.values(byRid) };
 }
 async function vaultDecrypt(cipher){ if(!gContactsKey||!cipher||!cipher.ct) return null;
@@ -1526,6 +1539,21 @@ async function join(){ const m=($("join").dataset.mode)||"register";
     if(nc==="join") return joinFromInviteInput();
     return connectRoom(); }
 }
+// Rename a contact or a group for yourself only: the nickname lives in your own (encrypted, account-synced)
+// list; the other side never sees it. An empty name restores the name they chose.
+function renameChat(){
+  const R=A(); if(!R) return;
+  if(R.group){ const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return;
+    const v=prompt(t("Nickname for this chat (only on your devices):"), g.alias||g.name||""); if(v===null) return;
+    const nv=v.trim().slice(0,32); if(nv && nv!==g.name) g.alias=nv; else delete g.alias; g.ats=Date.now(); groupsSave(l);
+    R.title=g.alias||g.name; R.peerName=R.title; }
+  else if(R.fromContact){ const l=contactsLoad(); const c=l.find(x=>x.ck===R.fromContact); if(!c) return;
+    const v=prompt(t("Nickname for this chat (only on your devices):"), c.alias||dn(c.name)||""); if(v===null) return;
+    const nv=v.trim().slice(0,32); if(nv && nv!==c.name) c.alias=nv; else delete c.alias; c.ats=Date.now(); contactsSave(l);
+    R.title=c.alias||c.name; R.peerName=c.alias||dn(c.name); R.avatar=((R.peerName||"?")[0]).toUpperCase(); }
+  else return;
+  if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; } renderTabs(); renderContacts(); updateVerifyUI(); toast(t("Name updated"));
+}
 async function rekey(){
   const R=A(); if(!R||!R.channel) return;
   R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); R.rootFp=""; await ensureTag(R);
@@ -1616,7 +1644,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   function currentDark(){ const c=document.documentElement.getAttribute("data-theme"); return c?c==="dark":matchMedia("(prefers-color-scheme:dark)").matches; }
   function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")) $("themeToggle").textContent=d?t("Light ☀"):t("Dark ☾"); }
   function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); }
-  function refreshSoundUI(){ if($("soundState")) $("soundState").textContent=soundOn?t("On"):t("Off"); const b=$("soundToggle"); if(b){ b.textContent=soundOn?t("On"):t("Off"); b.classList.toggle("off",!soundOn); } }
+  function refreshSoundUI(){ if($("soundState")) $("soundState").textContent=soundOn?t("On"):t("Off"); const b=$("soundToggle"); if(b){ b.textContent=soundOn?t("On"):t("Off"); b.classList.toggle("off",!soundOn); }
+    if($("toneSel")) $("toneSel").value=toneName(); }
+  $("toneSel").addEventListener("change",e=>{ setTone(e.target.value); initAudio(); if(!soundOn){ soundOn=true; try{ localStorage.setItem("vesper-sound","on"); }catch(x){} refreshSoundUI(); } soundRecv(); });
   function refreshLangUI(){ if($("langState")) $("langState").textContent=LANG==="fr"?"Français":"English"; if($("langToggle")) $("langToggle").textContent=LANG==="fr"?"English":"Français"; }
   $("langToggle").addEventListener("click",()=>{ setLang(LANG==="fr"?"en":"fr"); });
   _refreshSettingsUI=()=>{ refreshThemeUI(); refreshSoundUI(); refreshLangUI(); refreshPrevUI(); updateNotifyUI(); };
@@ -1814,6 +1844,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       $("mi-verify").hidden=!(R&&((R.fromContact&&R.paired)||grp));
       $("mi-notify").hidden=!(R&&R.fromContact&&!grp);
       $("mi-rekey").hidden=!(R&&R.paired&&!grp);
+      $("mi-rename").hidden=!(R&&(R.fromContact||grp));
       m.hidden=false;
     } else m.hidden=true;
   }
@@ -1825,6 +1856,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     else if(act==="verify") openVerify();
     else if(act==="notify") nudgeContact();
     else if(act==="rekey") rekey();
+    else if(act==="rename") renameChat();
     else if(act==="wire") $("wire").classList.toggle("show");
     else if(act==="settings") openSettings();
     else if(act==="lock") lockApp();

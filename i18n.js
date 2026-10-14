@@ -368,6 +368,11 @@ window.GZ_I18N = {
     "Open this link in Safari for the full app: tap the ⋯ menu, then “Open in Safari”.": "Ouvre ce lien dans Safari pour l'appli complète : touche le menu ⋯, puis « Ouvrir dans Safari ».",
     "Open this link in your browser for the full app: use this page’s ⋯ menu, then “Open in browser”.": "Ouvre ce lien dans ton navigateur pour l'appli complète : utilise le menu ⋯ de cette page, puis « Ouvrir dans le navigateur ».",
     "Privacy": "Confidentialité",
+    "Message sound": "Son des messages",
+    "Pick one to hear it": "Choisis-en un pour l'entendre",
+    "Classic": "Classique", "Pop": "Pop", "Chime": "Carillon", "Marimba": "Marimba", "Soft": "Doux",
+    "Rename for me": "Renommer pour moi",
+    "Nickname for this chat (only on your devices):": "Surnom pour cette discussion (seulement sur tes appareils) :",
     "🔐 Invite link retired — this chat now uses a key only your two devices know.": "🔐 Lien d'invitation retiré — cette discussion utilise désormais une clé que seuls vos deux appareils connaissent.",
     "{name}'s other device still uses the retired invite key — it will catch up when it syncs the account. Not connected live with that device.": "L'autre appareil de {name} utilise encore l'ancienne clé du lien — il se mettra à jour en synchronisant le compte. Pas de connexion en direct avec cet appareil.",
     "What the server keeps, and for how long →": "Ce que le serveur conserve, et combien de temps →"
