@@ -784,7 +784,7 @@ function scramble(el,final,done){
 // ---------- UI ----------
 let audioCtx=null, soundOn=true;
 try{ soundOn = localStorage.getItem("vesper-sound")!=="off"; }catch(e){}
-function initAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==="suspended") audioCtx.resume(); }catch(e){} }
+function initAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state!=="running") return audioCtx.resume(); }catch(e){} return Promise.resolve(); }
 function beep(seq){ if(!soundOn||!audioCtx) return; const now=audioCtx.currentTime;
   seq.forEach(n=>{ const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type=n.type||"sine"; o.frequency.value=n.f;
     g.gain.setValueAtTime(0, now+n.t0); g.gain.linearRampToValueAtTime(n.gain||0.06, now+n.t0+0.012);
@@ -808,6 +808,15 @@ const TONES={
 function toneName(){ try{ const v=localStorage.getItem(LS_TONE); return TONES[v]?v:"classic"; }catch(e){ return "classic"; } }
 function setTone(n){ if(!TONES[n]) return; try{ localStorage.setItem(LS_TONE,n); }catch(e){} }
 function soundRecv(){ beep(TONES[toneName()]); }
+// Preview from Settings. Must run inside a tap (iOS only unlocks audio in a user gesture) and waits for the
+// context to actually be running. On iPhone, Web Audio follows the silent switch; for the preview alone we
+// ask for the "playback" session so the chosen tone can be heard even then, and hand the session back after.
+async function previewTone(n){
+  setTone(n); const p=initAudio();
+  let as=null; try{ as=navigator.audioSession; if(as && as.type!=="playback"){ as.type="playback"; setTimeout(()=>{ try{ as.type="auto"; }catch(e){} },1500); } }catch(e){}
+  try{ await Promise.race([p, new Promise(r=>setTimeout(r,250))]); }catch(e){}
+  beep(TONES[toneName()]);
+}
 // Warm ascending arpeggio when a secure channel opens with a contact.
 function soundConnect(){ initAudio(); beep([
   {f:523.25,t0:0,   dur:0.22,gain:0.040},   // C5
@@ -831,7 +840,24 @@ function sweepEphemeral(){
 }
 let _toastT=null;
 function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(_toastT); _toastT=setTimeout(()=>t.classList.remove("show"), Math.max(1700, Math.min(6000, 55*m.length))); }
-function scrollEl(el){ try{ el.scrollTop=el.scrollHeight; }catch(e){} }
+function scrollEl(el){ try{ el.scrollTop=el.scrollHeight; requestAnimationFrame(()=>{ try{ el.scrollTop=el.scrollHeight; }catch(e){} }); }catch(e){} }
+// The on-screen keyboard shrinks the *visual* viewport; on iOS the layout viewport stays full height and
+// Safari shifts the page to reveal the input, taking the header (and its back button) off-screen for good.
+// Size the app to the visual viewport and pin it to its top: header stays, composer sits on the keyboard,
+// and the conversation keeps showing its latest messages.
+const vv=window.visualViewport;
+let _kbOpen=false, _fitT=null;
+function fitViewport(){
+  if(!vv) return; const app=$("app"); if(!app||!document.body.classList.contains("in-app")) return;
+  const h=Math.round(vv.height); if(!h) return;
+  const kb=(window.innerHeight-h)>120;
+  app.style.height=h+"px"; app.style.transform=vv.offsetTop>1?("translateY("+Math.round(vv.offsetTop)+"px)"):"";
+  document.body.classList.toggle("kb",kb);
+  if(window.scrollY) try{ window.scrollTo(0,0); }catch(e){}
+  if(kb!==_kbOpen){ _kbOpen=kb; const R=A(); if(R&&R.logEl) requestAnimationFrame(()=>scrollEl(R.logEl)); }
+}
+if(vv){ vv.addEventListener("resize",fitViewport); vv.addEventListener("scroll",fitViewport);
+  window.addEventListener("orientationchange",()=>{ clearTimeout(_fitT); _fitT=setTimeout(fitViewport,350); }); }
 function fmtTime(ts){ return new Date(ts).toLocaleTimeString(LOC(), {hour:"2-digit",minute:"2-digit"}); }
 function dayLabel(ts){ const d=new Date(ts), now=new Date(); if(d.toDateString()===now.toDateString()) return t("Today");
   const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return t("Yesterday");
@@ -1168,14 +1194,15 @@ async function doJoin(code, opts){
   try{ history.replaceState(null,"", opts.fromContact ? "/" : localRoomUrl(code)); }catch(e){}
 }
 let _installChecked=false, _showInstallInvite=null;
-function enterApp(){ $("join").style.display="none"; $("app").style.display="flex"; closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
+function enterApp(){ $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
 function goHome(){ active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
-  $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home");
+  $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 function showAuth(mode){
   $("app").style.display="none"; $("join").style.display="flex"; $("join").dataset.mode=mode;
+  document.body.classList.remove("in-app","kb"); const ap=$("app"); ap.style.height=""; ap.style.transform=""; try{ window.scrollTo(0,0); }catch(e){}
   const reg=mode==="register", login=mode==="login", unlock=mode==="unlock", nw=mode==="newchat";
   $("userField").style.display=(reg||login)?"block":"none";
   if($("promises")) $("promises").style.display=reg?"grid":"none";   // the pitch belongs on the first screen only
@@ -1668,6 +1695,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
+  $("sendBtn").addEventListener("mousedown",e=>e.preventDefault());        // keep the keyboard open while sending
+  $("attachBtn").addEventListener("mousedown",e=>e.preventDefault());
+  $("msgInput").addEventListener("focus",()=>{ const R=A(); setTimeout(()=>{ fitViewport(); if(R&&R.logEl) scrollEl(R.logEl); },350); });
   // Enter sends (the mobile keyboard shows "send" via enterkeyhint); Shift+Enter makes a new line. The box grows up to ~5 lines.
   $("msgInput").addEventListener("keydown",e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendText(); } });
   const growBox=()=>{ const el=$("msgInput"); el.style.height="auto"; el.style.height=Math.min(120, el.scrollHeight)+"px"; };
@@ -1679,8 +1709,11 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")) $("themeToggle").textContent=d?t("Light ☀"):t("Dark ☾"); }
   function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); }
   function refreshSoundUI(){ if($("soundState")) $("soundState").textContent=soundOn?t("On"):t("Off"); const b=$("soundToggle"); if(b){ b.textContent=soundOn?t("On"):t("Off"); b.classList.toggle("off",!soundOn); }
-    if($("toneSel")) $("toneSel").value=toneName(); }
-  $("toneSel").addEventListener("change",e=>{ setTone(e.target.value); initAudio(); if(!soundOn){ soundOn=true; try{ localStorage.setItem("vesper-sound","on"); }catch(x){} refreshSoundUI(); } soundRecv(); });
+    const cur=toneName(); document.querySelectorAll("#toneSel .tone").forEach(x=>x.setAttribute("aria-checked", x.dataset.tone===cur ? "true":"false")); }
+  document.querySelectorAll("#toneSel .tone").forEach(btn=>btn.addEventListener("click",()=>{
+    if(!soundOn){ soundOn=true; try{ localStorage.setItem("vesper-sound","on"); }catch(x){} }
+    btn.classList.remove("playing"); void btn.offsetWidth; btn.classList.add("playing");
+    previewTone(btn.dataset.tone); refreshSoundUI(); }));
   function refreshLangUI(){ if($("langState")) $("langState").textContent=LANG==="fr"?"Français":"English"; if($("langToggle")) $("langToggle").textContent=LANG==="fr"?"English":"Français"; }
   $("langToggle").addEventListener("click",()=>{ setLang(LANG==="fr"?"en":"fr"); });
   _refreshSettingsUI=()=>{ refreshThemeUI(); refreshSoundUI(); refreshLangUI(); refreshPrevUI(); updateNotifyUI(); };
@@ -1782,6 +1815,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   let deferredPrompt=null;
   const isStandalone = matchMedia("(display-mode: standalone)").matches || window.navigator.standalone===true;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  if(isIOS && $("toneHint")) $("toneHint").hidden=false;
   function showInstall(on){ if($("installGroup")) $("installGroup").style.display=on?"block":"none"; }
   window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; if(!isStandalone) showInstall(true);
     if(installModalPending && !installPrompted()){ installModalPending=false; openInstallModal(); } });
