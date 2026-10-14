@@ -30,7 +30,7 @@ function applyI18n(){
     for(const a of ["placeholder","title","aria-label"]){ if(!el.hasAttribute(a)) continue; const k="data-i18n-"+a.replace("-","");
       let o=el.getAttribute(k); if(o===null){ o=el.getAttribute(a); el.setAttribute(k,o); } el.setAttribute(a, t(o)); } }
 }
-function setLang(l){ LANG=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} applyI18n(); renderContacts(); renderTabs(); updateNotifyUI(); updateVerifyUI(); if(typeof _refreshSettingsUI==="function") _refreshSettingsUI(); }
+function setLang(l){ LANG=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} applyI18n(); renderContacts(); renderTabs(); updateNotifyUI(); updateVerifyUI(); if(typeof _refreshSettingsUI==="function") _refreshSettingsUI(); if(typeof swNamesSoon==="function") swNamesSoon(); }
 let _refreshSettingsUI=null;
 const enc = new TextEncoder(), dec = new TextDecoder();
 const SALT = enc.encode("vesper/v1");
@@ -118,7 +118,19 @@ let _contacts=[], _groups=[], _localT=null;
 let _meta={unread:{},rcpt:{},viewed:{}};   // per-chat unread counts, received-receipts by message id, viewed view-once photos
 function contactsLoad(){ return _contacts.map(c=>Object.assign({},c)); }
 function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); localSaveSoon(); renderContacts(); syncPushSoon(); }
-function localSaveSoon(){ clearTimeout(_localT); _localT=setTimeout(()=>{ localSave().catch(()=>{}); },250); }
+function localSaveSoon(){ clearTimeout(_localT); _localT=setTimeout(()=>{ localSave().catch(()=>{}); swNamesSoon(); },250); }
+// The service worker composes notification text itself ("New message from Baba"), so it needs the names
+// you use for your contacts — nickname first — and the sentence templates in your language. Only names
+// (never keys) leave the encrypted list; they are cleared on lock-out and account deletion.
+let _swNamesT=null;
+function swNamesSoon(){ clearTimeout(_swNamesT); _swNamesT=setTimeout(()=>{ swNames().catch(()=>{}); },400); }
+async function swNames(clear){
+  if(!("serviceWorker" in navigator)) return;
+  const names={};
+  if(!clear) for(const c of contactsLoad()){ try{ const nm=c.alias||(DN_KEYS[c.name]?"":realName(c.name)); if(nm) names[await notifyKeyFor(c.ck)]=nm; }catch(e){} }
+  const msg={type:"names", names, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), anyMsg:t("New message"), anyChat:t("A contact wants to chat") }};
+  try{ const reg=await navigator.serviceWorker.ready; (reg.active||navigator.serviceWorker.controller)?.postMessage(msg); }catch(e){}
+}
 async function localSave(){ if(!gHistKey) return; const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify({contacts:_contacts,groups:_groups,meta:_meta})));
   try{ localStorage.setItem(LS_LOCAL,JSON.stringify({iv,ct})); }catch(e){} }
 async function localLoad(){   // at unlock: decrypt the local copy, and import (then delete) any plaintext left by older builds
@@ -132,7 +144,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
     lg.forEach(x=>{ if(x&&x.rid&&!g.find(y=>y.rid===x.rid)){ g.push(x); legacy=true; } }); }catch(e){}
   try{ localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){}
   _contacts=c; _groups=g; if(legacy) localSaveSoon();
-  renderContacts(); if(pushOn()&&gPushSub) registerAllContacts();
+  renderContacts(); if(pushOn()&&gPushSub) registerAllContacts(); swNamesSoon();
   inboxPull(true);                                   // deliver what arrived while the app was closed, for every chat
 }
 function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{}}; }                       // lock: out of memory, ciphertext stays on disk
@@ -554,7 +566,7 @@ async function notifyPeer(ckB64, kind){
   const nm=realName(myName);
   try{ await fn("notify",{notify_key:nk, from:deviceId(), title:"Gizleme",
     body: kind==="msg" ? (nm?t("New message from {name}",{name:nm}):t("New message")) : (nm?t("{name} wants to chat on Gizleme",{name:nm}):t("A contact wants to chat")),
-    url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined}); return true; }catch(e){ return false; }
+    kind: kind==="msg"?"msg":"chat", url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined}); return true; }catch(e){ return false; }
 }
 async function nudgeContact(){           // manual "notify this contact" from the chat
   const R=A(); if(!R||!R.fromContact) return;
@@ -1493,7 +1505,7 @@ async function logoutAccount(){
   if(s&&s.username){ try{ localStorage.setItem(LS_VAULTOWNER,s.username); }catch(e){} }
   sessClear(); gHistKey=null; vaultClear();
   // No trace on this device: keys, contacts, mailbox cursors and the encrypted history database all go.
-  localWipe();
+  localWipe(); swNames(true).catch(()=>{});
   try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK].forEach(k=>localStorage.removeItem(k)); }catch(e){}
   try{ if(_db){ _db.close(); _db=null; } indexedDB.deleteDatabase("vesper"); }catch(e){}
   renderContacts();
@@ -1593,7 +1605,7 @@ async function deleteAccount(pw){
   if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?t("Wrong password"):t("Couldn't delete the account — try again")); }
   try{ if(gPushSub){ await gPushSub.unsubscribe(); } }catch(e){}
   try{ localStorage.setItem(LS_PUSH,"0"); }catch(e){}
-  sessClear(); gHistKey=null; vaultClear(); localWipe();
+  sessClear(); gHistKey=null; vaultClear(); localWipe(); swNames(true).catch(()=>{});
   try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK,LS_VAULTOWNER,LS_DEVID].forEach(k=>localStorage.removeItem(k)); }catch(e){}
   try{ if(_db){ _db.close(); _db=null; } indexedDB.deleteDatabase("vesper"); }catch(e){}
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });

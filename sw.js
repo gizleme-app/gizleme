@@ -1,7 +1,7 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v6";
+const CACHE = "gizleme-v7";
 const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.45.4.js", "/manifest.webmanifest",
                "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
 
@@ -12,7 +12,7 @@ self.addEventListener("install", e => {
 self.addEventListener("activate", e => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
+    await Promise.all(keys.filter(k => k !== CACHE && k !== "gizleme-meta").map(k => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -42,18 +42,47 @@ function safeTarget(u) {
   return self.location.origin + "/";
 }
 
+// The page sends the names it uses for contacts (nicknames first) and sentence templates in its language;
+// kept in a small cache entry so a push can use them even after the worker was restarted. Names only.
+const META = "gizleme-meta";
+self.addEventListener("message", e => {
+  const m = e.data || {};
+  if (m.type !== "names") return;
+  e.waitUntil(caches.open(META).then(c => c.put("/names.json", new Response(JSON.stringify({ names: m.names || {}, tmpl: m.tmpl || {} }), { headers: { "Content-Type": "application/json" } }))));
+});
+async function loadNames() {
+  try { const c = await caches.open(META); const r = await c.match("/names.json"); return r ? await r.json() : null; } catch (_) { return null; }
+}
+// "New message from Baba" rather than the sender's own name and language: compose the text here when the
+// contact is known; otherwise keep what the sender wrote.
+function composeBody(d, meta) {
+  const fallback = String(d.body || "A contact wants to chat").slice(0, 140);
+  if (!meta || !meta.tmpl) return fallback;
+  let nk = ""; try { const u = new URL(d.url || "", self.location.origin); const h = (u.hash || "").replace(/^#/, ""); if (h.indexOf("n=") === 0) nk = decodeURIComponent(h.slice(2)); } catch (_) {}
+  const kind = d.kind === "chat" ? "chat" : "msg";
+  const name = nk && meta.names ? meta.names[nk] : "";
+  const t = meta.tmpl;
+  if (name) return String((kind === "chat" ? t.chat : t.msg) || "{name}").replace("{name}", name).slice(0, 140);
+  if (!nk) return fallback;
+  return String((kind === "chat" ? t.anyChat : t.anyMsg) || fallback).slice(0, 140);
+}
+self.__composeBody = composeBody;   // exposed for tests
+
 // A push wakes the device even when the app is closed, and shows a notification.
 self.addEventListener("push", e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { try { d = { body: e.data.text() }; } catch (__) { d = {}; } }
-  e.waitUntil(self.registration.showNotification("Gizleme", {
-    body: String(d.body || "A contact wants to chat").slice(0, 140),
-    tag: String(d.tag || "gizleme").slice(0, 64),
-    renotify: true,
-    icon: "/icon-192.png",
-    badge: "/icon-192.png",
-    data: { url: safeTarget(d.url) },
-  }));
+  e.waitUntil((async () => {
+    const meta = await loadNames();
+    return self.registration.showNotification("Gizleme", {
+      body: composeBody(d, meta),
+      tag: String(d.tag || "gizleme").slice(0, 64),
+      renotify: true,
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: safeTarget(d.url) },
+    });
+  })());
 });
 
 // Tapping the notification focuses an open tab or opens the app.
