@@ -149,6 +149,8 @@ window.GZ_I18N = {
     "check your connection": "vérifie ta connexion",
     "too many photos — wait a minute": "trop de photos — attends une minute",
     "upload failed": "envoi impossible",
+    "photo too large": "photo trop lourde (2 Mo max)",
+    "unsupported image": "image non prise en charge",
     "⚠ could not decrypt this message": "⚠ impossible de déchiffrer ce message",
     "waiting for peer…": "en attente du correspondant…",
     "waiting for them to open your link — anything you write will be waiting for them": "en attente qu'il ouvre ton lien — tout ce que tu écris l'attendra",

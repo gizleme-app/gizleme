@@ -35,7 +35,9 @@ let _refreshSettingsUI=null;
 const enc = new TextEncoder(), dec = new TextDecoder();
 const SALT = enc.encode("vesper/v1");
 const hex = b => [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
-const b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+// Chunked: spreading a whole photo into fromCharCode(...) overflows the call stack ("Maximum call stack
+// size exceeded") on anything bigger than a few tens of KB, Safari first.
+const b64 = b => { const u=new Uint8Array(b); let s=""; for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); };
 const unb64 = s => Uint8Array.from(atob(s), c=>c.charCodeAt(0));
 const GLYPHS="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*";
 
@@ -714,17 +716,36 @@ async function histLoad(room){
 }
 
 // ---------- media (encrypted blobs in Supabase Storage) ----------
+// Photos are re-encoded on the device before encryption: at most 1600px, JPEG, and small enough for the
+// relay's 2 MB cap. Formats only some phones can show (HEIC from iPhones) always become JPEG so the other
+// side can open them. Small JPEG/PNG/WebP/GIF files are sent as they are.
+const BLOB_MAX = 1800000;                             // the relay refuses raw blobs above 2 000 000 bytes
+const WEB_IMG = {"image/jpeg":1,"image/png":1,"image/webp":1,"image/gif":1};
+async function decodeImage(file){
+  try{ return await createImageBitmap(file, {imageOrientation:"from-image"}); }catch(e){}
+  try{ return await createImageBitmap(file); }catch(e){}
+  const url=URL.createObjectURL(file);                 // last resort: the <img> decoder (HEIC on Safari)
+  try{ return await new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>rej(new Error("decode")); im.src=url; }); }
+  finally{ setTimeout(()=>URL.revokeObjectURL(url),30000); }
+}
 async function downscale(file){
-  if(file.size < 500000) return file;              // small enough
-  try{
-    const img = await createImageBitmap(file);
-    const max=1600, scale=Math.min(1, max/Math.max(img.width,img.height));
-    if(scale>=1) return file;
-    const c=document.createElement("canvas"); c.width=Math.round(img.width*scale); c.height=Math.round(img.height*scale);
+  if(file.size < 500000 && WEB_IMG[file.type]) return file;   // small and viewable everywhere
+  let img; try{ img=await decodeImage(file); }catch(e){ throw new Error(t("unsupported image")); }
+  const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+  let max=1600, q=0.82, blob=null;
+  for(let attempt=0; attempt<5; attempt++){                     // shrink until it fits
+    const scale=Math.min(1, max/Math.max(w,h));
+    const c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w*scale)); c.height=Math.max(1,Math.round(h*scale));
     c.getContext("2d").drawImage(img,0,0,c.width,c.height);
-    const blob=await new Promise(r=>c.toBlob(r,"image/jpeg",0.82));
-    return blob||file;
-  }catch(e){ return file; }
+    blob=await new Promise(r=>c.toBlob(r,"image/jpeg",q));
+    if(!blob) break;
+    if(blob.size<=BLOB_MAX) break;
+    q=Math.max(0.5,q-0.12); max=Math.round(max*0.8);
+  }
+  if(img.close) try{ img.close(); }catch(e){}
+  if(!blob) throw new Error(t("unsupported image"));
+  if(blob.size>BLOB_MAX) throw new Error(t("photo too large"));
+  return blob;
 }
 async function uploadImage(file){
   const small = await downscale(file);
@@ -738,7 +759,8 @@ async function uploadImage(file){
   // writer of the bucket; the AES key never leaves the message.
   const r = await mboxFn("putblob",{data:b64(ctBuf)});
   const path = r && r.data && r.data.ok && r.data.path;
-  if(!path){ const code=(r&&r.data&&r.data.error)||(r&&r.error&&r.error.context&&r.error.context.status)||""; throw new Error(code==="rate_limited"||code===429 ? t("too many photos — wait a minute") : t("upload failed")); }
+  if(!path){ const code=(r&&r.data&&r.data.error)||(r&&r.error&&r.error.context&&r.error.context.status)||"";
+    throw new Error(code==="rate_limited"||code===429 ? t("too many photos — wait a minute") : code==="too_big"||code===413 ? t("photo too large") : t("upload failed")); }
   return { path, k:b64(key), iv:b64(iv), mime };
 }
 async function fetchImage(meta){ // meta={path,k,iv,mime}
