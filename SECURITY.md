@@ -24,7 +24,7 @@ rate-limit counters.
 | Key derivation | HKDF-SHA-256 (salt `vesper/v1`, versioned `info` labels per purpose) |
 | Message encryption | AES-256-GCM, random 96-bit IV, message id sealed inside the ciphertext |
 | Per-message live keys | HKDF(root, `msg|<direction>|<counter>`) — counter must increase, direction must match the paired peer |
-| Contact key `ck` | HKDF(first ECDH secret) for room-code contacts; HKDF(invite-link secret) for link contacts, replaced by HKDF(first authenticated session's ECDH secret, `gz-contact/v2`) at the first live pairing; never sent to a server |
+| Contact key `ck` | HKDF(first ECDH secret) for room-code contacts. Invite links (v3): the link carries a one-time ECDH public key `p` whose private half stays with the inviter; the opener's device agrees `ck = HKDF(ECDH(eph, p), gz-contact/v3\|ckLink)` at once and leaves a `hello` (its ephemeral public key) in the link's mailbox / presence; the inviter derives the same key. The link key `ckLink = HKDF(secret, gz-invite/v1)` only names that mailbox, the first rendezvous room and a push key — nothing else is ever encrypted under it. Older links (no `p`) still take the v2 path: HKDF(secret) until the first live pairing, then HKDF(session secret, `gz-contact/v2`). Never sent to a server |
 | Pairing authentication | HMAC-SHA-256 under HKDF(ck, `gz-auth/v1`) over the session public key; unverified presence entries are never paired with |
 | Mailbox | id = HKDF(ck, `gz-mbox/v1`); contents AES-GCM under HKDF(ck, `gz-mbox-key/v1`); sender name and message id inside the ciphertext |
 | Receipts | AES-GCM under the mailbox key, 1:1 only |
@@ -54,19 +54,26 @@ rate-limit counters.
 **Not protected against (known limitations)**
 
 - **Forward secrecy for mailbox messages.** Messages that go through the mailbox (and every contact
-  message does, so offline devices can collect it) are encrypted under a stable per-contact key. A later
-  compromise of that key exposes mailbox ciphertext still on the server (≤ 14 days) and any captured
-  copies. The live path uses fresh ECDH per session but the mailbox copy does not.
-- **Invite links are bearer keys until the first live meeting.** Anyone holding an invite link derives the
-  same contact key and can read and write as that contact — until the two parties are online together for
-  the first time. At that first pairing, authenticated with the link key, both sides derive a new contact
-  key from the session's ECDH secret (`HKDF(secret, gz-contact/v2)`), retire the link key, and move the
-  rendezvous rooms, mailbox and push keys to it; the conversation history stays attached through a stable
-  history key, and the account vault carries `{ck, prev, hk, rot}` to the user's other devices. After
-  that, a copy of the link gives nothing: a device still signing with the retired key is not paired with
-  (a calm note, not an alarm) and the old mailbox is no longer read. An impostor who opened the link and
-  paired *before* the real invitee still becomes the contact — the in-person safety code is the check for
-  that.
+  message does, so offline devices can collect it) are encrypted under the per-contact key. That key is
+  known only to the two parties' devices and is never derivable from an invite link (v3), so the remaining
+  exposure is a compromised device or account vault reading what still waits in the mailbox: a delivered
+  message is deleted by the relay 48 h after any device of the account fetched it (`ack` →
+  `delivered_at`, swept), an undelivered one after 14 days. Full forward secrecy — per-device ephemeral
+  pre-keys destroyed after use, messages encrypted per device (the Signal model) — is a separate project
+  and would end "any device of the account reads the mailbox" as it works today.
+- **Invite links are tickets, not keys (v3).** The link carries a one-time public key; the first device to
+  open it agrees the contact key by ECDH with the inviter's private half, which never leaves the inviter's
+  devices (it rides the encrypted account vault so any of them can complete the agreement). The opener
+  announces itself with a `hello` (ephemeral public key + name) in the link's mailbox and in presence; the
+  inviter binds the contact to the first hello and discards the private half. Nothing but hellos is ever
+  written under the link key: what the inviter writes before the link is opened waits on the inviter's
+  device and is sent under the agreed key once the hello arrives. A later hello for the same link — a
+  copy in other hands — is not bound: the inviter is warned once, and the late opener is told the link
+  was already used (a `used` note addressed to its ephemeral key). The inviter keeps watching the link
+  mailbox for 14 days for that purpose. What remains is an impostor who opens the link *before* the real
+  invitee: they become the contact, and the in-person safety code (now bound to the v3 agreement) is the
+  check for that. Legacy links (no public key) still follow the v2 path: bearer until the first live
+  pairing, then rotated.
 - **Calls reveal IP addresses to the other party.** Media is peer-to-peer (DTLS-SRTP, keyed on the
   wire by the two devices; the fingerprints are exchanged inside the chat's encrypted, authenticated
   channel, so the relay cannot sit in the middle). Like any P2P call, each side learns the other's IP

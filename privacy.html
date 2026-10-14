@@ -57,8 +57,8 @@
 
     <h2>Ce que Gizleme ne fait pas (encore)</h2>
     <ul>
-      <li>Pas de confidentialité persistante pour les messages déposés en boîte aux lettres : ils sont chiffrés sous une clé stable par contact. Si cette clé fuit (lien d'invitation diffusé, appareil compromis), les messages encore en boîte (≤ 14 jours) peuvent être lus.</li>
-      <li>Un lien d'invitation est une clé jusqu'à votre première rencontre en direct : quiconque le possède peut écrire sous ce contact tant que vous n'avez pas été en ligne ensemble. À cette première rencontre, vos deux appareils remplacent la clé du lien par une clé que seuls eux connaissent ; le lien ne vaut plus rien ensuite.</li>
+      <li>Pas de confidentialité persistante (<em>forward secrecy</em>) pour les messages déposés en boîte aux lettres : ils sont chiffrés sous la clé du contact, qui n'est connue que de vos deux appareils et n'est jamais déductible du lien d'invitation. Un appareil compromis peut donc lire ce qui l'attend encore en boîte — un message livré est effacé du relais 48 h après sa récupération, un message jamais récupéré après 14 jours. Une confidentialité persistante complète (clés éphémères par appareil, détruites après usage) est un chantier à part.</li>
+      <li>Un lien d'invitation n'est pas une clé : il contient une clé publique à usage unique, et le premier appareil qui l'ouvre convient avec vous d'une clé de contact que personne d'autre ne peut calculer — même avec le lien en main. Ce que vous écrivez avant l'ouverture attend sur votre appareil. Si une copie du lien est ouverte plus tard, cette personne n'est pas ajoutée et vous en êtes averti. Reste le cas de quelqu'un qui interceptrait le lien et l'ouvrirait <em>avant</em> votre ami : le code de sécurité à comparer en personne est fait pour le détecter.</li>
       <li>Le code n'est pas encore open source ni audité par un tiers. Le tableau « Pourquoi Gizleme ? » dans l'application le dit aussi.</li>
     </ul>
     <p>Questions : <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>
@@ -96,8 +96,8 @@
 
     <h2>What Gizleme does not do (yet)</h2>
     <ul>
-      <li>No forward secrecy for messages left in the mailbox: they are encrypted under a stable per-contact key. If that key leaks (an invite link passed around, a compromised device), messages still in the mailbox (≤ 14 days) can be read.</li>
-      <li>An invite link is a key until your first live meeting: whoever holds it can write to you as that contact until the two of you have been online together. At that first meeting, your two devices replace the link key with one only they know; the link is worthless afterwards.</li>
+      <li>No forward secrecy for messages left in the mailbox: they are encrypted under the contact key, which only your two devices know and which can never be derived from the invite link. A compromised device can therefore read what is still waiting for it in the mailbox — a delivered message is deleted from the relay 48 h after it was fetched, one never fetched after 14 days. Full forward secrecy (per-device ephemeral keys destroyed after use) is a separate project.</li>
+      <li>An invite link is not a key: it carries a one-time public key, and the first device to open it agrees a contact key with you that nobody else can compute — even with the link in hand. What you write before it is opened waits on your device. If a copy of the link is opened later, that person is not added and you are warned. What remains is someone intercepting the link and opening it <em>before</em> your friend: the safety code you compare in person exists to catch that.</li>
       <li>The code is not yet open source or independently audited. The "Why Gizleme?" table in the app says so too.</li>
     </ul>
     <p>Questions: <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>

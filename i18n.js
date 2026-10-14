@@ -121,6 +121,11 @@ window.GZ_I18N = {
     // ----- conversation -----
     "Waiting for peer…": "En attente du correspondant…",
     "connecting…": "connexion…",
+    "🔐 {name} opened your link — this chat now uses a key only your two devices know.": "🔐 {name} a ouvert ton lien — cette discussion utilise maintenant une clé que seuls vos deux appareils connaissent.",
+    "⚠ Someone else just opened the invite link you sent to {name}. They were not added — this chat's key was never in the link. If you only shared that link once, it has leaked.": "⚠ Quelqu'un d'autre vient d'ouvrir le lien d'invitation envoyé à {name}. Il n'a pas été ajouté — la clé de cette discussion n'a jamais été dans le lien. Si tu n'as partagé ce lien qu'une fois, il a fuité.",
+    "⚠ This invite link had already been used by someone else before you opened it — you are not connected to {name}. Ask them for a new link.": "⚠ Ce lien d'invitation avait déjà été utilisé par quelqu'un d'autre avant toi — tu n'es pas connecté à {name}. Demande-lui un nouveau lien.",
+    "invite link already used — ask for a new one": "lien d'invitation déjà utilisé — demande-en un nouveau",
+    "link used": "lien utilisé",
     "Audio call": "Appel audio",
     "Video call": "Appel vidéo",
     "audio call": "appel audio",

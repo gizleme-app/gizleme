@@ -102,6 +102,13 @@ const RECON_MS=1209600000;  // 14 days (matches mailbox retention)
 function reconActive(c){ return !!(c && c.prev && c.recon && (Date.now()-c.recon < RECON_MS)); }
 function rendezvousCKOf(c){ return reconActive(c) ? c.prev : (c?c.ck:null); }
 function contactCKSet(ckB64){ const c=contactFind(ckB64); const out=[ckB64]; if(reconActive(c) && c.prev && c.prev!==ckB64) out.push(c.prev); return out; }
+// v3 contacts (link = ticket, key agreed by DH at link-open): nothing but the hello is ever written under the
+// link key, so a copy of the link reads nothing. Reading and push still cover the link key while reconciling.
+function depositCKSet(ckB64){ const c=contactFind(ckB64); return (c && c.v3) ? [ckB64] : contactCKSet(ckB64); }
+// what to read: the current key, the link key while reconciling, and — for a v3 contact — the link mailbox for
+// 14 days after binding, so a late opener of a leaked link is noticed (hellos only ever land there).
+function fetchCKSet(ckB64){ const c=contactFind(ckB64); const out=contactCKSet(ckB64);
+  if(c && c.v3 && c.prev && c.rot && Date.now()-c.rot<RECON_MS && !out.includes(c.prev)) out.push(c.prev); return out; }
 // "ok" | "bad" | "missing" | "stale" | "n/a" (no shared key yet in this room: first-ever connection via a room code)
 async function verifyPeerTag(R, other){
   if(!R.fromContact) return "n/a";
@@ -150,7 +157,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   let c=[], g=[];
   let meta=null;
   try{ const r=JSON.parse(localStorage.getItem(LS_LOCAL)||"null"); if(r&&r.ct&&gHistKey){ const o=JSON.parse(dec.decode(await aesDec(gHistKey,r.iv,r.ct))); c=o.contacts||[]; g=o.groups||[]; meta=o.meta||null; } }catch(e){}
-  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}};
+  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}, outq:(meta&&meta.outq)||{}};
   let legacy=false;
   try{ const lc=JSON.parse(localStorage.getItem(LS_CONTACTS)||"[]")||[], lg=JSON.parse(localStorage.getItem(LS_GROUPS)||"[]")||[];
     lc.forEach(x=>{ if(x&&x.ck&&!c.find(y=>y.ck===x.ck)){ c.push(x); legacy=true; } });
@@ -197,30 +204,96 @@ function closeSidebar(){ const s=$("sidebar"); if(s) s.classList.remove("open");
 const INV_PLACEHOLDER="Invited friend";
 let _pendingInvite=null;   // {s, ck, url, saved} — the link shown on the New chat screen, saved as a contact once shared/opened
 async function ckFromInviteSecret(sB64){ return b64(await hkdf(unb64(sB64),"gz-invite/v1")); }
-function inviteLinkFromSecret(sB64){ return CANONICAL+"/#i="+b64url(enc.encode(JSON.stringify({s:sB64,n:realName(myName)?myName:""}))); }
+function inviteLinkFromSecret(sB64, pubB64){ const o={s:sB64,n:realName(myName)?myName:""}; if(pubB64) o.p=pubB64; return CANONICAL+"/#i="+b64url(enc.encode(JSON.stringify(o))); }
 function parseInviteLink(text){ try{ const s=(text||"").trim(); const i=s.indexOf("#i="); if(i<0) return null;
-  const o=JSON.parse(dec.decode(unb64url(s.slice(i+3)))); if(o&&typeof o.s==="string"&&o.s.length>20) return o; }catch(e){} return null; }
+  const o=JSON.parse(dec.decode(unb64url(s.slice(i+3)))); if(o&&typeof o.s==="string"&&o.s.length>20){ if(o.p!==undefined && !(typeof o.p==="string" && o.p.length>=80 && o.p.length<=100)) delete o.p; return o; } }catch(e){} return null; }
 function contactFind(ck){ return contactsLoad().find(c=>c.ck===ck)||null; }
 function contactPatch(ck, fields){ const l=contactsLoad(); const c=l.find(x=>x.ck===ck); if(c){ Object.assign(c,fields); contactsSave(l); } }
+// v3: the link carries a one-time public key (pre-key) whose private half stays with the inviter. Whoever opens
+// the link agrees a contact key with it by ECDH — a key nobody can compute from the link alone. The link key
+// (derived from the secret) only names the mailbox the "hello" is left in and the room where the two first meet.
 async function newPendingInvite(){
   const s=b64(crypto.getRandomValues(new Uint8Array(32)));
-  _pendingInvite={ s, ck:await ckFromInviteSecret(s), url:inviteLinkFromSecret(s), saved:false };
+  const kp=await genKP(); const pp=b64(await pubRaw(kp)); const pk=b64(await crypto.subtle.exportKey("pkcs8",kp.privateKey));
+  _pendingInvite={ s, ck:await ckFromInviteSecret(s), pp, pk, url:inviteLinkFromSecret(s, pp), saved:false };
   const o=$("invLinkOut"); if(o) o.value=_pendingInvite.url;
 }
 function persistPendingInvite(){   // the inviter keeps a placeholder contact that becomes the person once they open the link
   const pi=_pendingInvite; if(!pi||pi.saved) return;
-  if(!contactFind(pi.ck)){ const l=contactsLoad(); l.push({name:INV_PLACEHOLDER, ck:pi.ck, inv:1, is:pi.s, ts:Date.now()}); contactsSave(l); }
+  if(!contactFind(pi.ck)){ const l=contactsLoad(); l.push({name:INV_PLACEHOLDER, ck:pi.ck, inv:1, is:pi.s, pk:pi.pk, pp:pi.pp, v3:1, ts:Date.now()}); contactsSave(l); }
   pi.saved=true; if(pushOn()) registerAllContacts();
+}
+async function v3Agree(secret, ckLink){ return { ck:b64(await hkdf(secret,"gz-contact/v3|"+ckLink)), sv:b64(await hkdf(secret,"gz-safety/v3",16)) }; }
+// The inviter: a hello arrived (mailbox or presence) for a link we created → bind the contact to that opener.
+async function processHello(ckLink, e, n){
+  const c=contactFind(ckLink); if(!c) return false;
+  if(!c.pk){ const bound=contactByPrev(ckLink); if(bound && bound.v3 && bound.he!==e) noteLinkReuse(bound, ckLink, e); return false; }
+  let secret; try{ const priv=await crypto.subtle.importKey("pkcs8", unb64(c.pk), {name:"ECDH",namedCurve:"P-256"}, false, ["deriveBits"]);
+    secret=await sharedSecret(priv, await importPub(unb64(e))); }catch(err){ return false; }
+  const ag=await v3Agree(secret, ckLink); const ck2=ag.ck;
+  const l=contactsLoad(); const i=l.findIndex(x=>x.ck===ckLink); if(i<0 || l.some(x=>x.ck===ck2)) return false;
+  const x=l[i]; x.prev=ckLink; x.hk=x.hk||("c:"+ckLink); x.ck=ck2; x.rot=Date.now(); x.recon=Date.now(); x.sv=ag.sv; x.v3=1; x.he=e;
+  if(realName(n)) x.name=n; delete x.is; delete x.pk; delete x.pp; x.ts=Date.now();
+  contactsSave(l);
+  const shown=x.alias||dn(x.name);
+  rooms.forEach(r=>{ if(r.fromContact!==ckLink) return; r.fromContact=ck2;
+    if(realName(n) && !x.alias){ r.title=n; r.peerName=dn(n); r.avatar=(n[0]||"?").toUpperCase(); if(r.code===active){ $("peerName").textContent=r.peerName; $("peerAvatar").textContent=r.avatar; } }
+    ensureTag(r).then(()=>{ try{ if(r.tag&&r.channel) r.channel.track(presencePayload(r)); }catch(_e){} });
+    if(r.logEl) sysline(r.logEl, t("🔐 {name} opened your link — this chat now uses a key only your two devices know.",{name:shown}));
+    if(r.code===active) setIdle(r); });
+  renderTabs(); renderContacts(); updateVerifyUI(); if(pushOn()) registerAllContacts();
+  await flushOutq(ckLink, ck2);
+  setTimeout(async()=>{ let R2=null; rooms.forEach(r=>{ if(r.fromContact===ck2) R2=r; }); if(!R2) R2=await shadowRoom({t:"c",ck:ck2,name:x.name}); fetchMailbox(R2).catch(()=>{}); },400);
+  return true;
+}
+// A hello for a link that is already bound: a copy of the link in other hands. Warn once, tell the opener.
+function noteLinkReuse(c, ckLink, e){
+  const n=(c.reuse||0)+1; contactPatch(c.ck,{reuse:n}); if(n>3) return;
+  const msg=t("⚠ Someone else just opened the invite link you sent to {name}. They were not added — this chat's key was never in the link. If you only shared that link once, it has leaked.",{name:c.alias||dn(c.name)});
+  let R=null; rooms.forEach(r=>{ if(r.fromContact===c.ck) R=r; }); if(R&&R.logEl) sysline(R.logEl,msg,true); else toast(msg);
+  mboxKeyForSecret(ckLink).then(async key=>{ await depositOne(await mboxIdForSecret(ckLink), key, "u"+rid(), {t:"used", e:e||""}); }).catch(()=>{});
+}
+async function onHelloEnv(R, ck, env){
+  if(!env || typeof env.e!=="string" || env.e.length<80 || env.e.length>100) return;
+  const c=contactFind(ck);
+  if(c && c.pk) { await processHello(ck, env.e, env.n); return; }
+  const bound=contactByPrev(ck); if(bound && bound.v3 && !bound.pk && bound.he!==env.e) noteLinkReuse(bound, ck, env.e);
+}
+function onUsedEnv(R, ck, env){
+  const c=R.fromContact?contactFind(R.fromContact):null; if(!c || !c.v3 || c.prev!==ck || !c.hello || !env || env.e!==c.hello.e) return;
+  contactPatch(c.ck,{dead:1}); const l=contactsLoad(); const x=l.find(y=>y.ck===c.ck); if(x){ delete x.hello; contactsSave(l); }
+  if(R.logEl) sysline(R.logEl, t("⚠ This invite link had already been used by someone else before you opened it — you are not connected to {name}. Ask them for a new link.",{name:c.alias||dn(c.name)}), true);
+  if(R.code===active) setStatus(R, t("invite link already used — ask for a new one"), false, "warn", t("link used"));
+}
+// A normal message arrived under a v3 link that was never "helloed": the opener runs an older app and uses
+// the link key itself. Fall back to that (the first live meeting still rotates the key, as before).
+function legacyLinkFallback(R, ck){
+  const c=contactFind(ck); if(!c || !c.v3 || !c.pk) return;
+  const l=contactsLoad(); const x=l.find(y=>y.ck===ck); if(!x) return; delete x.pk; delete x.pp; delete x.v3; contactsSave(l);
+  flushOutq(ck, ck).catch(()=>{});
 }
 function isPendingInvite(c){ return !!(c && c.inv && c.is && c.name===INV_PLACEHOLDER); }
 async function acceptInvite(inv){   // someone opened a link: become their contact and open the chat
   const ck0=await ckFromInviteSecret(inv.s);
-  const rotated=contactByPrev(ck0);                      // this link's contact already moved to a rotated key
-  const ck=rotated?rotated.ck:ck0;
-  const mine=contactFind(ck);
+  const rotated=contactByPrev(ck0);                      // this link's contact already moved to an agreed key
+  let ck=rotated?rotated.ck:ck0;
+  let mine=contactFind(ck);
   try{ history.replaceState(null,"","/"); }catch(e){}
   if(mine && mine.is===inv.s){ toast(t("That's your own invite link — send it to a friend")); goHome(); return; }
   const nm=realName(inv.n)?inv.n:"Friend";   // stored in English, shown translated (dn)
+  if(!mine && inv.p){
+    // v3: agree the contact key with the inviter's pre-key right now; leave a hello in the link mailbox
+    let secret, eph, ephPub;
+    try{ eph=await genKP(); ephPub=b64(await pubRaw(eph)); secret=await sharedSecret(eph.privateKey, await importPub(unb64(inv.p))); }catch(e){ secret=null; }
+    if(secret){
+      const ag=await v3Agree(secret, ck0); ck=ag.ck;
+      const l=contactsLoad();
+      l.push({name:nm, ck, inv:1, rot:Date.now(), prev:ck0, hk:"c:"+ck, recon:Date.now(), sv:ag.sv, v3:1, hello:{e:ephPub,n:realName(myName)?myName:""}, ts:Date.now()});
+      contactsSave(l); mine=contactFind(ck);
+      try{ await depositOne(await mboxIdForSecret(ck0), await mboxKeyForSecret(ck0), "h"+rid(), {t:"hello",v:3,e:ephPub}); }catch(e){}
+      if(pushOn()) registerAllContacts(); notifyPeer(ck0,"chat").catch(()=>{});
+    }
+  }
   if(!mine){ const l=contactsLoad(); l.push({name:nm, ck, inv:1, ts:Date.now()}); contactsSave(l); if(pushOn()) registerAllContacts(); }
   else if(!realName(mine.name)||mine.name==="Friend"){ contactPatch(ck,{name:nm,ts:Date.now()}); }
   await openContact(ck, nm);
@@ -388,7 +461,7 @@ async function depositMailbox(R, mid, env){
     if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(!id||!key) return false; return depositOne(id,key,mid,env); }
     if(!R.fromContact) return false;
     let ok=false;
-    for(const ck of contactCKSet(R.fromContact)){ if(await depositOne(await mboxIdForSecret(ck), await mboxKeyForSecret(ck), mid, env)) ok=true; }
+    for(const ck of depositCKSet(R.fromContact)){ if(await depositOne(await mboxIdForSecret(ck), await mboxKeyForSecret(ck), mid, env)) ok=true; }
     return ok;
   }catch(e){ return false; }
 }
@@ -401,15 +474,15 @@ async function fetchMailbox(R){
       if(!R.seen) R.seen=new Set();
       let variants=[];
       if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(id&&key) variants=[[id,key]]; }
-      else if(R.fromContact){ for(const ck of contactCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck)]); }
-      for(const [id,key] of variants) delivered += await fetchMailboxId(R, id, key);
+      else if(R.fromContact){ for(const ck of fetchCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck), ck]); }
+      for(const [id,key,ck] of variants) delivered += await fetchMailboxId(R, id, key, ck);
     }catch(e){}
     return delivered;
   })();
   try{ return await R.fetching; } finally { R.fetching=null; }
 }
-async function fetchMailboxId(R, id, key){
-  let delivered=0;
+async function fetchMailboxId(R, id, key, ck){
+  let delivered=0; const got=[];
   try{
     const since=mbtsGet(id);
     const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
@@ -423,8 +496,12 @@ async function fetchMailboxId(R, id, key){
       if(it.mid) R.seen.add(it.mid);                           // claim it before awaiting so a parallel pass can't show it too
       try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(it.data.iv)},key,unb64(it.data.ct));
         const env=JSON.parse(dec.decode(pt));
+        if(it.mid) got.push(it.mid);
         if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
+        if(env.t==="hello"){ if(!own && ck) await onHelloEnv(R, ck, env); continue; }        // someone opened an invite link
+        if(env.t==="used"){ if(!own && ck) onUsedEnv(R, ck, env); continue; }                // the link we opened was already taken
         if(env.mid && it.mid && env.mid!==it.mid) throw new Error("id mismatch");
+        if(ck && !own) legacyLinkFallback(R, ck);                // a message under a still-pending v3 link: the other side runs an older app
         const who=realName(env.n)||(R.group?t("Member"):"");
         if(!own) adoptNameFromMessage(R, env.n);
         onInbound(R, env, who, ts, it.mid, own, false);
@@ -432,6 +509,8 @@ async function fetchMailboxId(R, id, key){
       }catch(e){ if(it.mid) R.seen.delete(it.mid); }
     }
     mbtsSet(id,maxTs);
+    // tell the relay these are delivered: it keeps them 48 h more for our other devices, then drops them
+    if(got.length) mboxFn("ack",{mbox:id, mids:got}).catch(()=>{});
     if(delivered && !R.shadow){ soundRecv(); if(R.code===active) blinkEyes(); }
   }catch(e){}
   return delivered;
@@ -459,7 +538,26 @@ function onInbound(R, env, who, ts, mid, own, animate){
 }
 function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; localSaveSoon(); renderTabs(); renderContacts(); }
 function clearUnread(R){ const k=histKeyOf(R); if(_meta.unread[k]){ delete _meta.unread[k]; localSaveSoon(); } R.unread=0; }
-function stateFor(mid){ return mid && _meta.rcpt[mid] ? "rcvd" : "sent"; }
+function stateFor(mid){ if(mid && outqHas(mid)) return "pending"; return mid && _meta.rcpt[mid] ? "rcvd" : "sent"; }
+// Messages written to a v3 invite before it is opened wait on this device (nothing is ever deposited under
+// the link key) and are sent under the agreed key the moment the hello arrives.
+function outqHas(mid){ const q=_meta.outq||{}; for(const k in q) if(q[k].some(x=>x.mid===mid)) return true; return false; }
+function queueOut(R, env, mid, now, el){
+  if(!_meta.outq) _meta.outq={}; (_meta.outq[R.fromContact]=_meta.outq[R.fromContact]||[]).push({env,mid,ts:now});
+  histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid}); localSaveSoon(); if(el) setMsgState(el,"pending");
+}
+async function flushOutq(fromCk, toCk){
+  const q=(_meta.outq||{})[fromCk]; if(!q||!q.length){ if(_meta.outq) delete _meta.outq[fromCk]; return; }
+  delete _meta.outq[fromCk]; localSaveSoon();
+  let R=null; rooms.forEach(r=>{ if(r.fromContact===toCk) R=r; }); if(!R) R=await shadowRoom({t:"c",ck:toCk,name:""});
+  let sent=0;
+  for(const it of q){ let ok=false; try{ ok=await depositMailbox(R, it.mid, it.env); }catch(e){}
+    const el=R.logEl ? R.logEl.querySelector('[data-mid="'+CSS.escape(it.mid)+'"]') : null;
+    if(ok){ sent++; if(el) setMsgState(el, stateFor(it.mid)); }
+    else { if(!_meta.outq) _meta.outq={}; (_meta.outq[toCk]=_meta.outq[toCk]||[]).push(it); if(el) setMsgState(el,"pending"); } }
+  if(sent) notifyPeer(toCk,"msg").catch(()=>{});
+  localSaveSoon();
+}
 // ----- receipts: "your message reached their device". Encrypted under the contact's mailbox key, so the
 // relay sees neither which messages nor that it is a receipt. Sent live when paired, and always left in the
 // mailbox for the sender's other devices / later polls. 1:1 chats only.
@@ -474,7 +572,7 @@ async function flushRcpt(ck, mids){
       R.channel.send({type:"broadcast",event:"rcpt",payload:{from:R.id,iv:b64(iv),ct:b64(ct)}}); }).catch(()=>{});
   }catch(e){} } });
   // stored copy to every key this contact is reachable on (current + link while reconciling)
-  for(const k of contactCKSet(ck)){ try{ await depositOne(await mboxIdForSecret(k), await mboxKeyForSecret(k), "r"+rid(), env); }catch(e){} }
+  for(const k of depositCKSet(ck)){ try{ await depositOne(await mboxIdForSecret(k), await mboxKeyForSecret(k), "r"+rid(), env); }catch(e){} }
 }
 async function onRcpt(R,{payload:p}){
   if(!p||p.from===R.id||!R.fromContact) return;
@@ -577,7 +675,7 @@ async function fn(action, extra){ return client.functions.invoke(PUSH_FN,{body:O
 async function vapidKey(){ if(_vapid) return _vapid; try{ const {data}=await fn("vapid"); _vapid=data&&data.publicKey||null; }catch(e){} return _vapid; }
 async function registerAllContacts(){
   if(!pushOn()||!gPushSub) return;
-  const nks=[]; for(const c of contactsLoad()){ try{ nks.push(await notifyKeyFor(c.ck)); }catch(e){} }
+  const nks=[]; for(const c of contactsLoad()){ try{ nks.push(await notifyKeyFor(c.ck)); if(c.prev && reconActive(c)) nks.push(await notifyKeyFor(c.prev)); }catch(e){} }
   // include any live contact rooms not yet saved
   for(const R of rooms.values()){ if(R.fromContact){ try{ const nk=await notifyKeyFor(R.fromContact); if(nks.indexOf(nk)<0) nks.push(nk); }catch(e){} } }
   if(!nks.length) return;
@@ -610,6 +708,10 @@ async function disablePush(){
 }
 async function notifyPeer(ckB64, kind){
   if(!ckB64) return false;
+  { const c=contactFind(ckB64); if(c && c.v3 && c.prev && reconActive(c) && !c.nprev){ contactPatch(ckB64,{nprev:1}); notifyPeerKey(c.prev, kind).catch(()=>{}); } }
+  return notifyPeerKey(ckB64, kind);
+}
+async function notifyPeerKey(ckB64, kind){
   const nk=await notifyKeyFor(ckB64);
   let map={}; try{ map=JSON.parse(localStorage.getItem(LS_NOTIFIED)||"{}"); }catch(e){}
   const now=Date.now(); if(kind!=="call" && map[nk]&&now-map[nk]<90000) return false;   // debounce 90s per contact (not for calls)
@@ -1356,7 +1458,8 @@ async function establish(R, other, authed){
         const old=R.fromContact, nk=await rotatedCKFromSecret(secret);
         const l=contactsLoad(); const i=l.findIndex(x=>x.ck===old);
         if(i>=0 && !l.some(x=>x.ck===nk)){
-          const e=l[i]; e.prev=old; e.hk=e.hk||("c:"+old); e.ck=nk; e.rot=Date.now(); e.recon=Date.now(); delete e.is; e.ts=Date.now();
+          const e=l[i]; e.prev=old; e.hk=e.hk||("c:"+old); e.ck=nk; e.rot=Date.now(); e.recon=Date.now(); delete e.is; delete e.pk; delete e.pp; delete e.v3; e.ts=Date.now();
+          const q=(_meta.outq||{})[old]; if(q&&q.length){ _meta.outq[nk]=(_meta.outq[nk]||[]).concat(q); delete _meta.outq[old]; setTimeout(()=>flushOutq(nk,nk).catch(()=>{}),500); }
           contactsSave(l);
           R.fromContact=nk; await ensureTag(R); if(R.tag && R.channel) R.channel.track(presencePayload(R));
           sysline(R.logEl, t("🔐 Invite link retired — this chat now uses a key only your two devices know."));
@@ -1372,7 +1475,7 @@ async function establish(R, other, authed){
       if(c && c.prev){
         const directNew=!!(other && other.tag && await authVerify(R.fromContact, other.pub, other.tag));
         if(directNew!==!!R.peerNewKey){ R.peerNewKey=directNew; try{ if(R.channel) R.channel.track(presencePayload(R)); }catch(_e){} }
-        if(c.recon && directNew && other && other.rk) contactPatch(R.fromContact,{recon:0});
+        if(c.recon && directNew && other && other.rk){ const l=contactsLoad(); const x=l.find(y=>y.ck===R.fromContact); if(x){ x.recon=0; delete x.hello; contactsSave(l); } }
       } else R.peerNewKey=false;
     }catch(e){}
     renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI(); updateCallUI(); callTryInvite();
@@ -1385,12 +1488,17 @@ function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.aut
   R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
   setIdle(R);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
-function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.peerNewKey) p.rk=1; } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
+function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.peerNewKey) p.rk=1;
+    const c=R.fromContact?contactFind(R.fromContact):null; if(c && c.v3 && c.hello && reconActive(c)) p.hello=c.hello; } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
 function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
 async function onSync(R){
   const st=R.channel.presenceState(); const me=_acct; let others=[];
   for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
   others=others.filter(m=>!(me && m.u===me));          // my own account on another device/tab is not a peer
+  // someone who just opened our invite link announces the key agreement in presence: bind first, verify after
+  for(const m of others){ if(m.hello && m.hello.e && R.fromContact){ const c=contactFind(R.fromContact);
+    if(c && c.pk) await processHello(R.fromContact, m.hello.e, m.hello.n||m.name);
+    else if(c && c.v3 && !c.pk && c.he && c.he!==m.hello.e && c.prev && !(c.reuseSeen||[]).includes(m.hello.e)){ contactPatch(c.ck,{reuseSeen:(c.reuseSeen||[]).concat([m.hello.e]).slice(-5)}); noteLinkReuse(c, c.prev, m.hello.e); } } }
   if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setIdle(R); return; }
   // Authenticate every candidate with the shared contact key. Only someone holding the key we established
   // together can sign their public key, so an unverified entry is never paired with — whatever it calls itself.
@@ -1415,7 +1523,7 @@ async function onSync(R){
         ? t("⚠ Couldn't verify the person connecting as “{who}”: their app didn't present a key check (older Gizleme — ask them to reload). Not connected live. Your messages still reach {name} through the encrypted mailbox.",{who,name:nm})
         : t("⚠ Couldn't verify this is {name}: their key check failed — someone may be in the middle. Nothing was shared with them. Your messages still reach {name} through the encrypted mailbox; verify in person before trusting a live chat.",{name:nm}), true);
     } else if(stale.length){
-      sysline(R.logEl, t("{name}'s other device still uses the retired invite key — it will catch up when it syncs the account. Not connected live with that device.",{name:nm}), false);
+      { const cc=contactFind(R.fromContact); if(!(cc && cc.v3 && cc.hello)) sysline(R.logEl, t("{name}'s other device still uses the retired invite key — it will catch up when it syncs the account. Not connected live with that device.",{name:nm}), false); }
     } else if(others.length>1){
       const names=[...new Set(others.map(m=>realName(m.name)||t("someone")))];
       if(names.length===1) sysline(R.logEl, t("{name} is connected from {n} devices — you're paired with the most recent one; their other device still receives your messages.",{name:names[0],n:others.length}), false);
@@ -1424,6 +1532,8 @@ async function onSync(R){
   }
   if(!o){ if(R.paired) unpair(R); if(stale.length && !rejected.length) setIdle(R); else setStatus(R, t("⚠ not verified — not connected live"), false, "warn"); return; }
   if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o,auth[others.indexOf(o)]==="ok");
+  else if(o.rk && !(R.peer.rk) && R.peerNewKey && R.fromContact){ R.peer=o;   // they now confirm seeing us on the new key too
+    try{ const c=contactFind(R.fromContact); if(c && c.recon){ const l=contactsLoad(); const x=l.find(y=>y.ck===R.fromContact); if(x){ x.recon=0; delete x.hello; contactsSave(l); } } }catch(e){} }
 }
 
 // envelope: {t:'txt',body} | {t:'img',path,k,iv,mime,once}
@@ -1474,6 +1584,8 @@ async function sendText(){
 // to history until it has actually left the device.
 async function deliverOut(R, env, mid, el, now){
   let ok=false;
+  // a v3 invite nobody has opened yet: hold the message here rather than depositing it under the link key
+  if(!R.group && R.fromContact && !R.paired){ const c=contactFind(R.fromContact); if(c && c.v3 && c.pk){ queueOut(R, env, mid, now, el); return; } }
   try{
     if(R.group){ const a=await broadcastGroup(R,env,mid); const b=await depositMailbox(R,mid,env); ok=a||b; }
     else if(R.paired){ const a=await broadcast(R,env,mid); const b=R.fromContact ? await depositMailbox(R,mid,env) : false; ok=a||b; }
