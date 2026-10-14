@@ -22,7 +22,10 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 - Encrypted store-and-forward mailbox (14 days), real inbox with unread counts and previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
 - View-once photos, disappearing messages (24 h by default), auto-lock, privacy screen, hidden previews.
-- Groups with a shared key in the link fragment.
+- Groups with a shared key in the link fragment; a two-person chat can be turned into a group (the
+  contact is invited inside the encrypted chat, the link for the others is offered right away).
+- Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
+  phone's own maps app — Gizleme never fetches anything from a map provider.
 - Web Push ("New message from X"; never message content).
 
 ## Security

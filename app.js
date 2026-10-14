@@ -437,11 +437,17 @@ async function fetchMailboxId(R, id, key){
 function onInbound(R, env, who, ts, mid, own, animate){
   const hk=histKeyOf(R); const open=!!R.logEl;
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
-    if(open){ if(env.t==="img") addText(R.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)}); else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
+    if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name);
+    if(open){ if(env.t==="img") addText(R.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)});
+      else if(validLoc(env)) addCard(R.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
+      else if(validGinv(env)) addCard(R.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
+      else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
     histSave(hk,{dir:"sent",env,ts,mid}); return;
   }
   const tag=R.group?(who||""):"";
   if(env.t==="img"){ if(open) addImageRecvOnce(R.logEl,env,tag,ts,mid); }
+  else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(R.logEl,"recv",locCard(env,false),tag,ts,{mid}); }
+  else if(env.t==="ginv"){ if(!validGinv(env)) return; groupAddIfNew(env.rid, env.gk, env.name); if(open) addCard(R.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid}); }
   else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid});
   histSave(hk,{dir:"recv",env,ts,who,mid});
   if(!open || R.code!==active) bumpUnread(R);
@@ -718,7 +724,7 @@ const _prev={}; let _prevT=null;
 function previewKeyOf(it){ return it.t==="g" ? it.rid : (it.hk||("c:"+it.ck)); }
 function previewText(r, isGroup){
   if(!r) return "";
-  const body = r.env && r.env.t==="img" ? t("📷 Photo") : (r.env && r.env.body) || "";
+  const body = r.env && r.env.t==="img" ? t("📷 Photo") : r.env && r.env.t==="loc" ? t("📍 Location") : r.env && r.env.t==="ginv" ? t("👥 Group invitation") : (r.env && r.env.body) || "";
   if(r.dir==="sent") return t("You: ")+body;
   return (isGroup && r.who ? r.who+": " : "") + body;
 }
@@ -945,6 +951,37 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
   return d;
 }
+// Card bubbles (a location, a group invitation): icon, title, a mono sub-line and one action.
+function addCard(logEl, cls, card, tag, ts, opts){
+  opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
+  const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
+  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
+  const row=document.createElement("div"); row.className="cardl";
+  const ico=document.createElement("span"); ico.className="cl-ico"; ico.textContent=card.ico||""; row.appendChild(ico);
+  const tx=document.createElement("div"); const tt=document.createElement("div"); tt.className="cl-t"; tt.textContent=card.title||""; tx.appendChild(tt);
+  if(card.sub){ const ss=document.createElement("div"); ss.className="cl-s"; ss.textContent=card.sub; tx.appendChild(ss); }
+  row.appendChild(tx); d.appendChild(row);
+  if(card.action){ const a=document.createElement(card.action.href?"a":"button"); a.className="cl-btn"; a.textContent=card.action.label;
+    if(card.action.href){ a.href=card.action.href; a.target="_blank"; a.rel="noopener noreferrer"; }
+    else { a.type="button"; a.addEventListener("click",e=>{ e.stopPropagation(); card.action.onclick(); }); }
+    d.appendChild(a); }
+  if(cls==="sent"||cls==="recv") metaRow(d, ts, cls==="sent" ? (opts.st||"sent") : null);
+  if(cls==="sent"){ d.addEventListener("click",()=>{ if(d.classList.contains("failed") && d._retry) d._retry(); }); }
+  logEl.appendChild(d); scrollEl(logEl); return d;
+}
+// Location: shared only inside the encrypted message; "open in Maps" hands the coordinates to the phone's own
+// maps app — nothing is fetched from a map provider by Gizleme itself.
+function validLoc(env){ return env && env.t==="loc" && Number.isFinite(env.lat) && Number.isFinite(env.lng) && Math.abs(env.lat)<=90 && Math.abs(env.lng)<=180; }
+function mapsUrl(lat,lng){ const q=lat+","+lng;
+  if(/iphone|ipad|ipod/i.test(navigator.userAgent)) return "https://maps.apple.com/?ll="+q+"&q="+encodeURIComponent(q);
+  if(/android/i.test(navigator.userAgent)) return "geo:"+q+"?q="+q;
+  return "https://www.openstreetmap.org/?mlat="+lat+"&mlon="+lng+"#map=17/"+lat+"/"+lng; }
+function locCard(env, mine){ const acc=env.acc?t("±{m} m",{m:env.acc})+" · ":""; return { ico:"📍", title: mine?t("My location"):t("Location"), sub: acc+env.lat.toFixed(5)+", "+env.lng.toFixed(5), action:{label:t("Open in Maps"), href:mapsUrl(env.lat,env.lng)} }; }
+function ginvCard(env, who, dir){ const name=String(env.name||"Group").slice(0,40);
+  return { ico:"👥", title: dir==="sent" ? t("Group “{name}” created",{name}) : t("{who} added you to the group “{name}”",{who:who||t("Contact"),name}),
+    sub: dir==="sent" ? t("invitation sent in this chat") : "", action:{label:t("Open the group"), onclick:()=>openGroup(env.rid, env.gk, name)} }; }
+function validGinv(env){ return env && env.t==="ginv" && typeof env.rid==="string" && /^[a-z0-9]{8,32}$/.test(env.rid) && typeof env.gk==="string" && env.gk.length>=40 && env.gk.length<=64; }
+function groupAddIfNew(rid, gkB64, name){ const l=groupsLoad(); if(l.some(g=>g.rid===rid)) return false; l.push({rid,gk:gkB64,name:(name||"Group").slice(0,40),ts:Date.now()}); groupsSave(l); return true; }
 function openLightbox(url, opts){
   opts=opts||{}; const t_=t;   // the countdown label shadows t below
   const lb=document.createElement("div"); lb.className="lightbox";
@@ -1005,6 +1042,10 @@ function renderHistory(R, past){
       if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid); }
       else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
       continue; }
+    if(r.env.t==="loc"){ if(!validLoc(r.env)) continue;
+      if(r.dir==="sent") addCard(R.logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
+    if(r.env.t==="ginv"){ if(!validGinv(r.env)) continue;
+      if(r.dir==="sent") addCard(R.logEl,"sent",ginvCard(r.env,"","sent"),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",ginvCard(r.env,r.who||R.title,"recv"),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
     if(r.dir==="sent") addText(R.logEl,"sent",r.env.body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
     else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid});
   }
@@ -1233,6 +1274,37 @@ async function deliverOut(R, env, mid, el, now){
   } else {
     setMsgState(el,"failed"); el._retry=()=>{ el._retry=null; setMsgState(el,"pending"); deliverOut(R,env,mid,el,now); };
   }
+}
+async function sendLocation(){
+  const R=A(); if(!R) return; if(!R.group && !R.fromContact && !R.paired) return;
+  if(!navigator.geolocation){ toast(t("Location is not available on this device")); return; }
+  toast(t("Getting your location…")); initAudio();
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const c=pos.coords; const env={t:"loc",lat:+c.latitude.toFixed(6),lng:+c.longitude.toFixed(6),acc:Math.round(c.accuracy||0)};
+    const mid=rid(); const now=Date.now(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+    const el=addCard(R.logEl,"sent",locCard(env,true),"",now,{mid,st:"pending"});
+    deliverOut(R, env, mid, el, now);
+  }, err=>{ toast(err && err.code===1 ? t("Location access was denied — allow it for gizleme.com in your browser settings") : t("Couldn't get your location — try again outside or with Wi-Fi on")); },
+  {enableHighAccuracy:true, timeout:15000, maximumAge:20000});
+}
+// A two-person chat grows into a group: a new group is created, the contact is told inside this encrypted
+// chat (their app adds the group, live or from the mailbox), and the invite link for the other people is
+// offered right away. The 1:1 history stays where it is — it is not copied into the group.
+let _ginvPending=null;
+async function convertToGroup(){
+  const R=A(); if(!R||R.group||!R.fromContact) return;
+  const c=contactFind(R.fromContact); const other=(c&&(c.alias||dn(c.name)))||dn(R.title)||t("Friend"); const me=realName(myName)||t("Me");
+  const v=prompt(t("Group name:"), me+" & "+other); if(v===null) return;
+  const gname=(v.trim()||(me+" & "+other)).slice(0,40);
+  const grid=newRid(); const gk=crypto.getRandomValues(new Uint8Array(32)); const gkB64=b64(gk);
+  const env={t:"ginv",rid:grid,gk:gkB64,name:gname}; const mid=rid(); const now=Date.now(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  const el=addCard(R.logEl,"sent",ginvCard(env,"","sent"),"",now,{mid,st:"pending"});
+  deliverOut(R, env, mid, el, now).catch(()=>{});
+  await doJoinGroup(grid, gk, gname);
+  const G=A(); if(G&&G.logEl) sysline(G.logEl, t("🔒 Group created from your chat with {name} — they have been invited.",{name:other}));
+  _ginvPending={rid:grid,gk:gkB64,name:gname};
+  $("ginvTitle").textContent=t("Group “{name}” created",{name:gname}); $("ginvSub").textContent=t("{name} has been invited.",{name:other});
+  $("ginvModal").classList.add("show");
 }
 async function sendImage(file){
   const R=A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
@@ -1794,6 +1866,12 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
+  const ginvLink=()=>{ const g=_ginvPending; if(!g) return ""; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify({rid:g.rid,gk:g.gk,name:g.name}))); };
+  $("ginvShare").addEventListener("click",async()=>{ const g=_ginvPending; if(!g) return; const url=ginvLink(); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:g.name,url});
+    if(navigator.share){ try{ await navigator.share({text:msg}); $("ginvModal").classList.remove("show"); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
+    try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); } $("ginvModal").classList.remove("show"); });
+  $("ginvCopy").addEventListener("click",async()=>{ const url=ginvLink(); if(!url) return; try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); } $("ginvModal").classList.remove("show"); });
+  $("ginvLater").addEventListener("click",()=>$("ginvModal").classList.remove("show"));
   const showStatusDetail=()=>{ const R=A(); if(R&&R.statusText) toast(R.statusText); };
   $("peerMeta").addEventListener("click",showStatusDetail);
   $("peerMeta").addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); showStatusDetail(); } });
@@ -2022,6 +2100,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       $("mi-notify").hidden=!(R&&R.fromContact&&!grp);
       $("mi-rekey").hidden=!(R&&R.paired&&!grp);
       $("mi-rename").hidden=!(R&&(R.fromContact||grp));
+      $("mi-loc").hidden=!(R&&(grp||R.fromContact||R.paired));
+      $("mi-togroup").hidden=!(R&&R.fromContact&&!grp);
       m.hidden=false;
     } else m.hidden=true;
   }
@@ -2034,6 +2114,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     else if(act==="notify") nudgeContact();
     else if(act==="rekey") rekey();
     else if(act==="rename") renameChat();
+    else if(act==="loc") sendLocation();
+    else if(act==="togroup") convertToGroup();
     else if(act==="wire") $("wire").classList.toggle("show");
     else if(act==="settings") openSettings();
     else if(act==="lock") lockApp();
