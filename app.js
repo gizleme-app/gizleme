@@ -70,7 +70,7 @@ let _pendingNotify = null; // a #n= notification deep link that arrived before c
 let _acct = "";            // opaque per-account marker (HKDF of the account backup key): tells our own devices apart without naming the account
 let adding = false;        // join screen is being used to ADD a room
 function A(){ return active ? rooms.get(active) : null; }
-function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", tag:null, authOk:false, channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null, multiSig:"", recvI:-1 }; }
+function newRoom(code){ return { code, id:rid(), kp:null, pubB64:"", tag:null, authOk:false, channel:null, peer:null, root:null, rootFp:"", sendI:0, paired:false, logEl:null, unread:0, statusText:"connecting…", statusKind:"busy", statusShort:"", secure:false, peerName:"Waiting for peer…", avatar:"?", fromContact:null, title:null, group:false, rid:null, gk:null, gkMsg:null, seen:null, multiSig:"", recvI:-1 }; }
 // (peerName starts as the English placeholder; dn() translates it wherever it is displayed)
 // ---------- automatic identity check at every connection ----------
 // Two contacts share a secret key (ck) from their first connection or invite link; the relay never has it.
@@ -315,9 +315,9 @@ async function doJoinGroup(rid, gkBytes, name){
   R.channel=ch;
   ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
-  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); setStatus(R,t("🔒 encrypted group"),true);
+  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); setStatus(R,t("🔒 encrypted group"),true,"online",t("group"));
       if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; } fetchMailbox(R); }
-    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false); } });
+    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); } });
   fetchMailbox(R);
   try{ history.replaceState(null,"","/"); }catch(e){}
   renderContacts(); updateVerifyUI();
@@ -327,7 +327,7 @@ function onSyncGroup(R){
   for(const k in st) for(const m of st[k]){ if(!m.id) continue; ids.add(m.id); if(m.id!==R.id && m.name) names.push(m.name); }
   const n=ids.size;
   const extra=names.length?(" · "+names.slice(0,3).join(", ")+(names.length>3?" +"+(names.length-3):"")):"";
-  setStatus(R,(n>1?t("🔒 group · {n} online",{n}):t("🔒 group · 1 (just you)"))+extra,true);
+  setStatus(R,(n>1?t("🔒 group · {n} online",{n}):t("🔒 group · 1 (just you)"))+extra,true,"online",n>1?t("{n} online",{n}):t("just you"));
 }
 async function broadcastGroup(R, env, mid){
   const iv=crypto.getRandomValues(new Uint8Array(12));
@@ -1010,7 +1010,20 @@ function renderHistory(R, past){
   seedSeen(R, past);
 }
 function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); d.textContent=t; logEl.appendChild(d); scrollEl(logEl); }
-function setStatus(R, t, secure){ R.statusText=t; R.secure=!!secure; if(R.code===active){ $("statusText").textContent=t; $("bar").classList.toggle("secure",!!secure); } }
+// The header shows one dot and a short word (online / offline / connecting…); the full explanation is kept
+// and shown on tap (phone) or hover (desktop). kind: "online" | "offline" | "busy" | "warn".
+function statusShort(kind, short){ if(short) return short; return kind==="online"?t("online"):kind==="busy"?t("connecting…"):kind==="warn"?t("not verified"):t("offline"); }
+function setStatus(R, txt, secure, kind, short){
+  R.statusText=txt; R.secure=!!secure; R.statusKind=kind||(secure?"online":"offline"); R.statusShort=statusShort(R.statusKind, short);
+  if(R.code===active) applyStatus(R);
+}
+function applyStatus(R){
+  const bar=$("bar"); if(!bar) return;
+  $("statusText").textContent=R.statusShort||statusShort(R.statusKind);
+  const meta=$("peerMeta"); if(meta) meta.title=R.statusText||"";
+  bar.classList.toggle("secure",!!R.secure);
+  ["st-online","st-offline","st-busy","st-warn"].forEach(c=>bar.classList.remove(c)); bar.classList.add("st-"+(R.statusKind||"offline"));
+}
 const CANONICAL="https://gizleme.com";
 function localRoomUrl(code){ const u=new URL(location.href); u.search=""; u.hash="room="+(code||active||""); return u.toString(); }
 function inviteParts(){
@@ -1048,6 +1061,11 @@ function idleStatus(R){
   if(!R||!R.fromContact) return t("waiting for peer…");
   if(isPendingInvite(contactFind(R.fromContact))) return t("waiting for them to open your link — anything you write will be waiting for them");
   return t("offline — messages will be delivered when they reconnect"); }
+function setIdle(R){
+  if(!R||!R.fromContact) return setStatus(R, idleStatus(R), false, "busy", t("waiting…"));
+  if(isPendingInvite(contactFind(R.fromContact))) return setStatus(R, idleStatus(R), false, "busy", t("link not opened yet"));
+  return setStatus(R, idleStatus(R), false, "offline");
+}
 async function establish(R, other, authed){
   if(R.establishing) return; R.establishing=true;          // back-to-back presence syncs must not pair twice
   let peerKey, secret, root, rootFp;
@@ -1063,10 +1081,11 @@ async function establish(R, other, authed){
   const alias=R.fromContact ? (contactFind(R.fromContact)||{}).alias : "";
   if(alias){ R.title=alias; R.peerName=alias; R.avatar=(alias[0]||"?").toUpperCase(); }
   else if(realName(nm)) R.title=nm;                    // show the person's name in the tab/header
-  setStatus(R, authed ? t("🔒 secure · same key as your first connection ✓") : t("🔒 secure · key {fp}",{fp:rootFp}), true);
+  setStatus(R, authed ? t("🔒 secure · same key as your first connection ✓") : t("🔒 secure · key {fp}",{fp:rootFp}), true, "online");
   if(R.code===active){ $("peerName").textContent=alias||dn(nm); $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
   if(changed){
-    sysline(R.logEl, authed ? t("✅ {name} verified automatically — same shared key as when you first connected.",{name:alias||dn(nm)}) : t("🔒 secure channel established with {name}",{name:alias||dn(nm)}));
+    if(!R.connLineShown || !authed){ R.connLineShown=true;
+      sysline(R.logEl, authed ? t("✅ {name} verified automatically — same shared key as when you first connected.",{name:alias||dn(nm)}) : t("🔒 secure channel established with {name}",{name:alias||dn(nm)})); }
     soundConnect();
     // Derive a stable per-contact key from the first shared secret (relay never sees it),
     // then save/refresh the contact — identical on both sides, no extra round-trip.
@@ -1112,7 +1131,7 @@ function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.aut
   // A saved contact keeps their name in the header while offline; only an anonymous manual room shows "Waiting for peer…".
   const known=!!(R.fromContact && realName(R.title));
   R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
-  setStatus(R,idleStatus(R),false);
+  setIdle(R);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
 function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.peerNewKey) p.rk=1; } return p; }
 function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
@@ -1120,7 +1139,7 @@ async function onSync(R){
   const st=R.channel.presenceState(); const me=_acct; let others=[];
   for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
   others=others.filter(m=>!(me && m.u===me));          // my own account on another device/tab is not a peer
-  if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setStatus(R,idleStatus(R),false); return; }
+  if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setIdle(R); return; }
   // Authenticate every candidate with the shared contact key. Only someone holding the key we established
   // together can sign their public key, so an unverified entry is never paired with — whatever it calls itself.
   const auth=await Promise.all(others.map(m=>verifyPeerTag(R,m)));
@@ -1151,7 +1170,7 @@ async function onSync(R){
       else sysline(R.logEl, t("⚠ {n} people are in this chat: {names}. You're paired with {with}. If you weren't expecting anyone else, stop and compare the safety code (🛡) with them in person.",{n:others.length,names:names.join(", "),with:(o&&realName(o.name)||t("the most recent"))}), true);
     }
   }
-  if(!o){ if(R.paired) unpair(R); setStatus(R, stale.length && !rejected.length ? idleStatus(R) : t("⚠ not verified — not connected live"), false); return; }
+  if(!o){ if(R.paired) unpair(R); if(stale.length && !rejected.length) setIdle(R); else setStatus(R, t("⚠ not verified — not connected live"), false, "warn"); return; }
   if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o,auth[others.indexOf(o)]==="ok");
 }
 
@@ -1261,8 +1280,8 @@ async function doJoin(code, opts){
   ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
   ch.on("broadcast",{event:"rcpt"},(payload)=>onRcpt(R,payload));
   ch.subscribe(async st=>{
-    if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); if(!R.paired) setStatus(R,idleStatus(R),false); fetchMailbox(R); }
-    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false); }
+    if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); if(!R.paired) setIdle(R); fetchMailbox(R); }
+    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); }
   });
   fetchMailbox(R);   // pull anything that was queued while we were away
   // Keep the shared code in the URL only for manual/invite rooms; contact rooms use a
@@ -1334,7 +1353,7 @@ function switchTo(code){
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   clearUnread(R);
   $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar;
-  $("statusText").textContent=R.statusText; $("bar").classList.toggle("secure",R.secure);
+  applyStatus(R);
   // Composer is usable whenever there's somewhere to deliver: a live pairing, a group,
   // or a saved contact (message goes to the encrypted mailbox and is delivered when they reconnect).
   const canSend = R.paired || R.group || !!R.fromContact;
@@ -1773,6 +1792,12 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
+  const showStatusDetail=()=>{ const R=A(); if(R&&R.statusText) toast(R.statusText); };
+  $("peerMeta").addEventListener("click",showStatusDetail);
+  $("peerMeta").addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); showStatusDetail(); } });
+  // iOS only lets audio start inside a user gesture: unlock at the first tap so the connection / message sounds
+  // that follow (which are not user-initiated) can be heard.
+  document.addEventListener("pointerdown",()=>{ if(soundOn) initAudio(); },{passive:true});
   $("sendBtn").addEventListener("mousedown",e=>e.preventDefault());        // keep the keyboard open while sending
   $("attachBtn").addEventListener("mousedown",e=>e.preventDefault());
   $("msgInput").addEventListener("focus",()=>{ [120,350,700].forEach(ms=>setTimeout(()=>{ fitViewport(); stickLog(); },ms)); });
