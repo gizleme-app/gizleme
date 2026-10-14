@@ -71,9 +71,10 @@ rate-limit counters.
   wire by the two devices; the fingerprints are exchanged inside the chat's encrypted, authenticated
   channel, so the relay cannot sit in the middle). Like any P2P call, each side learns the other's IP
   address — unless a TURN relay carries the media, which is also what makes calls work when both phones
-  are behind strict (carrier-grade) NATs. TURN is optional: set the Cloudflare TURN key id and token as
-  the `gizleme-turn` function's secrets (`CF_TURN_KEY_ID`, `CF_TURN_KEY_TOKEN`); the function hands out
-  short-lived credentials and the relay only ever forwards ciphertext. Group calls are a mesh (every
+  are behind strict (carrier-grade) NATs. TURN is on (Cloudflare): the `gizleme-turn` function holds the
+  long-term TURN key server-side (function secrets `CF_TURN_KEY_ID` / `CF_TURN_KEY_TOKEN`, or the
+  service-role-only `gizleme_config` row, like the VAPID key — never in source or in the client) and hands
+  out short-lived credentials; the relay only ever forwards ciphertext. Group calls are a mesh (every
   participant to every other), capped at 4. A web app cannot ring while closed the way a phone app does:
   an offline contact gets a push ("X is calling you") and the call connects when they open the chat.
 - **Groups have no sender authentication and no key rotation.** Any member or the relay could re-label a
