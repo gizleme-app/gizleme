@@ -17,9 +17,12 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 ## Features
 
 - Invite links (`#i=`) that work asynchronously: the invitee can write immediately, even if you're offline.
-  Single-use: at the first live meeting the link key is replaced by one only the two devices can compute.
+  The link is a ticket, not a key: it carries a one-time public key and the first device to open it agrees
+  the contact key by ECDH with the inviter — nobody can derive that key from the link; later openers are
+  rejected and the inviter is warned.
 - Automatic identity check at every connection (HMAC under the shared contact key) + in-person safety code.
-- Encrypted store-and-forward mailbox (14 days), real inbox with unread counts and previews, receipts
+- Encrypted store-and-forward mailbox (delivered messages deleted 48 h after being fetched, undelivered
+  after 14 days), real inbox with unread counts and previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
 - View-once photos, disappearing messages (24 h by default), auto-lock, privacy screen, hidden previews.
 - Groups with a shared key in the link fragment; a two-person chat can be turned into a group (the
