@@ -114,7 +114,10 @@ rate-limit counters.
   wa.me; the v3 design is what limits what a copied link gives (see above), but the link itself is seen by
   that channel like any message you send there.
 - **View-once and disappearing messages are best effort.** They are enforced by the recipient's device;
-  nothing stops a screenshot or a modified client.
+  nothing stops a screenshot or a modified client. Voice messages follow the photo path (random key inside
+  the message, ciphertext blob deleted from the relay after the first fetch) and are then kept encrypted
+  in the recipient's local store for replay; like photos, a second device of the same account that did not
+  fetch the blob first cannot play it.
 - **Web delivery.** Code is delivered at each load; a compromised origin could serve malicious code. The
   CSP, HSTS and the absence of third-party scripts limit, but do not remove, this trust in the host.
 - **Screenshots and the operating system.** No web app can prevent screenshots or protect against a

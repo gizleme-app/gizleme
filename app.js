@@ -422,7 +422,7 @@ async function doJoinGroup(rid, gkBytes, name){
   ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
   ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
   ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); setStatus(R,t("🔒 encrypted group"),true,"online",t("group"));
-      if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; } fetchMailbox(R); }
+      if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; setAttach(false); } fetchMailbox(R); }
     else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); } });
   fetchMailbox(R);
   try{ history.replaceState(null,"","/"); }catch(e){}
@@ -559,6 +559,7 @@ function onInbound(R, env, who, ts, mid, own, animate){
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
     if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name);
     if(open){ if(env.t==="img") addText(R.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)});
+      else if(env.t==="aud"){ if(validAud(env)) addVoice(R.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
       else if(validLoc(env)) addCard(R.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
       else if(validGinv(env)) addCard(R.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
       else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
@@ -566,6 +567,7 @@ function onInbound(R, env, who, ts, mid, own, animate){
   }
   const tag=R.group?(who||""):"";
   if(env.t==="img"){ if(open) addImageRecvOnce(R.logEl,env,tag,ts,mid); }
+  else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(R.logEl,"recv",env,tag,ts,{mid,room:hk}); }
   else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(R.logEl,"recv",locCard(env,false),tag,ts,{mid}); }
   else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(R.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid}); }
   else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid});
@@ -631,6 +633,8 @@ async function shadowRoom(it){   // a room-shaped object for a chat that isn't o
   const R=newRoom(it.t==="g"?it.rid:""); R.shadow=true; R.logEl=null; R.seen=new Set();
   if(it.t==="g"){ R.group=true; R.rid=it.rid; R.gk=unb64(it.gk); R.gkMsg=await gkMsgKey(R.gk); R.title=it.name||"Group"; }
   else { R.fromContact=it.ck; R.title=it.name||""; }
+  // what this device already holds (our own deposits included) must not be saved a second time
+  try{ if(gHistKey) seedSeen(R, await histLoad(histKeyOf(R))); }catch(e){}
   return R;
 }
 let _inboxBusy=false, _inboxLast=0;
@@ -831,11 +835,18 @@ async function bioUnlock(){  // -> master key via Face ID
   return new Uint8Array(mk);
 }
 
-let _db=null;
-function idb(){ return new Promise((res,rej)=>{ if(_db) return res(_db);
-  const r=indexedDB.open("vesper",1);
-  r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("msgs")){ const os=db.createObjectStore("msgs",{keyPath:"id",autoIncrement:true}); os.createIndex("room","room"); } };
-  r.onsuccess=()=>{ _db=r.result; res(_db); }; r.onerror=()=>rej(r.error); }); }
+let _db=null, _dbClosed=false, _dbP=null;   // one connection, opened once (concurrent callers share the open); closed for good at log-out
+function idb(){ if(_dbClosed) return Promise.reject(new Error("db closed")); if(_db) return Promise.resolve(_db); if(_dbP) return _dbP;
+  _dbP=new Promise((res,rej)=>{
+    const r=indexedDB.open("vesper",2);
+    r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains("msgs")){ const os=db.createObjectStore("msgs",{keyPath:"id",autoIncrement:true}); os.createIndex("room","room"); }
+      if(!db.objectStoreNames.contains("media")){ const ms=db.createObjectStore("media",{keyPath:"mid"}); ms.createIndex("room","room"); } };
+    r.onsuccess=()=>{ const db=r.result; if(_dbClosed){ try{ db.close(); }catch(e){} return rej(new Error("db closed")); }
+      db.onversionchange=()=>{ try{ db.close(); }catch(e){} if(_db===db) _db=null; };   // never block a delete
+      _db=db; res(db); };
+    r.onerror=()=>rej(r.error); r.onblocked=()=>rej(new Error("db blocked"));
+  }).finally(()=>{ _dbP=null; });
+  return _dbP; }
 // Saved history and per-chat settings are keyed by a stable id: the contact key for 1:1 contact chats
 // (their live room code rotates daily and would otherwise hide yesterday's messages), the rid for groups.
 function histKeyOf(R){ return R && R.fromContact ? ckHistKey(R.fromContact) : (R?R.code:""); }
@@ -848,10 +859,23 @@ async function histSave(room, rec){ // rec = {dir, env, ts}
     tx.oncomplete=()=>refreshPreviews();          // the chats list shows the latest message
   }catch(e){}
 }
+// Media (voice messages) fetched once from the relay, then kept here — encrypted under the same master key
+// as the history — so they replay without the server (the blob is deleted from the relay after the fetch).
+async function mediaPut(room, mid, bytes, ts){
+  if(!gHistKey||!mid) return;
+  try{ room=await histKeyAsync(room); const {iv,ct}=await aesEnc(gHistKey, bytes);
+    const db=await idb(); db.transaction("media","readwrite").objectStore("media").put({mid,room,iv,ct,ts:ts||Date.now()}); }catch(e){}
+}
+async function mediaGet(mid){
+  if(!gHistKey||!mid) return null;
+  try{ const db=await idb(); const rec=await new Promise((res,rej)=>{ const rq=db.transaction("media").objectStore("media").get(mid); rq.onsuccess=()=>res(rq.result||null); rq.onerror=()=>rej(rq.error); });
+    if(!rec) return null; return new Uint8Array(await aesDec(gHistKey,rec.iv,rec.ct)); }catch(e){ return null; }
+}
 function histSweep(room, cutoff){ // delete saved records older than cutoff (ms epoch)
-  try{ histKeyAsync(room).then(rm=>{ room=rm; return idb(); }).then(db=>{ const tx=db.transaction("msgs","readwrite"); const idx=tx.objectStore("msgs").index("room");
-    const rq=idx.openCursor(IDBKeyRange.only(room)); rq.onsuccess=e=>{ const c=e.target.result; if(!c) return;
-      if((c.value.ts||0) && c.value.ts<=cutoff) c.delete(); c.continue(); }; }); }catch(e){}
+  try{ histKeyAsync(room).then(rm=>{ room=rm; return idb(); }).then(db=>{ const tx=db.transaction(["msgs","media"],"readwrite");
+    for(const st of ["msgs","media"]){ const idx=tx.objectStore(st).index("room");
+      const rq=idx.openCursor(IDBKeyRange.only(room)); rq.onsuccess=e=>{ const c=e.target.result; if(!c) return;
+        if((c.value.ts||0) && c.value.ts<=cutoff) c.delete(); c.continue(); }; } }); }catch(e){}
 }
 // Last saved message of a chat (one reverse cursor step + one decrypt) — for the conversation list preview.
 async function histLast(room){
@@ -868,7 +892,7 @@ const _prev={}; let _prevT=null;
 function previewKeyOf(it){ return it.t==="g" ? it.rid : (it.hk||("c:"+it.ck)); }
 function previewText(r, isGroup){
   if(!r) return "";
-  const body = r.env && r.env.t==="img" ? t("📷 Photo") : r.env && r.env.t==="loc" ? t("📍 Location") : r.env && r.env.t==="ginv" ? t("👥 Group invitation") : (r.env && r.env.body) || "";
+  const body = r.env && r.env.t==="img" ? t("📷 Photo") : r.env && r.env.t==="aud" ? t("🎤 Voice message") : r.env && r.env.t==="loc" ? t("📍 Location") : r.env && r.env.t==="ginv" ? t("👥 Group invitation") : (r.env && r.env.body) || "";
   if(r.dir==="sent") return t("You: ")+body;
   return (isGroup && r.who ? r.who+": " : "") + body;
 }
@@ -942,6 +966,10 @@ async function uploadImage(file){
   const small = await downscale(file);
   const mime = small.type || "image/jpeg";
   const bytes = new Uint8Array(await small.arrayBuffer());
+  const meta = await uploadBytes(bytes, "photo"); meta.mime = mime; return meta;
+}
+// Any media: encrypted on the device under a fresh random key that only ever travels inside the message.
+async function uploadBytes(bytes, what){
   const key = crypto.getRandomValues(new Uint8Array(32));
   const ck = await aesKey(key);
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -951,16 +979,137 @@ async function uploadImage(file){
   const r = await mboxFn("putblob",{data:b64(ctBuf)});
   const path = r && r.data && r.data.ok && r.data.path;
   if(!path){ const code=(r&&r.data&&r.data.error)||(r&&r.error&&r.error.context&&r.error.context.status)||"";
-    throw new Error(code==="rate_limited"||code===429 ? t("too many photos — wait a minute") : code==="too_big"||code===413 ? t("photo too large") : t("upload failed")); }
-  return { path, k:b64(key), iv:b64(iv), mime };
+    throw new Error(code==="rate_limited"||code===429 ? (what==="voice"?t("too many voice messages — wait a minute"):t("too many photos — wait a minute")) : code==="too_big"||code===413 ? (what==="voice"?t("voice message too long"):t("photo too large")) : t("upload failed")); }
+  return { path, k:b64(key), iv:b64(iv) };
 }
-async function fetchImage(meta){ // meta={path,k,iv,mime}
+async function fetchBytes(meta){ // meta={path,k,iv} -> decrypted bytes
   const { data } = client.storage.from(BUCKET).getPublicUrl(meta.path);
   const resp = await fetch(data.publicUrl, {cache:"no-store"});
+  if(!resp.ok) throw new Error("gone");
   const ctBuf = await resp.arrayBuffer();
   const ck = await aesKey(unb64(meta.k));
-  const plain = await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(meta.iv)}, ck, ctBuf);
+  return new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(meta.iv)}, ck, ctBuf));
+}
+async function fetchImage(meta){ // meta={path,k,iv,mime}
+  const plain = await fetchBytes(meta);
   return URL.createObjectURL(new Blob([plain], {type:meta.mime||"image/jpeg"}));
+}
+
+// ---------- voice messages ----------
+// One small, self-contained codec on both ends (IMA ADPCM, 16 kHz mono, 4 bits/sample ≈ 8 kB/s): the same
+// bytes decode everywhere, so no browser-specific container or codec ever matters. The audio is treated
+// exactly like a photo — encrypted on the device under a key that only travels inside the message.
+const VOICE_RATE=16000, VOICE_MAX_S=120, VOICE_MAGIC=[71,90,65,49];   // "GZA1"
+const IMA_STEP=[7,8,9,10,11,12,13,14,16,17,19,21,23,25,28,31,34,37,41,45,50,55,60,66,73,80,88,97,107,118,130,143,157,173,190,209,230,253,279,307,337,371,408,449,494,544,598,658,724,796,876,963,1060,1166,1282,1411,1552,1707,1878,2066,2272,2499,2749,3024,3327,3660,4026,4428,4871,5358,5894,6484,7132,7845,8630,9493,10442,11487,12635,13899,15289,16818,18500,20350,22385,24623,27086,29794,32767];
+const IMA_IDX=[-1,-1,-1,-1,2,4,6,8];
+function adpcmEncode(pcm){ let pred=0, idx=0; const out=new Uint8Array((pcm.length+1)>>1);
+  for(let i=0;i<pcm.length;i++){ const step=IMA_STEP[idx]; let diff=pcm[i]-pred, code=0; if(diff<0){ code=8; diff=-diff; }
+    let d=step>>3; if(diff>=step){ code|=4; diff-=step; d+=step; } if(diff>=(step>>1)){ code|=2; diff-=step>>1; d+=step>>1; } if(diff>=(step>>2)){ code|=1; d+=step>>2; }
+    pred+=(code&8)?-d:d; if(pred>32767) pred=32767; else if(pred<-32768) pred=-32768;
+    idx+=IMA_IDX[code&7]; if(idx<0) idx=0; else if(idx>88) idx=88;
+    if(i&1) out[i>>1]|=code<<4; else out[i>>1]=code; }
+  return out; }
+function adpcmDecode(data, n){ let pred=0, idx=0; const out=new Float32Array(n);
+  for(let i=0;i<n;i++){ const code=(i&1)?(data[i>>1]>>4)&15:data[i>>1]&15; const step=IMA_STEP[idx];
+    let d=step>>3; if(code&4) d+=step; if(code&2) d+=step>>1; if(code&1) d+=step>>2;
+    pred+=(code&8)?-d:d; if(pred>32767) pred=32767; else if(pred<-32768) pred=-32768;
+    idx+=IMA_IDX[code&7]; if(idx<0) idx=0; else if(idx>88) idx=88; out[i]=pred/32768; }
+  return out; }
+function voicePack(pcm16){ const body=adpcmEncode(pcm16); const out=new Uint8Array(10+body.length); out.set(VOICE_MAGIC,0);
+  new DataView(out.buffer).setUint16(4,VOICE_RATE,true); new DataView(out.buffer).setUint32(6,pcm16.length,true); out.set(body,10); return out; }
+function voiceUnpack(bytes){ if(!bytes || bytes.length<10 || VOICE_MAGIC.some((b,i)=>bytes[i]!==b)) return null;
+  const dv=new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength); const rate=dv.getUint16(4,true), n=dv.getUint32(6,true);
+  if(rate<8000||rate>48000||n>rate*(VOICE_MAX_S+5)||((n+1)>>1)>bytes.length-10) return null;
+  return { rate, samples: adpcmDecode(bytes.subarray(10), n) }; }
+// Capture-rate float samples -> 16 kHz 16-bit (box low-pass + linear pick: plenty for speech)
+function voiceDownsample(chunks, srcRate){
+  let n=0; for(const c of chunks) n+=c.length; const src=new Float32Array(n); let o=0; for(const c of chunks){ src.set(c,o); o+=c.length; }
+  const r=srcRate/VOICE_RATE, w=Math.max(1,Math.round(r)), m=Math.floor(n/r); const out=new Int16Array(m);
+  for(let j=0;j<m;j++){ const p=Math.floor(j*r); let acc=0, k=0; for(let i=p;i<p+w&&i<n;i++){ acc+=src[i]; k++; }
+    let v=k?acc/k:0; v=Math.max(-1,Math.min(1,v)); out[j]=v<0?v*32768:v*32767; }
+  return out; }
+let rec=null;   // {stream, src, proc, gain, chunks, t0, timer, rate}
+function fmtSec(sec){ sec=Math.max(0,Math.round(sec)); return Math.floor(sec/60)+":"+String(sec%60).padStart(2,"0"); }
+async function startRec(){
+  const R=A(); if(!R || rec) return; if(!R.group && !R.fromContact && !R.paired) return;
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)){ toast(t("Voice messages aren't available in this browser")); return; }
+  if(call){ toast(t("You're in a call")); return; }
+  // a context of its own, created inside the tap (autoplay rules) and closed after: on iOS the hardware
+  // rate can change when the mic opens, and a fresh context is the one that reports it correctly
+  let ctx; try{ ctx=new (window.AudioContext||window.webkitAudioContext)(); if(ctx.state!=="running") ctx.resume().catch(()=>{}); }catch(e){ toast(t("Voice messages aren't available in this browser")); return; }
+  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}); }
+  catch(e){ try{ ctx.close(); }catch(_e){} toast(mediaErr(e)); return; }
+  if(rec){ try{ stream.getTracks().forEach(tr=>tr.stop()); ctx.close(); }catch(e){} return; }   // a second tap raced the first
+  try{ if(ctx.state!=="running") await ctx.resume(); }catch(e){}
+  const src=ctx.createMediaStreamSource(stream); const proc=ctx.createScriptProcessor(4096,1,1); const gain=ctx.createGain(); gain.gain.value=0;
+  const chunks=[]; proc.onaudioprocess=e=>{ if(rec && rec.proc===proc) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+  src.connect(proc); proc.connect(gain); gain.connect(ctx.destination);   // silent sink: the processor only runs when connected
+  rec={stream, ctx, src, proc, gain, chunks, t0:Date.now(), rate:ctx.sampleRate, timer:null};
+  const comp=document.querySelector(".composer"); if(comp) comp.classList.add("rec"); $("recBar").hidden=false; $("recTime").textContent="0:00";
+  rec.timer=setInterval(()=>{ if(!rec) return; const s=(Date.now()-rec.t0)/1000; $("recTime").textContent=fmtSec(s); if(s>=VOICE_MAX_S) stopRec(true); },250);
+}
+function recTeardown(){ const r=rec; rec=null; if(!r) return null; clearInterval(r.timer);
+  r.rate=r.ctx.sampleRate;   // read at the end: the rate the samples were really captured at
+  try{ r.proc.onaudioprocess=null; r.src.disconnect(); r.proc.disconnect(); r.gain.disconnect(); }catch(e){} try{ r.stream.getTracks().forEach(tr=>tr.stop()); }catch(e){} try{ r.ctx.close(); }catch(e){}
+  const comp=document.querySelector(".composer"); if(comp) comp.classList.remove("rec"); $("recBar").hidden=true; return r; }
+async function stopRec(send){
+  const r=recTeardown(); if(!r) return; if(!send) return;
+  const dur=(Date.now()-r.t0)/1000; if(dur<0.6){ toast(t("Too short — hold on a little longer")); return; }
+  const pcm=voiceDownsample(r.chunks, r.rate); if(!pcm.length){ toast(t("Nothing was recorded — check the microphone")); return; }
+  await sendVoice(voicePack(pcm), Math.min(dur, pcm.length/VOICE_RATE));
+}
+function validAud(env){ return env && env.t==="aud" && typeof env.path==="string" && /^[a-f0-9]{48}\.bin$/.test(env.path) && typeof env.k==="string" && env.k.length===44 && typeof env.iv==="string" && env.iv.length===16 && typeof env.dur==="number" && env.dur>0 && env.dur<=VOICE_MAX_S+1; }
+async function sendVoice(bytes, dur){
+  const R=A(); if(!R||!bytes) return; if(!R.group && !R.fromContact && !R.paired) return;
+  const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid); const now=Date.now();
+  const env0={t:"aud",dur:Math.round(dur*10)/10};
+  const el=addVoice(R.logEl,"sent",env0,"",now,{mid,st:"pending",bytes});
+  mediaPut(histKeyOf(R), mid, bytes, now);
+  const go=async()=>{ try{ const meta=await uploadBytes(bytes,"voice"); const env={t:"aud",path:meta.path,k:meta.k,iv:meta.iv,dur:env0.dur}; await deliverOut(R, env, mid, el, now); }
+    catch(e){ setMsgState(el,"failed"); el._retry=()=>{ el._retry=null; setMsgState(el,"pending"); go(); }; toast(t("Voice message not sent — ")+(e&&e.message?e.message:t("check your connection"))); } };
+  await go();
+}
+let _vplay=null;   // {src, el, raf}
+function voiceStop(){ const v=_vplay; _vplay=null; if(!v) return; try{ v.src.onended=null; v.src.stop(); }catch(e){} cancelAnimationFrame(v.raf); v.btn.textContent="▶"; v.fill.style.width="0%"; v.dur.textContent=fmtSec(v.total); }
+async function voicePlay(st){
+  if(_vplay && _vplay.el===st.el){ voiceStop(); return; }
+  voiceStop(); await initAudio(); if(!audioCtx) return;
+  let as=null; try{ as=navigator.audioSession; if(as && as.type!=="playback"){ as.type="playback"; setTimeout(()=>{ try{ as.type="auto"; }catch(e){} },1500); } }catch(e){}
+  const buf=audioCtx.createBuffer(1, st.pcm.samples.length, st.pcm.rate); buf.getChannelData(0).set(st.pcm.samples);
+  const src=audioCtx.createBufferSource(); src.buffer=buf; src.connect(audioCtx.destination);
+  const total=buf.duration, t0=audioCtx.currentTime; const v={src, el:st.el, btn:st.btn, fill:st.fill, dur:st.durEl, total, raf:0}; _vplay=v;
+  st.btn.textContent="⏸";
+  const tick=()=>{ if(_vplay!==v) return; const p=Math.min(1,(audioCtx.currentTime-t0)/total); v.fill.style.width=(p*100).toFixed(1)+"%"; v.dur.textContent=fmtSec(total-(p*total)); v.raf=requestAnimationFrame(tick); };
+  src.onended=()=>{ if(_vplay===v) voiceStop(); }; src.start(); v.raf=requestAnimationFrame(tick);
+}
+// Bubble: ▶ + progress + length. The bytes come from memory (just recorded), from the local media store
+// (played before), or — the first time — from the relay, after which the blob is deleted there.
+function addVoice(logEl, cls, env, tag, ts, opts){
+  opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
+  const d=document.createElement("div"); d.className="bubble "+cls+" voice"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
+  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
+  const row=document.createElement("div"); row.className="vc";
+  const btn=document.createElement("button"); btn.className="vbtn"; btn.type="button"; btn.textContent="▶"; btn.setAttribute("aria-label",t("Play voice message"));
+  const bar=document.createElement("div"); bar.className="vbar"; const fill=document.createElement("div"); fill.className="vfill"; bar.appendChild(fill);
+  const durEl=document.createElement("span"); durEl.className="vdur"; durEl.textContent=fmtSec(env.dur||0);
+  row.appendChild(btn); row.appendChild(bar); row.appendChild(durEl); d.appendChild(row);
+  metaRow(d, ts, cls==="sent"?(opts.st||"pending"):null);
+  const st={el:d, btn, fill, durEl, pcm:null, bytes:opts.bytes||null, busy:false};
+  btn.addEventListener("click", async()=>{
+    if(st.busy) return;
+    if(!st.pcm){ st.busy=true; btn.disabled=true; durEl.textContent="…";
+      try{ let bytes=st.bytes || await mediaGet(opts.mid);
+        if(!bytes){ if(!validAud(env)) throw new Error("bad"); bytes=await fetchBytes(env); await mediaPut(opts.room||"", opts.mid, bytes, ts); deleteBlob(env.path); }
+        const pcm=voiceUnpack(bytes); if(!pcm) throw new Error("bad"); st.pcm=pcm; st.bytes=null; durEl.textContent=fmtSec(pcm.samples.length/pcm.rate);
+      }catch(e){ st.busy=false; btn.disabled=false; durEl.textContent=fmtSec(env.dur||0); toast(e&&e.message==="gone"?t("This voice message has expired"):t("Couldn't play this voice message")); return; }
+      st.busy=false; btn.disabled=false; }
+    voicePlay(st);
+  });
+  bar.addEventListener("click", e=>{ if(!_vplay || _vplay.el!==d || !st.pcm) return; const r=bar.getBoundingClientRect(); const p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
+    voiceStop(); const n=Math.floor(p*st.pcm.samples.length); const cut={rate:st.pcm.rate, samples:st.pcm.samples.subarray(n)}; voicePlay({el:d,btn,fill,durEl,pcm:cut}); });
+  d.addEventListener("click",e=>{ if(e.target===btn||e.target===bar||e.target===fill) return; if(d.classList.contains("failed") && d._retry) d._retry(); });
+  logEl.appendChild(d); scrollEl(logEl);
+  return d;
 }
 
 // ---------- animations ----------
@@ -1395,6 +1544,8 @@ function renderHistory(R, past){
       if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid); }
       else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
       continue; }
+    if(r.env.t==="aud"){ if(!validAud(r.env)) continue;
+      addVoice(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk}); continue; }
     if(r.env.t==="loc"){ if(!validLoc(r.env)) continue;
       if(r.dir==="sent") addCard(R.logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
     if(r.env.t==="ginv"){ if(!validGinv(r.env)) continue;
@@ -1449,7 +1600,8 @@ function shareWhatsApp(){
   const wa="https://wa.me/?text="+encodeURIComponent(msg);
   window.open(wa,"_blank","noopener");
 }
-function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!on; $("attachBtn").disabled=!on; }
+function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!on; setAttach(!on); }
+function setAttach(dis){ $("attachBtn").disabled=dis; const m=$("micBtn"); if(m) m.disabled=dis || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.AudioContext); if(dis && rec) stopRec(false); }
 
 // ---------- session ----------
 function idleStatus(R){
@@ -1477,7 +1629,7 @@ async function establish(R, other, authed){
   if(alias){ R.title=alias; R.peerName=alias; R.avatar=(alias[0]||"?").toUpperCase(); }
   else if(realName(nm)) R.title=nm;                    // show the person's name in the tab/header
   setStatus(R, authed ? t("🔒 secure · same key as your first connection ✓") : t("🔒 secure · key {fp}",{fp:rootFp}), true, "online");
-  if(R.code===active){ $("peerName").textContent=alias||dn(nm); $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; $("attachBtn").disabled=false; }
+  if(R.code===active){ $("peerName").textContent=alias||dn(nm); $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; setAttach(false); }
   if(changed){
     const bearer=!!(authed && R.fromContact && (()=>{ const c=contactFind(R.fromContact); return c && c.inv && !c.rot && !c.v3; })());
     if(!R.connLineShown || !authed){ R.connLineShown=true;
@@ -1530,7 +1682,7 @@ function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.aut
   const known=!!(R.fromContact && realName(R.title));
   R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
   setIdle(R);
-  if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; $("attachBtn").disabled=!keep; updateVerifyUI(); } }
+  if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; setAttach(!keep); updateVerifyUI(); } }
 function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.tagp) p.tagp=R.tagp; if(R.peerNewKey) p.rk=1;
     const c=R.fromContact?contactFind(R.fromContact):null; if(c && c.v3 && c.hello && reconActive(c)) p.hello=c.hello; } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
 function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
@@ -1730,7 +1882,7 @@ async function doJoin(code, opts){
   try{ history.replaceState(null,"", opts.fromContact ? "/" : localRoomUrl(code)); }catch(e){}
 }
 let _installChecked=false, _showInstallInvite=null;
-function enterApp(){ $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
+function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
 function goHome(){ active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
@@ -1799,7 +1951,7 @@ function switchTo(code){
   // Composer is usable whenever there's somewhere to deliver: a live pairing, a group,
   // or a saved contact (message goes to the encrypted mailbox and is delivered when they reconnect).
   const canSend = R.paired || R.group || !!R.fromContact;
-  $("msgInput").disabled=!canSend; $("sendBtn").disabled=!canSend; $("attachBtn").disabled=!canSend;
+  $("msgInput").disabled=!canSend; $("sendBtn").disabled=!canSend; setAttach(!canSend);
   renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
 }
 function leaveRoom(code){
@@ -2082,7 +2234,7 @@ async function doUnlockBio(){
   catch(e){ authMsg(t("{bio} didn't work — use your password",{bio:bioLabel()})); }
 }
 async function logoutAccount(){
-  if(call) endCall("ended");
+  if(call) endCall("ended"); stopRec(false); voiceStop();
   const s=sessLoad();
   let flushed=false;
   try{ clearTimeout(_syncT); if(gContactsKey) flushed=await pushBlob(); }catch(e){}   // flush pending changes before the token dies
@@ -2098,7 +2250,7 @@ async function logoutAccount(){
   // No trace on this device: keys, contacts, mailbox cursors and the encrypted history database all go.
   localWipe(); swNames(true).catch(()=>{});
   try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK,EXP_R].forEach(k=>localStorage.removeItem(k)); }catch(e){}
-  try{ if(_db){ _db.close(); _db=null; } indexedDB.deleteDatabase("vesper"); }catch(e){}
+  try{ _dbClosed=true; if(_db){ _db.close(); _db=null; } indexedDB.deleteDatabase("vesper"); }catch(e){}
   renderContacts();
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
   rooms.clear(); active=null;
@@ -2119,7 +2271,7 @@ function privateDefaults(){ try{ if(localStorage.getItem(EXP_G)===null) localSto
 function setAutoLock(ms){ try{ localStorage.setItem(LS_AUTOLOCK,String(ms||0)); }catch(e){} armAutoLock(); }
 let _lockT=null, _hiddenAt=0;
 function armAutoLock(){ clearTimeout(_lockT); const ms=autoLockMs(); if(!ms||!gHistKey) return; _lockT=setTimeout(lockApp, ms); }
-function lockApp(){ if(call) endCall("ended");
+function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop();
   const s=sessLoad(); if(!s||!gHistKey) return;                 // not signed in, or already locked
   clearTimeout(_lockT); clearTimeout(_syncT);
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
@@ -2272,6 +2424,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   const growBox=()=>{ const el=$("msgInput"); el.style.height="auto"; el.style.height=Math.min(120, el.scrollHeight)+"px"; };
   $("msgInput").addEventListener("input",growBox);
   $("attachBtn").addEventListener("click",()=>$("fileInput").click());
+  $("micBtn").addEventListener("mousedown",e=>e.preventDefault());
+  $("micBtn").addEventListener("click",()=>startRec());
+  $("recCancel").addEventListener("click",()=>stopRec(false));
+  $("recSend").addEventListener("click",()=>stopRec(true));
   $("fileInput").addEventListener("change",e=>{ const f=e.target.files[0]; e.target.value=""; if(f) sendImage(f); });
   // ----- theme + sound (surfaced in Settings) -----
   function currentDark(){ const c=document.documentElement.getAttribute("data-theme"); return c?c==="dark":matchMedia("(prefers-color-scheme:dark)").matches; }

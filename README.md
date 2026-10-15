@@ -26,6 +26,10 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   after 14 days), real inbox with unread counts and previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
 - View-once photos, disappearing messages (24 h by default), auto-lock, privacy screen, hidden previews.
+- Voice messages (up to 2 min): recorded on the device with one small built-in codec (IMA ADPCM, 16 kHz —
+  the same bytes decode in every browser, no container or codec negotiation), encrypted exactly like a
+  photo under a key that only travels inside the message; the ciphertext is deleted from the relay once
+  the recipient fetched it and kept, encrypted, on their device for replay.
 - Groups with a shared key in the link fragment; a two-person chat can be turned into a group (the
   contact is invited inside the encrypted chat, the link for the others is offered right away).
 - Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
