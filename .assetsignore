@@ -1,1 +1,10 @@
+# Files that stay in the repository but are not served on gizleme.com
+.git/
+.git
 *.md
+LICENSE
+wrangler.jsonc
+.assetsignore
+.github/
+tests/
+supabase/

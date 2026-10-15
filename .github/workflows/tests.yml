@@ -1,0 +1,29 @@
+# End-to-end scenarios (Playwright + Chromium) on every push and pull request.
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright and image tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright==1.56.0 pillow numpy
+          python -m playwright install --with-deps chromium
+      - name: Syntax check
+        run: for f in app.js sw.js i18n.js privacy.js; do node --check "$f"; done
+      - name: Run all scenarios
+        run: python3 tests/run.py

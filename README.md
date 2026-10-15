@@ -64,10 +64,22 @@ _headers              Cloudflare security headers (CSP, HSTS, …)
 manifest.webmanifest  PWA manifest
 vendor/               supabase-js and qrcode-generator (pinned versions, served same-origin)
 privacy.html/.js      privacy page (FR/EN)
+supabase/             the server: database schema (migrations/) and the five Edge Functions (functions/)
+tests/                end-to-end scenarios (Playwright) and their runner
 ```
 
-The Edge Functions are deployed on Supabase and are not part of this repository.
+There is no build step: the files at the root are what gizleme.com serves (Cloudflare static assets,
+`wrangler.jsonc`; `.assetsignore` keeps the docs, tests and server code off the site). To run your own,
+see [supabase/README.md](supabase/README.md) and point `SB_URL`/`SB_KEY` in `app.js` and `connect-src` in
+`_headers` at your project. To check your changes, see [tests/README.md](tests/README.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md) — privately, please.
 
 ## License
 
-All rights reserved for now.
+Gizleme is free software: [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). If you run a
+modified version as a service, you must offer its source to its users. The name, logo and domain are not
+covered by the licence — see [TRADEMARKS.md](TRADEMARKS.md). Third-party components:
+[THIRD_PARTY.md](THIRD_PARTY.md).

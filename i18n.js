@@ -1,3 +1,9 @@
+// Gizleme — end-to-end encrypted messaging in the browser. https://gizleme.com
+// Copyright (C) 2026 Oğuz Seran
+// SPDX-License-Identifier: AGPL-3.0-only
+// This program is free software: you can redistribute it and/or modify it under the terms of the GNU Affero
+// General Public License as published by the Free Software Foundation, version 3. It is distributed WITHOUT
+// ANY WARRANTY; see the LICENSE file for details.
 // Gizleme — translations. Keys are the English strings as they appear in the markup and in app.js;
 // a missing key simply shows the English text. Placeholders like {name} are filled in by t().
 window.GZ_I18N = {

@@ -1,0 +1,27 @@
+name: Bug report
+description: Something does not work as it should (not a security issue — see SECURITY.md for those)
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. …\n2. …"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device, OS and browser (and whether the app is installed to the home screen)
+      placeholder: "iPhone 15, iOS 19.1, Safari, installed"
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "Never paste invite links, safety codes, usernames or screenshots showing them: they identify you or your contacts."
