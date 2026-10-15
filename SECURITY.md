@@ -70,7 +70,10 @@ rate-limit counters.
   contact key and both still without one, each derives the same root from that session's ECDH secret
   (`HKDF(secret, "gz-chain/live|ck")`) — never sent; the offer stays up for that session so the slower side
   takes the same root, and a device that already got the chain from the account vault no longer offers, so
-  two devices of one account cannot seed two different chains. Until that meeting, such contacts keep the
+  two devices of one account normally cannot seed two different chains; should two device pairs still seed
+  one in the same moment, both accounts converge on the smaller root at that epoch (the same rule on both
+  sides), and a mailbox message that does not decrypt under the chain a device holds is left in the
+  mailbox for up to 48 h rather than skipped, so it is read once the vault converges. Until that meeting, such contacts keep the
   static key. What remains: a compromised device
   reads what is still waiting for it (inherent), and a compromise reveals the current three weeks. Per-
   message forward secrecy with per-device ephemeral keys (the Signal model) would end "any device of the

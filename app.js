@@ -168,7 +168,7 @@ const LS_LOCAL="gz-local";
 let _contacts=[], _groups=[], _localT=null;
 let _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{}};   // per-chat unread counts, receipts by message id, viewed view-once photos, queued sends, mailbox cursors, push-nudge times
 function contactsLoad(){ return _contacts.map(c=>Object.assign({},c)); }
-function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); localSaveSoon(); renderContacts(); syncPushSoon(); }
+function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); try{ _chainCache.clear(); }catch(e){} localSaveSoon(); renderContacts(); syncPushSoon(); }   // mailbox keys are derived from what is saved here: never reuse one across a change
 function localSaveSoon(){ clearTimeout(_localT); _localT=setTimeout(()=>{ localSave().catch(()=>{}); swNamesSoon(); },250); }
 // The service worker composes notification text itself ("New message from Baba"), so it needs the names
 // you use for your contacts — nickname first — and the sentence templates in your language. Only names
@@ -790,7 +790,8 @@ async function fetchMailboxId(R, id, key, ck){
         if(!own) adoptNameFromMessage(R, env.n);
         onInbound(R, env, who, ts, it.mid, own, false);
         if(!own) delivered++;
-      }catch(e){ if(it.mid) R.seen.delete(it.mid); }
+      }catch(e){ if(it.mid) R.seen.delete(it.mid);
+        if(it.data && typeof it.data.ep==="number" && Date.now()-ts<48*3600*1000){ if(!hold || ts<hold) hold=ts; } }   // wrong chain on this device for now: keep it for a later pass
     }
     mbtsSet(id, hold ? Math.min(maxTs, hold-1) : maxTs);
     // tell the relay these are delivered: it keeps them 48 h more for our other devices, then drops them
@@ -2394,7 +2395,7 @@ async function recoverABKWithPassword(pw){
     return await recoverABK(AK);
   }catch(e){ return false; }
 }
-function mergeContacts(remote){
+function mergeContacts(remote){ let _chainChanged=false;
   const lc=contactsLoad(), byCk={}; lc.forEach(c=>byCk[c.ck]=Object.assign({},c));
   (remote.contacts||[]).forEach(rc=>{ if(!rc||!rc.ck) return;
     // the other device rotated this contact's key: its record replaces our pre-rotation one
@@ -2407,8 +2408,10 @@ function mergeContacts(remote){
     else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1;
            if(rc.inv) e.inv=1; if(rc.is&&!e.is&&!e.rot) e.is=rc.is; if(rc.sv&&!e.sv) e.sv=rc.sv;
            if(rc.hk&&!e.hk) e.hk=rc.hk; if(rc.prev&&!e.prev) e.prev=rc.prev; if(rc.rot&&!e.rot){ e.rot=rc.rot; delete e.is; }
-           // the chain only moves forward: whichever device has thrown more away is right
-           if(rc.kc && typeof rc.kce==="number" && (!e.kc || typeof e.kce!=="number" || rc.kce>e.kce)){ e.kc=rc.kc; e.kce=rc.kce; }
+           // the chain only moves forward: whichever device has thrown more away is right. Same epoch but a different
+           // root (two device pairs seeded one at the same moment): both accounts keep the smaller root — the same
+           // rule on both sides, so they converge instead of each holding a chain the other cannot read.
+           if(rc.kc && typeof rc.kce==="number" && (!e.kc || typeof e.kce!=="number" || rc.kce>e.kce || (rc.kce===e.kce && rc.kc<e.kc))){ if(e.kc!==rc.kc) _chainChanged=true; e.kc=rc.kc; e.kce=rc.kce; }
            // recon (the reconciliation window) is per-device state — what THIS device has confirmed with the
            // peer — so it is never carried across a user's devices via the vault.
            if(rc.ats&&(rc.ats>(e.ats||0))){ e.alias=rc.alias; e.ats=rc.ats; if(!e.alias) delete e.alias; }
@@ -2419,6 +2422,7 @@ function mergeContacts(remote){
     else { if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk) e.gk=rg.gk; }
            if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; }
            if(rg.mem){ const mem=Object.assign({},e.mem||{}); for(const pk in rg.mem){ if(!mem[pk] || (rg.mem[pk].ts||0)<(mem[pk].ts||0)) mem[pk]=rg.mem[pk]; } e.mem=mem; } } });
+  if(_chainChanged) _chainCache.clear();   // keys derived from a root this merge replaced must not be reused
   return { contacts:Object.values(byCk), groups:Object.values(byRid) };
 }
 async function vaultDecrypt(cipher){ if(!gContactsKey||!cipher||!cipher.ct) return null;
