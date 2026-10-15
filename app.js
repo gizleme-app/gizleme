@@ -1,8 +1,8 @@
 // Gizleme — application code (served same-origin; no third-party scripts, see _headers for the CSP)
 (function(){
 "use strict";
-const SB_URL = "https://jypgewvqoifvorxgbvcs.supabase.co";
-const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp5cGdld3Zxb2lmdm9yeGdidmNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MTI2ODksImV4cCI6MjA5OTE4ODY4OX0.2BpVGp5Rq2QXhfHWKKphSIKRQU9hzhhBu_R8E-hv1Eg";
+const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 

@@ -3,7 +3,7 @@
 # project (functions, realtime websocket, public photo blobs). Inline <style> and style="" attributes
 # are used in the markup, hence 'unsafe-inline' for styles only — never for scripts.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://jypgewvqoifvorxgbvcs.supabase.co wss://jypgewvqoifvorxgbvcs.supabase.co; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://yduldeujlszirctufhsn.supabase.co wss://yduldeujlszirctufhsn.supabase.co; media-src 'self' blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY

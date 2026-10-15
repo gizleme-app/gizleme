@@ -51,7 +51,7 @@ consent issues; **Low** = hardening.
 | M5 | Medium | Push fan-out amplification (unbounded devices per key) and attacker-controlled text. | **Fixed.** At most 8 devices per notification key, fixed bodies, subscription key validation, sequential sends. |
 | M6 | Medium | A device acking its own deposits could delete a message before the recipient fetched it. | **Fixed.** Own deposits are recognised by the sealed marker and never acked. |
 | M7 | Medium | Rate limiter fails open on DB error and depends on proxy IP headers. | **Open (documented).** Fails open by choice (availability); the IP comes from `cf-connecting-ip` first. |
-| M8 | Medium | Gizleme shares its Supabase project with an unrelated application (one service-role key, one database, one storage account), plus two obsolete functions. | **Open — decision for the owner.** Recommended before any public release: move Gizleme to its own project, delete the obsolete functions, rotate the service-role key. |
+| M8 | Medium | Gizleme shared its Supabase project with an unrelated application (one service-role key, one database, one storage account), plus two obsolete functions. | **Fixed (15 Oct 2026).** Gizleme now runs in a project of its own (schema recreated with the API roles holding no table privileges at all; data and media copied server-to-server and verified by digest; same VAPID key, so existing push subscriptions kept working). The old project's `gizleme-*` functions were removed; its tables are kept for a week as a fallback, then dropped; rotating the old project's service-role key is on the owner. |
 | L1 | Low | Set-once ABK / `cver` are check-then-write races. | Open. |
 | L2 | Low | Password change is two non-atomic calls. | Open. |
 | L3 | Low | Error responses may echo backend error strings. | Open (no secrets involved). |
@@ -93,7 +93,7 @@ consent issues; **Low** = hardening.
 2. **aPAKE login (OPAQUE) and a memory-hard KDF** — removes the replayable `av` and raises the cost of
    offline guessing from a database leak.
 3. **Authenticated presence and group sender authentication / key rotation.**
-4. **Own Supabase project** (M8) — an operational decision for the owner before any public release.
+4. ~~Own Supabase project (M8)~~ — done 15 Oct 2026.
 
 ## Verified as sound
 
