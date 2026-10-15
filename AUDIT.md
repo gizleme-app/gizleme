@@ -88,8 +88,9 @@ consent issues; **Low** = hardening.
 
 ## What is deliberately not fixed yet (roadmap)
 
-1. **Forward secrecy for the mailbox** — per-device ephemeral pre-keys (Signal model). Today: a delivered
-   message is deleted 48 h after any device fetched it; the per-contact key never derives from a link.
+1. **Forward secrecy for the mailbox** — done at week granularity on 15 Oct 2026 (one-way key chain per
+   contact seeded from the link-opening ECDH, advanced weekly, old roots destroyed; see SECURITY.md). Per-
+   message secrecy with per-device ephemeral pre-keys (Signal model) remains the long-term option.
 2. **aPAKE login (OPAQUE) and a memory-hard KDF** — removes the replayable `av` and raises the cost of
    offline guessing from a database leak.
 3. **Authenticated presence and group sender authentication / key rotation.**

@@ -24,7 +24,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   said by voice (three wrong codes cancel the link), and can be shown as a QR code to scan in person.
 - Automatic identity check at every connection (HMAC under the shared contact key) + in-person safety code.
 - Encrypted store-and-forward mailbox (delivered messages deleted 48 h after being fetched, undelivered
-  after 14 days), real inbox with unread counts and previews, receipts
+  after 14 days) under a per-contact one-way key chain that moves forward weekly — old keys are destroyed,
+  so a later compromise cannot read earlier weeks (see SECURITY.md); real inbox with unread counts and
+  previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
 - View-once photos, disappearing messages (24 h by default), auto-lock, privacy screen, hidden previews.
 - Voice messages (up to 2 min): recorded on the device with one small built-in codec (IMA ADPCM, 16 kHz —

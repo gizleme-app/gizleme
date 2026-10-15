@@ -56,14 +56,19 @@ rate-limit counters.
 
 **Not protected against (known limitations)**
 
-- **Forward secrecy for mailbox messages.** Messages that go through the mailbox (and every contact
-  message does, so offline devices can collect it) are encrypted under the per-contact key. That key is
-  known only to the two parties' devices and is never derivable from an invite link (v3), so the remaining
-  exposure is a compromised device or account vault reading what still waits in the mailbox: a delivered
-  message is deleted by the relay 48 h after any device of the account fetched it (`ack` →
-  `delivered_at`, swept), an undelivered one after 14 days. Full forward secrecy — per-device ephemeral
-  pre-keys destroyed after use, messages encrypted per device (the Signal model) — is a separate project
-  and would end "any device of the account reads the mailbox" as it works today.
+- **Forward secrecy for mailbox messages: weekly, not per message.** The live channel is forward secret
+  (fresh ECDH per connection). Mailbox messages for a contact added through a v3 link are encrypted under
+  a **one-way key chain**: its root is derived from the ECDH secret of the link opening (`HKDF(secret,
+  "gz-chain/v1")`, never from the contact key `ck`, which stays in the vault), moves forward every week
+  (`root_{n+1} = HKDF(root_n, "gz-chain/next")`, `key_n = HKDF(root_n, "gz-mbox-key/v2")`), and each
+  device keeps only the root of the week two before the current one — the oldest the relay can still hold
+  (14 days). Each mailbox item carries its week number in clear (`ep`). Nothing a device or vault holds
+  can derive a discarded root, so ciphertext the relay captured earlier than three weeks before a later
+  compromise stays unreadable. The chain is used only when both builds support it (link flag `f`, hello
+  flag `fs`); older contacts and v2-link contacts keep the static key. What remains: a compromised device
+  reads what is still waiting for it (inherent), and a compromise reveals the current three weeks. Per-
+  message forward secrecy with per-device ephemeral keys (the Signal model) would end "any device of the
+  account reads the mailbox" and stays a separate project. Groups keep a static key (see below).
 - **Invite links are tickets, not keys (v3).** The link carries a one-time public key; the first device to
   open it agrees the contact key by ECDH with the inviter's private half, which never leaves the inviter's
   devices (it rides the encrypted account vault so any of them can complete the agreement). The opener
