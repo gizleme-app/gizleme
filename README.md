@@ -20,7 +20,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 - Invite links (`#i=`) that work asynchronously: the invitee can write immediately, even if you're offline.
   The link is a ticket, not a key: it carries a one-time public key and the first device to open it agrees
   the contact key by ECDH with the inviter — nobody can derive that key from the link; later openers are
-  rejected and the inviter is warned.
+  rejected and the inviter is warned. Links expire (24 h by default), can be protected by a 4-digit code
+  said by voice (three wrong codes cancel the link), and can be shown as a QR code to scan in person.
 - Automatic identity check at every connection (HMAC under the shared contact key) + in-person safety code.
 - Encrypted store-and-forward mailbox (delivered messages deleted 48 h after being fetched, undelivered
   after 14 days), real inbox with unread counts and previews, receipts
@@ -57,7 +58,7 @@ i18n.js               translations (English keys → French)
 sw.js                 service worker (offline shell, Web Push)
 _headers              Cloudflare security headers (CSP, HSTS, …)
 manifest.webmanifest  PWA manifest
-vendor/               supabase-js (pinned version, served same-origin)
+vendor/               supabase-js and qrcode-generator (pinned versions, served same-origin)
 privacy.html/.js      privacy page (FR/EN)
 ```
 

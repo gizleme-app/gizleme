@@ -80,6 +80,15 @@
   #join .ghost{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.13);color:#e8e6f0}
   #join .ghost.bio{border-color:rgba(168,85,247,.5);color:#d8b4fe;font-weight:600}
   .share-row{display:flex;gap:8px;margin:0 0 14px}
+  .inv-opts{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:8px 0 2px;font-size:.84rem}
+  .inv-opt{display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+  .inv-opt select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:3px 6px}
+  .inv-pin{margin:6px 0 2px;font-size:.84rem;line-height:1.35}
+  .inv-pin b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.25rem;letter-spacing:.25em;color:var(--accent);margin-left:4px}
+  .qr-box{display:flex;flex-direction:column;align-items:center;gap:6px;margin:0 0 14px}
+  .qr-box[hidden]{display:none}
+  .qr-box canvas{background:#fff;border-radius:10px;padding:8px;box-sizing:content-box}
+  .scan-video{width:100%;max-height:52vh;border-radius:12px;background:#000;object-fit:cover}
   .share-row .ghost{flex:1;margin:0}
   #join .ghost.wa{flex:0 0 auto;border-color:rgba(37,211,102,.5);color:#25d366;font-weight:600}
   .authmsg{color:#f87171;font-size:.82rem;margin:-2px 0 2px;min-height:1em;text-align:center}
@@ -516,6 +525,11 @@
         <div class="field" style="flex:1"><input id="invLinkOut" class="inv-link" readonly/></div>
         <button class="ghost" id="genInvite" type="button" title="New link">⟳</button>
       </div>
+      <div class="inv-opts">
+        <label class="inv-opt">Valid for <select id="invExp"><option value="3600000">1 hour</option><option value="86400000" selected>24 hours</option><option value="604800000">7 days</option></select></label>
+        <label class="inv-opt"><input type="checkbox" id="invPinOn"/> 4-digit code</label>
+      </div>
+      <div class="inv-pin" id="invPinBox" hidden><span>Give them this code by voice, never in the same message as the link:</span> <b id="invPinVal">0000</b></div>
       <button class="linkbtn" id="advRoom" type="button">Have a room code instead?</button>
     </div>
     <div class="field" id="roomField">
@@ -528,7 +542,9 @@
     <div class="share-row" id="shareRow" style="display:none">
       <button class="ghost" id="copyLink" type="button">📤 Share link</button>
       <button class="ghost wa" id="waShare" type="button">WhatsApp</button>
+      <button class="ghost" id="qrShow" type="button">QR</button>
     </div>
+    <div class="qr-box" id="qrBox" hidden><canvas id="qrCanvas" width="240" height="240"></canvas><p class="hint">Let them scan this with their phone camera — nothing travels through any app.</p></div>
     <div class="field" id="gnameField" style="display:none">
       <label for="gnameInput">Group name</label>
       <input id="gnameInput" placeholder="e.g. Family" maxlength="40" autocomplete="off"/>
@@ -536,6 +552,8 @@
     <div class="field" id="invField" style="display:none">
       <label for="invInput">Invite link</label>
       <input id="invInput" placeholder="Paste the invite link…" autocomplete="off"/>
+      <button class="ghost" id="qrScan" type="button" style="margin-top:8px">📷 Scan a QR code</button>
+      <p class="hint" id="qrScanHint">Or point your phone's camera at your friend's QR code: the link opens here.</p>
     </div>
     <label class="remember" id="bioOptWrap" style="display:none"><input type="checkbox" id="bioOptIn"/> Enable Face ID / Touch ID for quick unlock</label>
     <p class="authmsg" id="authMsg"></p>
@@ -761,6 +779,23 @@
     <button class="ghost" id="ginvLater" type="button">Later</button>
   </div>
 </div>
+<div class="modal" id="pinModal">
+  <div class="card">
+    <div class="logo"><span class="lock" aria-hidden="true">🔢</span><div><h1 style="font-size:1.05rem">Code required</h1><p id="pinSub">This invite is protected by a 4-digit code.</p></div></div>
+    <div class="field"><label for="pinInput">Code given to you by voice</label><input id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="••••"/></div>
+    <p class="authmsg" id="pinMsg"></p>
+    <button class="btn" id="pinOk" type="button">Continue</button>
+    <button class="ghost" id="pinCancel" type="button">Cancel</button>
+  </div>
+</div>
+<div class="modal" id="scanModal">
+  <div class="card">
+    <div class="logo"><span class="lock" aria-hidden="true">📷</span><div><h1 style="font-size:1.05rem">Scan a QR code</h1><p>Point the camera at your friend's invite code.</p></div></div>
+    <video id="scanVideo" class="scan-video" playsinline muted autoplay></video>
+    <p class="authmsg" id="scanMsg"></p>
+    <button class="ghost" id="scanCancel" type="button">Cancel</button>
+  </div>
+</div>
 <div class="modal" id="forgotModal">
   <div class="card">
     <div class="logo"><span class="lock" aria-hidden="true">🔑</span><div><h1 style="font-size:1.05rem">Forgot your password?</h1><p>There is no reset — by design</p></div></div>
@@ -864,6 +899,7 @@
 </div>
 
 <script src="/vendor/supabase-2.45.4.js"></script>
+<script src="/vendor/qrcode-1.4.4.js"></script>
 <script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>

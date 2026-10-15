@@ -241,9 +241,18 @@ function closeSidebar(){ const s=$("sidebar"); if(s) s.classList.remove("open");
 const INV_PLACEHOLDER="Invited friend";
 let _pendingInvite=null;   // {s, ck, url, saved} — the link shown on the New chat screen, saved as a contact once shared/opened
 async function ckFromInviteSecret(sB64){ return b64(await hkdf(unb64(sB64),"gz-invite/v1")); }
-function inviteLinkFromSecret(sB64, pubB64){ const o={s:sB64,n:realName(myName)?myName:""}; if(pubB64) o.p=pubB64; return CANONICAL+"/#i="+b64url(enc.encode(JSON.stringify(o))); }
+function inviteLinkFromSecret(sB64, pubB64, opts){ const o={s:sB64,n:realName(myName)?myName:""}; if(pubB64) o.p=pubB64;
+  if(opts && opts.x) o.x=opts.x;          // expiry (ms since epoch): the opener refuses it after, the inviter ignores late hellos
+  if(opts && opts.c) o.c=1;               // a 4-digit code, given by voice, is needed to open it (the code is never in the link)
+  return CANONICAL+"/#i="+b64url(enc.encode(JSON.stringify(o))); }
 function parseInviteLink(text){ try{ const s=(text||"").trim(); const i=s.indexOf("#i="); if(i<0) return null;
-  const o=JSON.parse(dec.decode(unb64url(s.slice(i+3)))); if(o&&typeof o.s==="string"&&o.s.length>20){ if(o.p!==undefined && !(typeof o.p==="string" && o.p.length>=80 && o.p.length<=100)){ delete o.p; o.damaged=1; } return o; } }catch(e){} return null; }
+  const o=JSON.parse(dec.decode(unb64url(s.slice(i+3)))); if(o&&typeof o.s==="string"&&o.s.length>20){ if(o.p!==undefined && !(typeof o.p==="string" && o.p.length>=80 && o.p.length<=100)){ delete o.p; o.damaged=1; }
+    if(o.x!==undefined && !(typeof o.x==="number" && o.x>0)) delete o.x; if(o.c!==undefined && o.c!==1) delete o.c; return o; } }catch(e){} return null; }
+const INV_GRACE_MS=5*60*1000;   // clock skew allowed on expiry checks
+function inviteExpired(x){ return !!(x && Date.now() > x + INV_GRACE_MS); }
+function inviteOpts(){ const sel=$("invExp"), pin=$("invPinOn"); return { x: Date.now() + (sel ? (+sel.value||86400000) : 86400000), c: !!(pin && pin.checked) }; }
+function newPin(){ const a=crypto.getRandomValues(new Uint16Array(1))[0] % 10000; return String(a).padStart(4,"0"); }
+async function pinTag(secret, pin){ return b64(await hkdf(secret, "gz-pin/v1|"+String(pin||""), 16)); }   // proves the code to the inviter; not guessable offline (needs the ECDH secret)
 function contactFind(ck){ return contactsLoad().find(c=>c.ck===ck)||null; }
 function contactPatch(ck, fields){ const l=contactsLoad(); const c=l.find(x=>x.ck===ck); if(c){ Object.assign(c,fields); contactsSave(l); } }
 // v3: the link carries a one-time public key (pre-key) whose private half stays with the inviter. Whoever opens
@@ -252,21 +261,56 @@ function contactPatch(ck, fields){ const l=contactsLoad(); const c=l.find(x=>x.c
 async function newPendingInvite(){
   const s=b64(crypto.getRandomValues(new Uint8Array(32)));
   const kp=await genKP(); const pp=b64(await pubRaw(kp)); const pk=b64(await crypto.subtle.exportKey("pkcs8",kp.privateKey));
-  _pendingInvite={ s, ck:await ckFromInviteSecret(s), pp, pk, url:inviteLinkFromSecret(s, pp), saved:false };
-  const o=$("invLinkOut"); if(o) o.value=_pendingInvite.url;
+  _pendingInvite={ s, ck:await ckFromInviteSecret(s), pp, pk, pin:newPin(), url:"", saved:false };
+  refreshInviteUrl();
+}
+// The link text follows the options (validity, code) until it is shared; once shared or opened it is frozen.
+function refreshInviteUrl(){
+  const pi=_pendingInvite; if(!pi) return;
+  if(!pi.saved){ const o=inviteOpts(); pi.x=o.x; pi.c=o.c; pi.url=inviteLinkFromSecret(pi.s, pi.pp, {x:o.x, c:o.c}); }
+  const o=$("invLinkOut"); if(o) o.value=pi.url;
+  const pb=$("invPinBox"); if(pb){ pb.hidden=!pi.c; const v=$("invPinVal"); if(v) v.textContent=pi.pin; }
+  const sel=$("invExp"), pin=$("invPinOn"); if(sel) sel.disabled=!!pi.saved; if(pin) pin.disabled=!!pi.saved;
+  const qb=$("qrBox"); if(qb && !qb.hidden) drawQr(pi.url);
 }
 function persistPendingInvite(){   // the inviter keeps a placeholder contact that becomes the person once they open the link
   const pi=_pendingInvite; if(!pi||pi.saved) return;
-  if(!contactFind(pi.ck)){ const l=contactsLoad(); l.push({name:INV_PLACEHOLDER, ck:pi.ck, inv:1, is:pi.s, pk:pi.pk, pp:pi.pp, v3:1, ts:Date.now()}); contactsSave(l); }
-  pi.saved=true; if(pushOn()) registerAllContacts();
+  if(!contactFind(pi.ck)){ const l=contactsLoad(); const c={name:INV_PLACEHOLDER, ck:pi.ck, inv:1, is:pi.s, pk:pi.pk, pp:pi.pp, v3:1, ts:Date.now()};
+    if(pi.x) c.x=pi.x; if(pi.c) c.pin=pi.pin; l.push(c); contactsSave(l); }
+  pi.saved=true; refreshInviteUrl(); if(pushOn()) registerAllContacts();
 }
+function drawQr(url){
+  const cv=$("qrCanvas"); if(!cv || typeof qrcode!=="function") return;
+  try{ const q=qrcode(0,"L"); q.addData(url,"Byte"); q.make(); const n=q.getModuleCount(); const cell=6; const size=cell*n;   // crisp bitmap, shown at 240 css px
+    cv.width=size; cv.height=size; cv.style.width="240px"; cv.style.height="240px"; const ctx=cv.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,size,size); ctx.fillStyle="#000";
+    for(let r=0;r<n;r++) for(let c=0;c<n;c++) if(q.isDark(r,c)) ctx.fillRect(c*cell, r*cell, cell, cell); }catch(e){}
+}
+function toggleQr(){ const qb=$("qrBox"); const pi=_pendingInvite; if(!qb||!pi) return; if(qb.hidden){ persistPendingInvite(); drawQr(pi.url); qb.hidden=false; } else qb.hidden=true; }
+// 4-digit code prompt for the opener (the inviter said it by voice). Resolves to the code or null.
+function askPin(name){ return new Promise(res=>{
+  const m=$("pinModal"), inp=$("pinInput"), msg=$("pinMsg"); if(!m||!inp) return res(null);
+  $("pinSub").textContent=t("{name} protected this invite with a 4-digit code.",{name:name||t("Your contact")}); inp.value=""; msg.textContent="";
+  const done=v=>{ m.classList.remove("show"); $("pinOk").onclick=null; $("pinCancel").onclick=null; inp.onkeydown=null; res(v); };
+  $("pinOk").onclick=()=>{ const v=(inp.value||"").replace(/\D/g,""); if(v.length!==4){ msg.textContent=t("Enter the 4 digits"); return; } done(v); };
+  $("pinCancel").onclick=()=>done(null); inp.onkeydown=e=>{ if(e.key==="Enter") $("pinOk").onclick(); };
+  m.classList.add("show"); setTimeout(()=>{ try{ inp.focus(); }catch(e){} },50);
+}); }
 async function v3Agree(secret, ckLink){ return { ck:b64(await hkdf(secret,"gz-contact/v3|"+ckLink)), sv:b64(await hkdf(secret,"gz-safety/v3",16)) }; }
 // The inviter: a hello arrived (mailbox or presence) for a link we created → bind the contact to that opener.
-async function processHello(ckLink, e, n){
+async function processHello(ckLink, e, n, m){
   const c=contactFind(ckLink); if(!c) return false;
   if(!c.pk){ const bound=contactByPrev(ckLink); if(bound && bound.v3 && bound.he!==e) noteLinkReuse(bound, ckLink, e); return false; }
+  if(c.dead) return false;                                   // cancelled (three wrong codes): nothing binds any more
+  if(inviteExpired(c.x)){ if(!c.expired){ contactPatch(ckLink,{expired:1}); noteLinkEvent(ckLink, t("⏳ Someone opened this invite link after it expired — nothing happened. Make a new link if that was your friend."), "expired"); } return false; }
   let secret; try{ const priv=await crypto.subtle.importKey("pkcs8", unb64(c.pk), {name:"ECDH",namedCurve:"P-256"}, false, ["deriveBits"]);
     secret=await sharedSecret(priv, await importPub(unb64(e))); }catch(err){ return false; }
+  if(c.pin){   // the opener must prove the code the inviter said by voice; three misses cancel the link
+    const want=await pinTag(secret, c.pin); if(!m || m!==want){
+      const fails=(c.pinFails||0)+1; const seen=(c.pinSeen||[]); if(seen.includes(e)) return false;   // same hello twice (mailbox + presence) counts once
+      contactPatch(ckLink, fails>=3 ? {pinFails:fails, dead:1, pinSeen:seen.concat([e]).slice(-6)} : {pinFails:fails, pinSeen:seen.concat([e]).slice(-6)});
+      try{ await depositOne(await mboxIdForSecret(ckLink), await mboxKeyForSecret(ckLink), "n"+rid(), {t:"nopin", e}); }catch(_e){}   // tell that opener (addressed to its ephemeral key)
+      noteLinkEvent(ckLink, fails>=3 ? t("⛔ Three wrong codes on your invite link — it is cancelled. Make a new link for your friend.") : t("⚠ Someone opened your invite link with a wrong code ({n}/3). If it was your friend, give them the code again.",{n:fails}), fails>=3?"dead":"warn");
+      return false; } }
   const ag=await v3Agree(secret, ckLink); const ck2=ag.ck;
   const l=contactsLoad(); const i=l.findIndex(x=>x.ck===ckLink); if(i<0 || l.some(x=>x.ck===ck2)) return false;
   const x=l[i]; x.prev=ckLink; x.hk=x.hk||("c:"+ckLink); x.ck=ck2; x.rot=Date.now(); x.recon=Date.now(); x.sv=ag.sv; x.v3=1; x.he=e;
@@ -283,6 +327,12 @@ async function processHello(ckLink, e, n){
   setTimeout(async()=>{ let R2=null; rooms.forEach(r=>{ if(r.fromContact===ck2) R2=r; }); if(!R2) R2=await shadowRoom({t:"c",ck:ck2,name:x.name}); fetchMailbox(R2).catch(()=>{}); },400);
   return true;
 }
+// Something happened to a pending link (expired opener, wrong code): a line in its chat, or a toast.
+function noteLinkEvent(ckLink, msg, kind){
+  let R=null; rooms.forEach(r=>{ if(r.fromContact===ckLink) R=r; });
+  if(R&&R.logEl) sysline(R.logEl, msg, kind!=="expired"); else toast(msg);
+  if(R && R.code===active) setIdle(R); renderContacts();
+}
 // A hello for a link that is already bound: a copy of the link in other hands. Warn once, tell the opener.
 function noteLinkReuse(c, ckLink, e){
   const n=(c.reuse||0)+1; contactPatch(c.ck,{reuse:n}); if(n>3) return;
@@ -293,11 +343,16 @@ function noteLinkReuse(c, ckLink, e){
 async function onHelloEnv(R, ck, env){
   if(!env || typeof env.e!=="string" || env.e.length<80 || env.e.length>100) return;
   const c=contactFind(ck);
-  if(c && c.pk) { await processHello(ck, env.e, env.n); return; }
+  if(c && c.pk) { await processHello(ck, env.e, env.n, env.m); return; }
   const bound=contactByPrev(ck); if(bound && bound.v3 && !bound.pk && bound.he!==env.e) noteLinkReuse(bound, ck, env.e);
 }
 function onUsedEnv(R, ck, env){
   const c=R.fromContact?contactFind(R.fromContact):null; if(!c || !c.v3 || c.prev!==ck || !c.hello || !env || env.e!==c.hello.e) return;
+  if(env.t==="nopin"){   // our code was wrong: this attempt is void; opening the link again asks for the code afresh
+    contactPatch(c.ck,{dead:1, nopin:1}); const l=contactsLoad(); const x=l.find(y=>y.ck===c.ck); if(x){ delete x.hello; contactsSave(l); }
+    if(R.logEl) sysline(R.logEl, t("⚠ The code you entered was wrong — you are not connected to {name}. Open their link again and enter the code they gave you.",{name:c.alias||dn(c.name)}), true);
+    if(R.code===active) setStatus(R, t("wrong code — open the link again"), false, "warn", t("wrong code"));
+    return; }
   contactPatch(c.ck,{dead:1}); const l=contactsLoad(); const x=l.find(y=>y.ck===c.ck); if(x){ delete x.hello; contactsSave(l); }
   if(R.logEl) sysline(R.logEl, t("⚠ This invite link had already been used by someone else before you opened it — you are not connected to {name}. Ask them for a new link.",{name:c.alias||dn(c.name)}), true);
   if(R.code===active) setStatus(R, t("invite link already used — ask for a new one"), false, "warn", t("link used"));
@@ -306,24 +361,27 @@ function onUsedEnv(R, ck, env){
 function isPendingInvite(c){ return !!(c && c.inv && c.is && c.name===INV_PLACEHOLDER); }
 async function acceptInvite(inv){   // someone opened a link: become their contact and open the chat
   const ck0=await ckFromInviteSecret(inv.s);
-  const rotated=contactByPrev(ck0);                      // this link's contact already moved to an agreed key
+  let rotated=contactByPrev(ck0);                        // this link's contact already moved to an agreed key
+  if(rotated && rotated.nopin){ contactRemove(rotated.ck); rotated=null; }   // a wrong-code attempt is void: start over with the code
   let ck=rotated?rotated.ck:ck0;
   let mine=contactFind(ck);
   try{ history.replaceState(null,"","/"); }catch(e){}
   if(mine && mine.is===inv.s){ toast(t("That's your own invite link — send it to a friend")); goHome(); return; }
   if(!mine && inv.damaged){ toast(t("This invite link is damaged — ask your friend for a new one")); goHome(); return; }
+  if(!mine && inviteExpired(inv.x)){ toast(t("This invite link has expired — ask your friend for a new one")); goHome(); return; }
   const nm=realName(inv.n)?inv.n:"Friend";   // stored in English, shown translated (dn)
   if(!mine && inv.p){
     // v3: agree the contact key with the inviter's pre-key right now; leave a hello in the link mailbox
     let secret, eph, ephPub;
     try{ eph=await genKP(); ephPub=b64(await pubRaw(eph)); secret=await sharedSecret(eph.privateKey, await importPub(unb64(inv.p))); }catch(e){ secret=null; }
     if(!secret){ toast(t("This invite link is damaged — ask your friend for a new one")); goHome(); return; }   // never fall back to the bare link key
+    let m=null; if(inv.c){ const pin=await askPin(dn(nm)); if(pin===null){ goHome(); return; } m=await pinTag(secret, pin); }
     if(secret){
       const ag=await v3Agree(secret, ck0); ck=ag.ck;
-      const l=contactsLoad();
-      l.push({name:nm, ck, inv:1, rot:Date.now(), prev:ck0, hk:"c:"+ck, recon:Date.now(), sv:ag.sv, v3:1, hello:{e:ephPub,n:realName(myName)?myName:""}, ts:Date.now()});
+      const l=contactsLoad(); const hello={e:ephPub,n:realName(myName)?myName:""}; if(m) hello.m=m;
+      l.push({name:nm, ck, inv:1, rot:Date.now(), prev:ck0, hk:"c:"+ck, recon:Date.now(), sv:ag.sv, v3:1, hello, ts:Date.now()});
       contactsSave(l); mine=contactFind(ck);
-      try{ await depositOne(await mboxIdForSecret(ck0), await mboxKeyForSecret(ck0), "h"+rid(), {t:"hello",v:3,e:ephPub}); }catch(e){}
+      try{ const env={t:"hello",v:3,e:ephPub}; if(m) env.m=m; await depositOne(await mboxIdForSecret(ck0), await mboxKeyForSecret(ck0), "h"+rid(), env); }catch(e){}
       if(pushOn()) registerAllContacts(); notifyPeer(ck0,"chat").catch(()=>{});
     }
   }
@@ -370,7 +428,8 @@ function renderContacts(fromPreview){
     const unread=(it.id===activeId) ? 0 : (_meta.unread[previewKeyOf(it)]||0);
     const cm=document.createElement("div"); cm.className="cm";
     const pendingInv = it.t==="c" && it.name===INV_PLACEHOLDER;
-    const placeholder = pendingInv ? t("Invite sent · waiting for them to open it") : (it.t==="g" ? t("Group · say hello") : t("Tap to start chatting"));
+    const pc = pendingInv ? (contactFind(it.ck)||{}) : null;
+    const placeholder = pendingInv ? (pc.dead ? t("Invite cancelled · make a new link") : inviteExpired(pc.x) ? t("Invite expired · make a new link") : t("Invite sent · waiting for them to open it")) : (it.t==="g" ? t("Group · say hello") : t("Tap to start chatting"));
     // "Hide previews": nothing readable over your shoulder — only whether there's something new
     cm.textContent= previewsHidden()
       ? (unread ? t(unread>1?"{n} new messages":"{n} new message",{n:unread}) : (pv ? t("🔒 Encrypted message") : placeholder))
@@ -534,7 +593,7 @@ async function fetchMailboxId(R, id, key, ck){
         if(it.mid && !own) got.push(it.mid);                     // never ack what we sent ourselves (the recipient may not have it yet)
         if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
         if(env.t==="hello"){ if(!own && ck) await onHelloEnv(R, ck, env); continue; }        // someone opened an invite link
-        if(env.t==="used"){ if(!own && ck) onUsedEnv(R, ck, env); continue; }                // the link we opened was already taken
+        if(env.t==="used"||env.t==="nopin"){ if(!own && ck) onUsedEnv(R, ck, env); continue; }   // the link we opened was already taken / our code was wrong
         if(env.mid && it.mid && env.mid!==it.mid) throw new Error("id mismatch");
         // a v3 link mailbox (ours while pending, or our contact's former link while we watch it) carries
         // nothing but hellos: anything else there was written by someone holding a copy of the link
@@ -1611,7 +1670,10 @@ function idleStatus(R){
   return t("offline — messages will be delivered when they reconnect"); }
 function setIdle(R){
   if(!R||!R.fromContact) return setStatus(R, idleStatus(R), false, "busy", t("waiting…"));
-  if(isPendingInvite(contactFind(R.fromContact))) return setStatus(R, idleStatus(R), false, "busy", t("link not opened yet"));
+  const pc=contactFind(R.fromContact);
+  if(isPendingInvite(pc)){ if(pc.dead) return setStatus(R, t("this invite link was cancelled after three wrong codes — make a new one"), false, "warn", t("link cancelled"));
+    if(inviteExpired(pc.x)) return setStatus(R, t("this invite link has expired — make a new one"), false, "warn", t("link expired"));
+    return setStatus(R, idleStatus(R), false, "busy", t("link not opened yet")); }
   return setStatus(R, idleStatus(R), false, "offline");
 }
 async function establish(R, other, authed){
@@ -1701,7 +1763,7 @@ async function onSync(R){
   others=others.filter(m=>!(me && m.u===me));          // my own account on another device/tab is not a peer
   // someone who just opened our invite link announces the key agreement in presence: bind first, verify after
   for(const m of others){ if(m.hello && m.hello.e && R.fromContact){ const c=contactFind(R.fromContact);
-    if(c && c.pk) await processHello(R.fromContact, m.hello.e, m.hello.n||m.name);
+    if(c && c.pk) await processHello(R.fromContact, m.hello.e, m.hello.n||m.name, m.hello.m);
     else if(c && c.v3 && !c.pk && c.he && c.he!==m.hello.e && c.prev && !(c.reuseSeen||[]).includes(m.hello.e)){ contactPatch(c.ck,{reuseSeen:(c.reuseSeen||[]).concat([m.hello.e]).slice(-5)}); noteLinkReuse(c, c.prev, m.hello.e); } } }
   if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setIdle(R); return; }
   // Authenticate every candidate with the shared contact key. Only someone holding the key we established
@@ -1728,7 +1790,7 @@ async function onSync(R){
         : t("⚠ Couldn't verify this is {name}: their key check failed — someone may be in the middle. Nothing was shared with them. Your messages still reach {name} through the encrypted mailbox; verify in person before trusting a live chat.",{name:nm}), true);
     } else if(stale.length){
       { const cc=contactFind(R.fromContact);
-        if(cc && cc.v3 && cc.pk) sysline(R.logEl, t("⚠ Someone opened your invite link with an older Gizleme that can't do the key agreement — not connected. Ask them to update the app (reload) and open the link again."), true);
+        if(cc && cc.v3 && cc.pk){ if(!cc.expired && !cc.dead && !(cc.pin && cc.pinFails)) sysline(R.logEl, t("⚠ Someone opened your invite link with an older Gizleme that can't do the key agreement — not connected. Ask them to update the app (reload) and open the link again."), true); }
         else if(!(cc && cc.v3 && cc.hello)) sysline(R.logEl, t("{name}'s other device still uses the retired invite key — it will catch up when it syncs the account. Not connected live with that device.",{name:nm}), false); }
     } else if(others.length>1){
       const names=[...new Set(others.map(m=>realName(m.name)||t("someone")))];
@@ -1929,7 +1991,9 @@ function showAuth(mode){
     $("joinHint").textContent=(inv?t("{inviter} invited you to a private chat. Pick a name to reply.",{inviter:inv})+" ":"")+t("Pick any name — no phone number or email needed — and a strong password (8+ characters). There is no password reset: save it in your password manager."); sl.style.display="block"; sl.textContent=t("Already have an account? Log in"); }
   else if(login){ $("joinHint").textContent=t("Log in to your Gizleme account from any device."); sl.style.display="block"; sl.textContent=t("New here? Create an account"); }
   else if(unlock){ const s=sessLoad(); $("joinHint").textContent=""; if($("lockSub")) $("lockSub").textContent=(s&&s.display)?t("Welcome back, {name}.",{name:s.display}):t("Welcome back."); sl.style.display="block"; sl.textContent=t("Log out / switch account"); }
-  else { sl.style.display="none"; $("roomInput").value=""; _pendingInvite=null; $("join").dataset.adv="0"; ncSet("direct"); }   // a fresh link each time New chat is opened
+  else { sl.style.display="none"; $("roomInput").value=""; _pendingInvite=null; $("join").dataset.adv="0";
+    try{ $("qrBox").hidden=true; $("invPinOn").checked=false; $("invPinOn").disabled=false; $("invExp").disabled=false; $("invExp").value="86400000"; }catch(e){}
+    ncSet("direct"); }   // a fresh link (and fresh options) each time New chat is opened
   if(login){ const s=sessLoad(); if(s&&s.display) $("userInput").value=s.display; }
 }
 function ncSet(nc){
@@ -1944,7 +2008,7 @@ function ncSet(nc){
   $("joinBtn").textContent=direct?(adv?t("Connect"):t("Open chat")):group?t("Create group"):t("Join");
   $("joinHint").textContent = direct
     ? (adv ? t("Share this room code with one person. You both need to open it at the same time.")
-           : t("Send this link to one person. When they open it you're connected — even if you're not online at the same time. Anyone with the link can reach you as this contact, so don't post it publicly."))
+           : t("Send this link to one person. When they open it you're connected — even if you're not online at the same time. It stops working after the time you choose; add a 4-digit code (said by voice) and the link alone opens nothing."))
     : group ? t("Create a named, encrypted group. Only people you invite with the link can join — the name alone gives no access.")
     : t("Paste a link a friend sent you — an invite or a group link.");
   [...document.querySelectorAll(".nctab")].forEach(b=>b.classList.toggle("on",b.dataset.nc===nc));
@@ -2281,7 +2345,7 @@ function privateDefaults(){ try{ if(localStorage.getItem(EXP_G)===null) localSto
 function setAutoLock(ms){ try{ localStorage.setItem(LS_AUTOLOCK,String(ms||0)); }catch(e){} armAutoLock(); }
 let _lockT=null, _hiddenAt=0;
 function armAutoLock(){ clearTimeout(_lockT); const ms=autoLockMs(); if(!ms||!gHistKey) return; _lockT=setTimeout(lockApp, ms); }
-function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop();
+function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop(); stopScan();
   const s=sessLoad(); if(!s||!gHistKey) return;                 // not signed in, or already locked
   clearTimeout(_lockT); clearTimeout(_syncT);
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
@@ -2295,6 +2359,26 @@ function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop();
   showAuth("unlock");
 }
 async function createGroupFromInput(){ initAudio(); await createGroup($("gnameInput").value.trim()); if($("gnameInput")) $("gnameInput").value=""; }
+// QR scanning with the browser's own detector (Chrome/Android/desktop). Elsewhere the phone camera app does
+// it natively and opens the link here, so the button is simply hidden.
+let _scan=null;
+function scanSupported(){ return typeof BarcodeDetector==="function" && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+async function startScan(){
+  if(!scanSupported()||_scan) return; const m=$("scanModal"), v=$("scanVideo"), msg=$("scanMsg"); msg.textContent="";
+  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}, audio:false}); }catch(e){ toast(mediaErr(e)); return; }
+  let det; try{ det=new BarcodeDetector({formats:["qr_code"]}); }catch(e){ det=new BarcodeDetector(); }
+  v.srcObject=stream; try{ await v.play(); }catch(e){}
+  _scan={stream, det, timer:null}; m.classList.add("show");
+  const tick=async()=>{ if(!_scan) return; try{ if(v.readyState>=2){ const codes=await det.detect(v); const hit=(codes||[]).map(c=>c.rawValue||"").find(x=>/#i=|#g=/.test(x)); if(hit){ stopScan(); await openScanned(hit); return; } } }catch(e){}
+    if(_scan) _scan.timer=setTimeout(tick, 200); };
+  tick();
+}
+function stopScan(){ const sc=_scan; _scan=null; if(!sc) return; clearTimeout(sc.timer); try{ sc.stream.getTracks().forEach(tr=>tr.stop()); }catch(e){} const v=$("scanVideo"); if(v) v.srcObject=null; $("scanModal").classList.remove("show"); }
+async function openScanned(text){
+  const pi=parseInviteLink(text); if(pi){ try{ hideJoin(); await acceptInvite(pi); }catch(e){ toast(t("Couldn't open that invite — try again")); } return; }
+  const inv=parseInvite(text); if(inv){ if(groupsLoad().some(g=>g.rid===inv.rid) || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(inv.name||"Group").slice(0,40)}))){ try{ hideJoin(); await doJoinGroup(inv.rid, unb64(inv.gk), inv.name); }catch(e){ toast(t("Couldn't join — try again")); } } return; }
+  toast(t("That's not a Gizleme code"));
+}
 async function joinFromInviteInput(){ initAudio(); const raw=$("invInput").value;
   const pi=parseInviteLink(raw);
   if(pi){ try{ $("invInput").value=""; hideJoin(); await acceptInvite(pi); }catch(e){ authMsg(t("Couldn't open that invite — try again")); } return; }
@@ -2394,6 +2478,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
 
   $("genRoom").addEventListener("click",()=>$("roomInput").value=roomCode());
   $("genInvite").addEventListener("click",()=>{ newPendingInvite(); toast(t("New link")); });
+  $("invExp").addEventListener("change",refreshInviteUrl); $("invPinOn").addEventListener("change",refreshInviteUrl);
+  $("qrShow").addEventListener("click",toggleQr);
+  $("qrScan").addEventListener("click",startScan); $("scanCancel").addEventListener("click",stopScan);
+  if(!scanSupported()){ $("qrScan").hidden=true; } else { $("qrScanHint").textContent=t("You can also point your phone's camera at the code: the link opens here."); }
   $("invLinkOut").addEventListener("focus",e=>{ try{ e.target.select(); }catch(x){} });
   $("advRoom").addEventListener("click",()=>{ $("join").dataset.adv="1"; ncSet("direct"); });
   $("joinBtn").addEventListener("click",join);

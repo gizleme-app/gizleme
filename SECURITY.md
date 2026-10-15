@@ -75,7 +75,12 @@ rate-limit counters.
   was already used (a `used` note addressed to its ephemeral key). The inviter keeps watching the link
   mailbox for 14 days for that purpose. What remains is an impostor who opens the link *before* the real
   invitee: they become the contact, and the in-person safety code (now bound to the v3 agreement) is the
-  check for that. A v3 link opened by an older app (one that ignores the public key and signs with the
+  check for that. Three controls narrow that window: links carry an expiry (`x`, 24 h by default, 1 h to
+  7 days — the opener refuses an expired link, the inviter ignores a late hello); an optional 4-digit code
+  said by voice (`c`): the hello carries `HKDF(secret, "gz-pin/v1|code")`, which the inviter recomputes —
+  the code never appears in the link and cannot be tested offline (it needs the ECDH secret), a wrong code
+  is answered with a `nopin` note to that opener and three wrong codes cancel the link; and an in-person QR
+  code (generated locally, scanned with the phone camera or the in-app scanner) so the link never transits. A v3 link opened by an older app (one that ignores the public key and signs with the
   link key itself) is not paired with and its messages are not shown — the inviter is told to ask them to
   update. Pending invitations created by pre-v3 builds keep the v2 path: bearer until the first live
   pairing (the peer proves the link key with a second HMAC, `tagp`), then rotated; while that rotation is
