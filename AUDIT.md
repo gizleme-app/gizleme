@@ -62,6 +62,7 @@ consent issues; **Low** = hardening.
 | L8 | Low | Account deletion relies on client-supplied device ids to clean push registrations. | Open (the account marker also deletes by `acct`). |
 | L9 | Low | "Deleted when viewed" blobs may survive briefly in the CDN cache. | Open (documented as "at the latest after 14 days"). |
 | L10 | Low | `check` reveals whether a username is taken. | **Documented** (needed for sign-up; rate-limited; `salt` does not reveal it). |
+| L11 | Medium | Found during publication prep (15 Oct): the deploy uploaded the whole checkout, so gizleme.com served `/.git/` (config, index, objects) and `wrangler.jsonc`. No credential was in them (plain remote URL; the history holds no secret — checked), but the source and history were readable before publication. | **Fixed.** `.assetsignore` excludes `.git`, the docs, tests, server code and config; verified 404 live. |
 
 ## Client application
 
