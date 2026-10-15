@@ -35,7 +35,7 @@
         <li><b>Tes messages et tes photos.</b> Ils sont chiffrés sur ton appareil (AES-256-GCM, clés échangées par ECDH P-256) ; le relais ne transporte et ne stocke que du chiffré.</li>
         <li><b>Ta liste de contacts.</b> Elle est stockée chiffrée sous une clé dérivée de ton mot de passe. Sans ton mot de passe, personne ne peut l'ouvrir — nous non plus. C'est aussi pourquoi il n'existe pas de « mot de passe oublié ».</li>
         <li><b>Ton mot de passe.</b> Il ne quitte jamais ton appareil ; le serveur ne reçoit qu'un vérificateur dérivé (PBKDF2 200 000 itérations, puis SHA-256).</li>
-        <li><b>Qui est dans quelle conversation.</b> Les conversations sont identifiées par des valeurs dérivées de secrets partagés, et ton identifiant n'y est jamais attaché ; tes appareils se reconnaissent par un marqueur opaque.</li>
+        <li><b>Ton identifiant dans tes conversations.</b> Les conversations sont identifiées par des valeurs dérivées de secrets partagés ; ton identifiant de compte n'y est jamais attaché. (Ce que le relais voit malgré tout est décrit plus bas.)</li>
       </ul>
     </div>
 
@@ -45,21 +45,25 @@
       <tr><td>Compte</td><td>Identifiant (en minuscules), nom affiché, sel aléatoire, vérificateur de mot de passe</td><td>Jusqu'à suppression du compte (Réglages → Compte)</td></tr>
       <tr><td>Sessions</td><td>Empreinte (SHA-256) du jeton de session de chaque appareil connecté</td><td>1 an, ou jusqu'à déconnexion / changement de mot de passe</td></tr>
       <tr><td>Sauvegarde du compte</td><td>Clé de sauvegarde chiffrée par ton mot de passe ; liste de contacts chiffrée par cette clé</td><td>Jusqu'à suppression du compte</td></tr>
-      <tr><td>Boîte aux lettres</td><td>Messages chiffrés en attente de livraison (identifiant de boîte dérivé d'un secret partagé, marqueur opaque de l'expéditeur, horodatage)</td><td>14 jours maximum</td></tr>
+      <tr><td>Boîte aux lettres</td><td>Messages chiffrés en attente de livraison (identifiant de boîte dérivé d'un secret partagé, identifiant aléatoire du message, horodatage, date de livraison)</td><td>48 h après qu'un de tes appareils l'a récupéré ; 14 jours maximum sinon</td></tr>
       <tr><td>Photos</td><td>Blobs chiffrés sous nom aléatoire</td><td>Supprimées à la lecture, au plus tard après 14 jours</td></tr>
       <tr><td>Notifications</td><td>Abonnement push de l'appareil (point de terminaison Apple/Google/Mozilla/Microsoft), clé de notification dérivée par contact, marqueur opaque du compte</td><td>Jusqu'à désactivation, déconnexion ou expiration par le service push</td></tr>
+      <tr><td>Appels</td><td>Rien n'est stocké. Des identifiants TURN temporaires (15 min) sont remis à l'appareil pour relayer l'appel quand les deux téléphones sont derrière des réseaux fermés</td><td>—</td></tr>
       <tr><td>Anti-abus</td><td>Compteurs de requêtes par adresse IP et par compte</td><td>1 jour</td></tr>
     </table>
-    <p>Les relais temps réel et les fonctions serveur sont hébergés chez Supabase ; le site est servi par Cloudflare. Comme tout service web, ces fournisseurs voient des métadonnées de connexion (adresse IP, horaires, volumes). Le contenu des notifications push ne contient jamais de message : seulement « Nouveau message de X » ou « X veut discuter ».</p>
+    <p>Les relais temps réel et les fonctions serveur sont hébergés chez Supabase ; le site est servi par Cloudflare. Comme tout service web, ces fournisseurs voient des métadonnées de connexion (adresse IP, horaires, volumes). Le relais temps réel voit aussi, quand tu es connecté à une conversation, le nom d'affichage que tu as choisi et un marqueur opaque de ton compte (c'est ainsi que tes propres appareils se reconnaissent) — pas ton identifiant, pas tes contacts, pas tes messages. Pendant un appel, la voix et la vidéo passent directement entre les appareils (chiffrées) : l'autre participant voit ton adresse IP, ou le relais TURN de Cloudflare la voit à sa place quand il est nécessaire ; ce relais ne transporte que du chiffré. Les notifications push ne contiennent jamais de message ni de nom : seulement « Nouveau message », « Un contact veut discuter » ou « Appel entrant » ; c'est ton appareil qui y ajoute le nom du contact.</p>
 
     <h2>Sur ton appareil</h2>
-    <p>L'historique des messages est stocké chiffré dans le navigateur (IndexedDB), sous une clé maîtresse protégée par ton mot de passe ou Face ID / empreinte. Les clés de contacts sont stockées chiffrées et retirées de la mémoire au verrouillage. La déconnexion et la suppression du compte effacent tout. Aucun traceur, aucun cookie, aucune analyse d'audience.</p>
+    <p>L'historique des messages est stocké chiffré dans le navigateur (IndexedDB), sous une clé maîtresse protégée par ton mot de passe ou Face ID / empreinte. Les clés de contacts sont stockées chiffrées et retirées de la mémoire au verrouillage ; le verrouillage ferme aussi les fenêtres ouvertes et efface la conversation affichée. Les noms de tes contacts (jamais leurs clés) sont gardés dans le cache du navigateur pour que les notifications puissent les afficher ; ils sont effacés à la déconnexion. Les photos sont recompressées avant l'envoi : les métadonnées (position GPS, appareil) ne quittent pas ton téléphone. Par défaut, les messages disparaissent après 24 h et l'app se verrouille après 15 min (modifiable dans les réglages). La déconnexion et la suppression du compte effacent tout. Aucun traceur, aucun cookie, aucune analyse d'audience.</p>
 
     <h2>Ce que Gizleme ne fait pas (encore)</h2>
     <ul>
       <li>Pas de confidentialité persistante (<em>forward secrecy</em>) pour les messages déposés en boîte aux lettres : ils sont chiffrés sous la clé du contact, qui n'est connue que de vos deux appareils et n'est jamais déductible du lien d'invitation. Un appareil compromis peut donc lire ce qui l'attend encore en boîte — un message livré est effacé du relais 48 h après sa récupération, un message jamais récupéré après 14 jours. Une confidentialité persistante complète (clés éphémères par appareil, détruites après usage) est un chantier à part.</li>
       <li>Un lien d'invitation n'est pas une clé : il contient une clé publique à usage unique, et le premier appareil qui l'ouvre convient avec vous d'une clé de contact que personne d'autre ne peut calculer — même avec le lien en main. Ce que vous écrivez avant l'ouverture attend sur votre appareil. Si une copie du lien est ouverte plus tard, cette personne n'est pas ajoutée et vous en êtes averti. Reste le cas de quelqu'un qui interceptrait le lien et l'ouvrirait <em>avant</em> votre ami : le code de sécurité à comparer en personne est fait pour le détecter.</li>
-      <li>Le code n'est pas encore open source ni audité par un tiers. Le tableau « Pourquoi Gizleme ? » dans l'application le dit aussi.</li>
+      <li>Les groupes n'authentifient pas l'expéditeur de chaque message et leur clé ne tourne pas : quitter un groupe ne retire pas la clé à celui qui part (crée un nouveau groupe pour exclure quelqu'un). Une invitation de groupe reçue dans une discussion n'ajoute le groupe que si tu appuies dessus. Les appels de groupe relient chaque participant à chacun des autres (4 personnes au plus).</li>
+      <li>« Vue unique » et « messages éphémères » sont appliqués par l'appareil du destinataire : rien n'empêche une capture d'écran.</li>
+      <li>Quand tu partages un lien d'invitation via WhatsApp, le lien transite par WhatsApp comme tout ce que tu y envoies ; c'est la conception du lien (ci-dessus) qui limite ce qu'une copie permet.</li>
+      <li>Le code a fait l'objet d'un audit interne (octobre 2026 — constats et corrections dans le dépôt, <code>AUDIT.md</code>), mais pas encore d'un audit indépendant, et il n'est pas encore public. Le tableau « Pourquoi Gizleme ? » dans l'application le dit aussi.</li>
     </ul>
     <p>Questions : <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>
   </section>
@@ -74,7 +78,7 @@
         <li><b>Your messages and photos.</b> They are encrypted on your device (AES-256-GCM, keys agreed with ECDH P-256); the relay only carries and stores ciphertext.</li>
         <li><b>Your contact list.</b> It is stored encrypted under a key derived from your password. Without your password nobody can open it — including us. That is also why there is no "forgot password".</li>
         <li><b>Your password.</b> It never leaves your device; the server only receives a derived verifier (PBKDF2 200,000 iterations, then SHA-256).</li>
-        <li><b>Who is in which conversation.</b> Conversations are identified by values derived from shared secrets and your username is never attached to them; your own devices recognise each other through an opaque marker.</li>
+        <li><b>Your username in your conversations.</b> Conversations are identified by values derived from shared secrets; your account's username is never attached to them. (What the relay does see is described below.)</li>
       </ul>
     </div>
 
@@ -84,21 +88,25 @@
       <tr><td>Account</td><td>Username (lowercase), display name, random salt, password verifier</td><td>Until you delete the account (Settings → Account)</td></tr>
       <tr><td>Sessions</td><td>SHA-256 fingerprint of each logged-in device's session token</td><td>1 year, or until log-out / password change</td></tr>
       <tr><td>Account backup</td><td>Backup key wrapped by your password; contact list encrypted under that key</td><td>Until you delete the account</td></tr>
-      <tr><td>Mailbox</td><td>Encrypted messages awaiting delivery (mailbox id derived from a shared secret, opaque sender marker, timestamp)</td><td>14 days at most</td></tr>
+      <tr><td>Mailbox</td><td>Encrypted messages awaiting delivery (mailbox id derived from a shared secret, random message id, timestamp, delivery time)</td><td>48 h after one of your devices fetched it; 14 days at most otherwise</td></tr>
       <tr><td>Photos</td><td>Encrypted blobs under random names</td><td>Deleted when viewed, at the latest after 14 days</td></tr>
       <tr><td>Notifications</td><td>The device's push subscription (Apple/Google/Mozilla/Microsoft endpoint), a per-contact derived notification key, the account's opaque marker</td><td>Until turned off, logged out, or expired by the push service</td></tr>
+      <tr><td>Calls</td><td>Nothing is stored. Short-lived TURN credentials (15 min) are handed to the device to relay a call when both phones sit behind closed networks</td><td>—</td></tr>
       <tr><td>Abuse control</td><td>Request counters per IP address and per account</td><td>1 day</td></tr>
     </table>
-    <p>The realtime relay and server functions run on Supabase; the site is served by Cloudflare. Like any web service, these providers see connection metadata (IP address, timing, volume). Push notifications never carry message content: only "New message from X" or "X wants to chat".</p>
+    <p>The realtime relay and server functions run on Supabase; the site is served by Cloudflare. Like any web service, these providers see connection metadata (IP address, timing, volume). While you are connected to a conversation, the realtime relay also sees the display name you chose and an opaque marker of your account (how your own devices recognise each other) — not your username, your contacts or your messages. During a call, voice and video go directly between the devices (encrypted): the other participant sees your IP address, or Cloudflare's TURN relay sees it instead when one is needed; that relay only forwards ciphertext. Push notifications never carry message content or a name: only "New message", "A contact wants to chat" or "Incoming call" — your device adds the contact's name.</p>
 
     <h2>On your device</h2>
-    <p>Message history is stored encrypted in the browser (IndexedDB) under a master key protected by your password or Face ID / fingerprint. Contact keys are stored encrypted and dropped from memory when the app locks. Logging out or deleting the account erases everything. No trackers, no cookies, no analytics.</p>
+    <p>Message history is stored encrypted in the browser (IndexedDB) under a master key protected by your password or Face ID / fingerprint. Contact keys are stored encrypted and dropped from memory when the app locks; locking also closes open dialogs and clears the displayed chat. Your contacts' names (never their keys) are kept in the browser cache so notifications can show them; they are cleared on log-out. Photos are re-encoded before sending: metadata (GPS position, camera) never leaves your phone. By default, messages disappear after 24 h and the app locks after 15 min (changeable in Settings). Logging out or deleting the account erases everything. No trackers, no cookies, no analytics.</p>
 
     <h2>What Gizleme does not do (yet)</h2>
     <ul>
       <li>No forward secrecy for messages left in the mailbox: they are encrypted under the contact key, which only your two devices know and which can never be derived from the invite link. A compromised device can therefore read what is still waiting for it in the mailbox — a delivered message is deleted from the relay 48 h after it was fetched, one never fetched after 14 days. Full forward secrecy (per-device ephemeral keys destroyed after use) is a separate project.</li>
       <li>An invite link is not a key: it carries a one-time public key, and the first device to open it agrees a contact key with you that nobody else can compute — even with the link in hand. What you write before it is opened waits on your device. If a copy of the link is opened later, that person is not added and you are warned. What remains is someone intercepting the link and opening it <em>before</em> your friend: the safety code you compare in person exists to catch that.</li>
-      <li>The code is not yet open source or independently audited. The "Why Gizleme?" table in the app says so too.</li>
+      <li>Groups do not authenticate the sender of each message and their key does not rotate: leaving a group does not take the key away from whoever leaves (create a new group to exclude someone). A group invitation received in a chat only adds the group when you tap it. Group calls connect every participant to every other (4 people at most).</li>
+      <li>"View once" and disappearing messages are enforced by the recipient's device: nothing prevents a screenshot.</li>
+      <li>When you share an invite link through WhatsApp, the link goes through WhatsApp like anything you send there; the link's design (above) is what limits what a copy allows.</li>
+      <li>The code went through an internal audit (October 2026 — findings and fixes in the repository, <code>AUDIT.md</code>) but not yet an independent one, and it is not public yet. The "Why Gizleme?" table in the app says so too.</li>
     </ul>
     <p>Questions: <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>
   </section>

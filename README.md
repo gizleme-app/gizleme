@@ -11,8 +11,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   PWA, served by Cloudflare with a strict Content-Security-Policy (`_headers`).
 - Accounts are a username + password only. Contacts and groups follow the account across devices in an
   encrypted vault; there is deliberately no password reset.
-- Four Supabase Edge Functions (`gizleme-auth`, `gizleme-vault`, `gizleme-mbox`, `gizleme-push`) and
-  Supabase Realtime for live presence and broadcast. The server only ever holds ciphertext.
+- Five Supabase Edge Functions (`gizleme-auth`, `gizleme-vault`, `gizleme-mbox`, `gizleme-push`,
+  `gizleme-turn`) and Supabase Realtime for live presence and broadcast. The server only ever holds
+  ciphertext.
 
 ## Features
 
@@ -29,16 +30,18 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   contact is invited inside the encrypted chat, the link for the others is offered right away).
 - Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
   phone's own maps app — Gizleme never fetches anything from a map provider.
-- Web Push ("New message from X"; never message content).
+- Web Push: the wire carries only "New message" / "Incoming call" / "A contact wants to chat"; the
+  receiving device adds the contact's name ("New message from X"). Never message content.
 - Audio and video calls (WebRTC): media goes peer-to-peer and is end-to-end encrypted by construction
   (DTLS-SRTP); the signalling travels inside the chat's already-encrypted channel, so the relay sees
   nothing but ciphertext. Group calls are a mesh of up to 4 people. A contact who is offline is woken
-  with a push ("X is calling you"). A Cloudflare TURN relay (see SECURITY.md) only forwards
+  with a push ("Incoming call"). A Cloudflare TURN relay (see SECURITY.md) only forwards
   ciphertext and takes over when both sides sit behind strict NATs.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the cryptography, the threat model and the known limitations, and
+See [SECURITY.md](SECURITY.md) for the cryptography, the threat model and the known limitations,
+[AUDIT.md](AUDIT.md) for the internal audit (October 2026: findings, fixes, open items), and
 https://gizleme.com/privacy.html for what the server keeps and for how long.
 
 ## Repository layout

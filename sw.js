@@ -1,7 +1,7 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v8";
+const CACHE = "gizleme-v10";
 const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.45.4.js", "/manifest.webmanifest",
                "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
 
@@ -55,12 +55,14 @@ async function loadNames() {
 }
 // "New message from Baba" rather than the sender's own name and language: compose the text here when the
 // contact is known; otherwise keep what the sender wrote.
-function composeBody(d, meta) {
+async function nkHash(nk) { const b = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(nk)));
+  return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+async function composeBody(d, meta) {
   const fallback = String(d.body || "A contact wants to chat").slice(0, 140);
   if (!meta || !meta.tmpl) return fallback;
   let nk = ""; try { const u = new URL(d.url || "", self.location.origin); const h = (u.hash || "").replace(/^#/, ""); if (h.indexOf("n=") === 0) nk = decodeURIComponent(h.slice(2)); } catch (_) {}
   const kind = d.kind === "chat" ? "chat" : d.kind === "call" ? "call" : "msg";
-  const name = nk && meta.names ? meta.names[nk] : "";
+  let name = ""; if (nk && meta.names) { try { name = meta.names[await nkHash(nk)] || ""; } catch (_) { name = ""; } }
   const t = meta.tmpl;
   const tpl = kind === "chat" ? t.chat : kind === "call" ? t.call : t.msg;
   if (name && tpl) return String(tpl).replace("{name}", name).slice(0, 140);
@@ -78,7 +80,7 @@ self.addEventListener("push", e => {
   e.waitUntil((async () => {
     const meta = await loadNames();
     return self.registration.showNotification("Gizleme", {
-      body: composeBody(d, meta),
+      body: await composeBody(d, meta),
       tag: String(d.tag || "gizleme").slice(0, 64),
       renotify: true,
       icon: "/icon-192.png",
