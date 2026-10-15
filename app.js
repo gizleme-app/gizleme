@@ -417,13 +417,14 @@ async function doJoinGroup(rid, gkBytes, name){
   rooms.set(code,R); hideJoin(); switchTo(code);
   if(gHistKey){ renderHistory(R, await histLoad(code)); }
   if(!R.seen) R.seen=new Set();
-  const ch=client.channel("ratchet-"+rid,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
-  R.channel=ch;
-  ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
-  ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
-  ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); setStatus(R,t("🔒 encrypted group"),true,"online",t("group"));
-      if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; setAttach(false); } fetchMailbox(R); }
-    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); } });
+  R.bind=()=>{ const ch=client.channel("ratchet-"+rid,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
+    R.channel=ch;
+    ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
+    ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
+    ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ R.joinFails=0; await ch.track(presencePayload(R)); setStatus(R,t("🔒 encrypted group"),true,"online",t("group"));
+        if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; setAttach(false); } fetchMailbox(R); }
+      else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); scheduleRejoin(R, ch); } }); };
+  R.bind();
   fetchMailbox(R);
   try{ history.replaceState(null,"","/"); }catch(e){}
   renderContacts(); updateVerifyUI();
@@ -1686,6 +1687,14 @@ function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.aut
 function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.tagp) p.tagp=R.tagp; if(R.peerNewKey) p.rk=1;
     const c=R.fromContact?contactFind(R.fromContact):null; if(c && c.v3 && c.hello && reconActive(c)) p.hello=c.hello; } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
 function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
+// A join that errored or timed out (cold relay, flaky network) is retried with a fresh channel after a short
+// backoff rather than left on "reconnecting…" — the library's own rejoin does not always come back.
+function scheduleRejoin(R, ch){
+  if(!R.bind || R.rejoinT) return;
+  R.joinFails=(R.joinFails||0)+1; const wait=Math.min(30000, 3000*Math.pow(2, R.joinFails-1));
+  R.rejoinT=setTimeout(()=>{ R.rejoinT=null; if(!rooms.has(R.code) || R.channel!==ch) return; if(ch.state==="joined") return;
+    try{ ch.unsubscribe(); }catch(e){} R.bind(); }, wait);
+}
 async function onSync(R){
   const st=R.channel.presenceState(); const me=_acct; let others=[];
   for(const k in st) for(const m of st[k]) if(m.id&&m.id!==R.id) others.push(m);
@@ -1867,15 +1876,16 @@ async function doJoin(code, opts){
     renderHistory(R, past);
   }
   if(!R.seen) R.seen=new Set();
-  const ch=client.channel("ratchet-"+code,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
-  R.channel=ch;
-  ch.on("presence",{event:"sync"},()=>onSync(R));
-  ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
-  ch.on("broadcast",{event:"rcpt"},(payload)=>onRcpt(R,payload));
-  ch.subscribe(async st=>{
-    if(st==="SUBSCRIBED"){ await ch.track(presencePayload(R)); if(!R.paired) setIdle(R); fetchMailbox(R); }
-    else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); }
-  });
+  R.bind=()=>{ const ch=client.channel("ratchet-"+code,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
+    R.channel=ch;
+    ch.on("presence",{event:"sync"},()=>onSync(R));
+    ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
+    ch.on("broadcast",{event:"rcpt"},(payload)=>onRcpt(R,payload));
+    ch.subscribe(async st=>{
+      if(st==="SUBSCRIBED"){ R.joinFails=0; await ch.track(presencePayload(R)); if(!R.paired) setIdle(R); fetchMailbox(R); }
+      else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); scheduleRejoin(R, ch); }
+    }); };
+  R.bind();
   fetchMailbox(R);   // pull anything that was queued while we were away
   // Keep the shared code in the URL only for manual/invite rooms; contact rooms use a
   // secret daily code that shouldn't linger in history, so reload lands on the chats list.
