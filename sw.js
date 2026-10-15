@@ -1,7 +1,7 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v17";
+const CACHE = "gizleme-v18";
 const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.45.4.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
                "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
 

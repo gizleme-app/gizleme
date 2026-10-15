@@ -172,6 +172,7 @@ window.GZ_I18N = {
     "Group “{name}” created": "Groupe « {name} » créé",
     "{who} invited you to the group “{name}”": "{who} t'invite dans le groupe « {name} »",
     "Join the group": "Rejoindre le groupe",
+    "🔐 Forward secrecy is now on for this chat: the mailbox key changes every week and old keys are destroyed.": "🔐 La confidentialité persistante est activée pour cette discussion : la clé de la boîte change chaque semaine et les anciennes clés sont détruites.",
     "Members & keys": "Membres et clés",
     "Members": "Membres",
     "Members · {n}": "Membres · {n}",

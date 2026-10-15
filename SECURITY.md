@@ -65,7 +65,13 @@ rate-limit counters.
   (14 days). Each mailbox item carries its week number in clear (`ep`). Nothing a device or vault holds
   can derive a discarded root, so ciphertext the relay captured earlier than three weeks before a later
   compromise stays unreadable. The chain is used only when both builds support it (link flag `f`, hello
-  flag `fs`); older contacts and v2-link contacts keep the static key. What remains: a compromised device
+  flag `fs`). A contact that predates the chain gets one at the next live meeting: each side announces in
+  presence that it holds no chain for this contact (`fsu`), and when both are live, authenticated under the
+  contact key and both still without one, each derives the same root from that session's ECDH secret
+  (`HKDF(secret, "gz-chain/live|ck")`) — never sent; the offer stays up for that session so the slower side
+  takes the same root, and a device that already got the chain from the account vault no longer offers, so
+  two devices of one account cannot seed two different chains. Until that meeting, such contacts keep the
+  static key. What remains: a compromised device
   reads what is still waiting for it (inherent), and a compromise reveals the current three weeks. Per-
   message forward secrecy with per-device ephemeral keys (the Signal model) would end "any device of the
   account reads the mailbox" and stays a separate project. Groups keep a static key (see below).

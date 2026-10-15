@@ -1918,6 +1918,16 @@ async function establish(R, other, authed){
           sysline(R.logEl, t("🔐 Invite link retired — this chat now uses a key only your two devices know."));
         } }
     }catch(e){}
+    // Contacts from before the mailbox key chain: when both sides are live, authenticated under the contact key
+    // and both still without a chain (each says so in presence), seed one from this session's ECDH secret — the
+    // same on both ends, never sent. A device that has no chain while its account's other device already does
+    // gets it from the vault instead (the peer stops offering once it holds one).
+    try{ const c=contactFind(R.fromContact);
+      if(authed && c && !c.kc && !isPendingInvite(c) && other && other.fsu===1 && secret){
+        const kc=b64(await hkdf(secret,"gz-chain/live|"+R.fromContact)); contactPatch(R.fromContact,{kc, kce:epochNow()}); _chainCache.clear(); R.fsuRoot=rootFp;
+        try{ await ensureTag(R); if(R.channel) R.channel.track(presencePayload(R)); }catch(_e){}
+        sysline(R.logEl, t("🔐 Forward secrecy is now on for this chat: the mailbox key changes every week and old keys are destroyed."));
+      } }catch(e){}
     // Reconciliation ends only once BOTH sides have seen each other sign with the new (post-link) key —
     // a mutual confirmation carried in presence (rk). Ending it unilaterally would let the two land on
     // different rendezvous rooms (one still serving the link key, one not) and never see each other again —
@@ -1928,7 +1938,7 @@ async function establish(R, other, authed){
       if(c && c.prev){
         const directNew=!!(other && other.tag && await authVerify(R.fromContact, other.pub, other.tag));
         if(directNew!==!!R.peerNewKey){ R.peerNewKey=directNew; try{ if(R.channel) R.channel.track(presencePayload(R)); }catch(_e){} }
-        if(c.recon && directNew && other && other.rk){ const l=contactsLoad(); const x=l.find(y=>y.ck===R.fromContact); if(x){ x.recon=0; delete x.hello; contactsSave(l); } }
+        if(c.recon && directNew && other && other.rk){ const l=contactsLoad(); const x=l.find(y=>y.ck===R.fromContact); if(x){ x.recon=0; delete x.hello; contactsSave(l); moveRoomSoon(R); } }
       } else R.peerNewKey=false;
     }catch(e){}
     renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI(); updateCallUI(); callTryInvite();
@@ -1942,7 +1952,11 @@ function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.aut
   setIdle(R);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; setAttach(!keep); updateVerifyUI(); } }
 function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.tagp) p.tagp=R.tagp; if(R.peerNewKey) p.rk=1;
-    const c=R.fromContact?contactFind(R.fromContact):null; if(c && c.v3 && c.hello && reconActive(c)) p.hello=c.hello; } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
+    const c=R.fromContact?contactFind(R.fromContact):null; if(c && c.v3 && c.hello && reconActive(c)) p.hello=c.hello;
+    // no mailbox chain with this contact yet: offer to start one from this live key exchange — and keep the offer
+    // up for the session that just seeded it, so the slower side still takes the same one
+    if(c && !isPendingInvite(c) && (!c.kc || (R.fsuRoot && R.fsuRoot===R.rootFp))) p.fsu=1;
+  } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
 function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
 // A join that errored or timed out (cold relay, flaky network) is retried with a fresh channel after a short
 // backoff rather than left on "reconnecting…" — the library's own rejoin does not always come back.
@@ -1996,7 +2010,7 @@ async function onSync(R){
   if(!o){ if(R.paired) unpair(R); if(stale.length && !rejected.length) setIdle(R); else setStatus(R, t("⚠ not verified — not connected live"), false, "warn"); return; }
   if(!R.paired||!R.peer||R.peer.id!==o.id||R.peer.pub!==o.pub) establish(R,o,auth[others.indexOf(o)]==="ok");
   else if(o.rk && !(R.peer.rk) && R.peerNewKey && R.fromContact){ R.peer=o;   // they now confirm seeing us on the new key too
-    try{ const c=contactFind(R.fromContact); if(c && c.recon){ const l=contactsLoad(); const x=l.find(y=>y.ck===R.fromContact); if(x){ x.recon=0; delete x.hello; contactsSave(l); } } }catch(e){} }
+    try{ const c=contactFind(R.fromContact); if(c && c.recon){ const l=contactsLoad(); const x=l.find(y=>y.ck===R.fromContact); if(x){ x.recon=0; delete x.hello; contactsSave(l); moveRoomSoon(R); } } }catch(e){} }
 }
 
 // envelope: {t:'txt',body} | {t:'img',path,k,iv,mime,once}
@@ -2223,6 +2237,20 @@ function switchTo(code){
   const canSend = R.paired || R.group || !!R.fromContact;
   $("msgInput").disabled=!canSend; $("sendBtn").disabled=!canSend; setAttach(!canSend);
   renderTabs(); renderContacts(); updateNotifyUI(); updateVerifyUI();
+}
+// Reconciliation just closed: this chat's rendezvous room moves from the link room to the contact-key room.
+// An open chat follows by itself (both sides do, so they keep meeting); without this, a side that stays in
+// the old room while the other reconnects into the new one would see "offline" until it reopened the chat.
+function moveRoomSoon(R){
+  if(!R || R.group || !R.fromContact || R.moving) return; R.moving=true;
+  setTimeout(async()=>{ try{
+    const ck=R.fromContact; const c=contactFind(ck); if(!c || c.recon){ R.moving=false; return; }
+    const want=await rvCodeFromCK(rendezvousCKOf(c)||ck); if(want===R.code || !rooms.has(R.code) || rooms.get(R.code)!==R){ R.moving=false; return; }
+    const wasActive=(active===R.code), title=R.title;
+    const notes=R.logEl ? [...R.logEl.querySelectorAll(".sys")] : [];   // what was said about this chat so far stays on screen
+    try{ R.channel && R.channel.unsubscribe(); }catch(e){} if(R.logEl) R.logEl.remove(); rooms.delete(R.code); if(active===R.code) active=null;
+    renderTabs(); if(wasActive){ await doJoin(want,{fromContact:ck,title}); const R2=rooms.get(want); if(R2 && R2.logEl){ notes.forEach(n=>R2.logEl.appendChild(n)); R2.connLineShown=R.connLineShown; scrollEl(R2.logEl); } }
+  }catch(e){} }, 1500);
 }
 function leaveRoom(code){
   const R=rooms.get(code); if(!R) return;
