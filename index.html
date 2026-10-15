@@ -89,6 +89,11 @@
   .qr-box[hidden]{display:none}
   .qr-box canvas{background:#fff;border-radius:10px;padding:8px;box-sizing:content-box}
   .scan-video{width:100%;max-height:52vh;border-radius:12px;background:#000;object-fit:cover}
+  .mem-list{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px;max-height:46vh;overflow:auto}
+  .mem-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}
+  .mem-row .mn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+  .mem-row .mf{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.72rem;opacity:.7}
+  .mem-row .mx{border:1px solid #e5484d;color:#e5484d;background:transparent;border-radius:8px;padding:4px 8px;font-size:.78rem;cursor:pointer}
   .share-row .ghost{flex:1;margin:0}
   #join .ghost.wa{flex:0 0 auto;border-color:rgba(37,211,102,.5);color:#25d366;font-weight:600}
   .authmsg{color:#f87171;font-size:.82rem;margin:-2px 0 2px;min-height:1em;text-align:center}
@@ -204,6 +209,10 @@
   .bubble{max-width:82%;padding:9px 12px;border-radius:15px;font-size:.95rem;word-wrap:break-word;overflow-wrap:anywhere}
   .bubble .txt.scrambling{font-family:var(--mono);letter-spacing:.03em;color:var(--accent)}
   .bubble .who{display:block;font-size:.74rem;font-weight:700;opacity:.8;margin-bottom:2px}
+  .bubble .who .vfb{margin-left:5px;font-weight:600;font-size:.68rem;opacity:.85}
+  .bubble .who.vf-ok .vfb{color:#16a34a}
+  .bubble .who.vf-bad{color:#e5484d;opacity:1}
+  .bubble .who.vf-bad .vfb{background:#e5484d;color:#fff;border-radius:6px;padding:1px 5px}
   .bubble .meta{display:flex;justify-content:flex-end;align-items:center;gap:5px;font-size:.66rem;opacity:.72;margin-top:3px;line-height:1}
   .bubble.recv .meta{justify-content:flex-start}
   .bubble .st{font-size:.7rem;letter-spacing:-.08em}
@@ -595,6 +604,7 @@
     <button class="icon" id="menuBtn" title="More" aria-label="More options"><svg class="ico"><use href="#i-more"/></svg></button>
     <div class="menu" id="barMenu" hidden>
       <button class="menu-item" data-act="invite" id="mi-invite" hidden><svg class="ico"><use href="#i-user-plus"/></svg><span>Invite people</span></button>
+      <button class="menu-item" data-act="members" id="mi-members" hidden><svg class="ico"><use href="#i-users"/></svg><span>Members &amp; keys</span></button>
       <button class="menu-item" data-act="verify" id="mi-verify"><svg class="ico"><use href="#i-shield-check"/></svg><span>Verify identity</span></button>
       <button class="menu-item" data-act="notify" id="mi-notify"><svg class="ico"><use href="#i-bell"/></svg><span>Notify contact</span></button>
       <button class="menu-item" data-act="loc" id="mi-loc"><svg class="ico"><use href="#i-pin"/></svg><span>Share my location</span></button>
@@ -777,6 +787,15 @@
     <button class="btn" id="ginvShare" type="button">Send the invite link</button>
     <button class="ghost" id="ginvCopy" type="button">Copy the link</button>
     <button class="ghost" id="ginvLater" type="button">Later</button>
+  </div>
+</div>
+<div class="modal" id="memModal">
+  <div class="card">
+    <div class="logo"><span class="lock" aria-hidden="true">👥</span><div><h1 style="font-size:1.05rem" id="memTitle">Members</h1><p id="memSub">Keys learned from signed messages.</p></div></div>
+    <div class="mem-list" id="memList"></div>
+    <p class="set-note" id="memNote"></p>
+    <button class="btn" id="memRenew" type="button" hidden>Renew the group key</button>
+    <button class="ghost" id="memClose" type="button">Close</button>
   </div>
 </div>
 <div class="modal" id="pinModal">

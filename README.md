@@ -34,7 +34,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   photo under a key that only travels inside the message; the ciphertext is deleted from the relay once
   the recipient fetched it and kept, encrypted, on their device for replay.
 - Groups with a shared key in the link fragment; a two-person chat can be turned into a group (the
-  contact is invited inside the encrypted chat, the link for the others is offered right away).
+  contact is invited inside the encrypted chat, the link for the others is offered right away). Group
+  messages are signed by their author (✓ / ⚠ on each bubble); the creator can remove members or renew the
+  key — the new key reaches each remaining member under their own key, the removed one is locked out.
 - Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
   phone's own maps app — Gizleme never fetches anything from a map provider.
 - Web Push: the wire carries only "New message" / "Incoming call" / "A contact wants to chat"; the

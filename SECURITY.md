@@ -101,11 +101,22 @@ rate-limit counters.
   out short-lived credentials; the relay only ever forwards ciphertext. Group calls are a mesh (every
   participant to every other), capped at 4. A web app cannot ring while closed the way a phone app does:
   an offline contact gets a push ("X is calling you") and the call connects when they open the chat.
-- **Groups have no sender authentication and no key rotation.** Any member or the relay could re-label a
-  group message; leaving a group does not revoke the key. Create a new group to exclude someone. The same
-  holds for group calls: any member can announce or join one (mesh, capped at 4); a 1:1 ring sent inside a
-  group room is ignored. A group invitation received in a chat is a card — the group is joined only when
-  the recipient taps it.
+- **Groups: signed messages, creator-controlled key rotation.** Every account holds an identity key pair
+  (ECDSA P-256 for signatures, an ECDH half for key delivery) that follows it across devices in the vault.
+  Group messages are signed (`pk`, `ek`, `sig` inside the ciphertext; the signature covers the group id and
+  the whole inner object); members learn each other's keys from the first signed message or the silent
+  `hi` sent on joining (trust on first use), show ✓ on messages signed with a member's usual key and flag
+  a name that signs with a different key or a broken signature. The relay holds no group key, so it can
+  forge nothing; a member impersonating another is flagged. The group's creator is its admin (its identity
+  key rides in the group link): it can remove a member or renew the key — a fresh key is sent in the
+  group, wrapped for each remaining member under that member's ECDH key; whoever is left out cannot derive
+  it, and the room name and mailbox follow the key, so they see nothing more (old invite links die too).
+  The previous key stays readable for 14 days so late writers are not lost; messages from removed members
+  are dropped. Limits: trust on first use (a member's very first key is not verified against anything);
+  groups created before this build have no admin and cannot rotate (create a new one); a member who never
+  announced a key (older app) would be locked out by a renewal until they reopen the group; group calls
+  are a mesh capped at 4; a 1:1 ring inside a group room is ignored; a group invitation received in a
+  chat is joined only when tapped.
 - **Login proof is replayable.** The client proves the password with a static value (`av`, the hash of the
   PBKDF2 key); the server stores its hash. Someone who captures `av` in transit (a broken TLS session) could
   replay it. Replacing it with an aPAKE (OPAQUE) is planned together with the KDF upgrade below.

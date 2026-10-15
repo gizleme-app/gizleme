@@ -190,7 +190,8 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   let c=[], g=[];
   let meta=null;
   try{ const r=JSON.parse(localStorage.getItem(LS_LOCAL)||"null"); if(r&&r.ct&&gHistKey){ const o=JSON.parse(dec.decode(await aesDec(gHistKey,r.iv,r.ct))); c=o.contacts||[]; g=o.groups||[]; meta=o.meta||null; } }catch(e){}
-  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}, outq:(meta&&meta.outq)||{}, mbts:(meta&&meta.mbts)||{}, notified:(meta&&meta.notified)||{}};
+  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}, outq:(meta&&meta.outq)||{}, mbts:(meta&&meta.mbts)||{}, notified:(meta&&meta.notified)||{}, ident:(meta&&meta.ident)||null};
+  _identKeys=null;
   // older builds kept mailbox cursors and nudge times in localStorage: take them in, then remove them
   try{ const o=JSON.parse(localStorage.getItem(LS_MBTS)||"null"); if(o){ for(const k in o) if(!(k in _meta.mbts)) _meta.mbts[k]=o[k]; localStorage.removeItem(LS_MBTS); } }catch(e){}
   try{ const o=JSON.parse(localStorage.getItem(LS_NOTIFIED)||"null"); if(o){ for(const k in o) if(!(k in _meta.notified)) _meta.notified[k]=o[k]; localStorage.removeItem(LS_NOTIFIED); } }catch(e){}
@@ -205,7 +206,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   renderContacts(); if(pushOn()&&gPushSub) registerAllContacts(); swNamesSoon();
   inboxPull(true);                                   // deliver what arrived while the app was closed, for every chat
 }
-function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{}}; for(const k in _hid) delete _hid[k]; }                       // lock: out of memory, ciphertext stays on disk
+function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{}}; _identKeys=null; for(const k in _hid) delete _hid[k]; }                       // lock: out of memory, ciphertext stays on disk
 function localWipe(){ localClear(); try{ localStorage.removeItem(LS_LOCAL); localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} }
 function realName(n){ return n && n!=="Peer" && n!=="Contact" && n!=="Anon" && n!=="Waiting for peer…" ? n : ""; }
 function contactUpsert(name, ckB64){
@@ -457,36 +458,171 @@ function renderContacts(fromPreview){
 const LS_GROUPS="gz-groups";              // legacy plaintext key (older builds): imported once, then removed
 function groupsLoad(){ return _groups.map(g=>Object.assign({},g)); }
 function groupsSave(l){ _groups=(l||[]).filter(g=>g&&g.rid).map(g=>Object.assign({},g)); localSaveSoon(); renderContacts(); syncPushSoon(); }
-function groupUpsert(rid,gkB64,name){ const l=groupsLoad(); const i=l.findIndex(g=>g.rid===rid);
-  if(i>=0){ if(name) l[i].name=name; l[i].ts=Date.now(); } else l.push({rid,gk:gkB64,name:name||"Group",ts:Date.now()}); groupsSave(l); }
+function groupUpsert(rid,gkB64,name,adm,rot){ const l=groupsLoad(); const i=l.findIndex(g=>g.rid===rid);
+  if(i>=0){ if(name) l[i].name=name; l[i].ts=Date.now(); if(adm && !l[i].adm) l[i].adm=adm; if(rot && !l[i].rot) l[i].rot=1; }
+  else { const g={rid,gk:gkB64,name:name||"Group",ts:Date.now()}; if(adm) g.adm=adm; if(rot) g.rot=1; l.push(g); } groupsSave(l); }
 function groupRemove(rid){ const R=rooms.get(rid); if(R){ try{ R.channel&&R.channel.unsubscribe(); }catch(e){} if(R.logEl) R.logEl.remove(); rooms.delete(rid); if(active===rid) goHome(); }
   groupsSave(groupsLoad().filter(g=>g.rid!==rid)); }
 function newRid(){ const A="0123456789abcdefghijklmnopqrstuvwxyz"; return [...crypto.getRandomValues(new Uint8Array(16))].map(b=>A[b%36]).join(""); }
 async function gkMsgKey(gkBytes){ return aesKey(await hkdf(gkBytes,"gz-group-msg/v1")); }
+// ---- group sender authentication ----
+// Every account signs its group messages with an identity key (ECDSA P-256) that follows it across devices
+// in the vault. Members learn each other's keys from the first signed message (trust on first use) and are
+// warned when a name shows up signing with a different key. The relay never holds a group key, so it can
+// forge nothing; a member who tries to pass for another is flagged.
+let _identKeys=null;   // {priv:CryptoKey, pub:CryptoKey, pk:b64}
+function identLoad(){ return (_meta && _meta.ident && _meta.ident.pk && _meta.ident.sk) ? _meta.ident : null; }
+async function identEnsure(){
+  if(_identKeys) return _identKeys;
+  let id=identLoad();
+  if(!id){ const kp=await crypto.subtle.generateKey({name:"ECDSA",namedCurve:"P-256"},true,["sign","verify"]);
+    id={pk:b64(await crypto.subtle.exportKey("raw",kp.publicKey)), sk:b64(await crypto.subtle.exportKey("pkcs8",kp.privateKey)), ts:Date.now()};
+    _meta.ident=id; localSaveSoon(); syncPushSoon(); }
+  if(!id.ek || !id.dk){ const kp=await genKP(); id.ek=b64(await pubRaw(kp)); id.dk=b64(await crypto.subtle.exportKey("pkcs8",kp.privateKey)); _meta.ident=id; localSaveSoon(); syncPushSoon(); }
+  const priv=await crypto.subtle.importKey("pkcs8",unb64(id.sk),{name:"ECDSA",namedCurve:"P-256"},false,["sign"]);
+  const dh=await crypto.subtle.importKey("pkcs8",unb64(id.dk),{name:"ECDH",namedCurve:"P-256"},false,["deriveBits"]);
+  _identKeys={priv, dh, pk:id.pk, ek:id.ek}; return _identKeys;
+}
+function identAdopt(remote){   // vault merge: all devices converge on the oldest identity
+  if(!remote || !remote.pk || !remote.sk) return false; const loc=identLoad();
+  if(loc && loc.pk===remote.pk) return false; if(loc && (loc.ts||0) <= (remote.ts||0)) return false;
+  _meta.ident=remote; _identKeys=null; localSaveSoon(); return true;
+}
+const _pubCache=new Map();
+async function identPub(pkB64){ if(_pubCache.has(pkB64)) return _pubCache.get(pkB64); const k=await crypto.subtle.importKey("raw",unb64(pkB64),{name:"ECDSA",namedCurve:"P-256"},false,["verify"]); _pubCache.set(pkB64,k); return k; }
+async function keyFp(pkB64){ return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256",unb64(pkB64)))).slice(0,8); }
+function gsigData(rid, obj){ const o=Object.assign({},obj); delete o.sig; delete o.a; return enc.encode("gz-gsig/v1|"+rid+"|"+JSON.stringify(o)); }
+// the inner (encrypted) object of a group message, signed: {…env, mid, n, pk, sig}
+async function signGroupEnv(R, env, mid){
+  const obj=Object.assign({},env,{mid, n:myName});
+  try{ const id=await identEnsure(); obj.pk=id.pk; obj.ek=id.ek; obj.sig=b64(await crypto.subtle.sign({name:"ECDSA",hash:"SHA-256"}, id.priv, gsigData(R.rid, obj))); }catch(e){}
+  return obj;
+}
+// "ok" | "bad" | "changed" | "unsigned"; records the first key seen for a name (per group, in the vault)
+async function verifyGroupEnv(R, env, who){
+  if(!env || !env.pk || !env.sig) return "unsigned";
+  let ok=false; try{ ok=await crypto.subtle.verify({name:"ECDSA",hash:"SHA-256"}, await identPub(env.pk), unb64(env.sig), gsigData(R.rid, env)); }catch(e){ ok=false; }
+  if(!ok) return "bad";
+  const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return "ok";
+  const mem=g.mem||{}; const nm=realName(who)?who:"";
+  const known=Object.keys(mem).find(pk=>mem[pk].n===nm && nm);
+  if(known && known!==env.pk){ return "changed"; }
+  const cur=mem[env.pk];
+  if(!cur || (env.ek && cur.ek!==env.ek) || (nm && cur.n!==nm)){ mem[env.pk]={n:nm||(cur&&cur.n)||"", ek:env.ek||(cur&&cur.ek)||undefined, ts:(cur&&cur.ts)||Date.now()}; g.mem=mem; groupsSave(l); }
+  return "ok";
+}
+// ---- group key rotation (exclusion) ----
+// The group's creator is its admin (its identity key travels in the group link). To renew the key — or to
+// remove someone — the admin makes a fresh key and sends it in the group, wrapped for each remaining member
+// under that member's identity ECDH key (learned from their signed messages). Whoever is left out of the
+// wraps cannot derive the new key; the room name and the mailbox follow the key, so they see nothing more.
+async function groupFp(gkBytes){ return keyFp(b64(gkBytes)); }
+function groupChan(R){ const g=groupsLoad().find(x=>x.rid===R.rid); return "ratchet-"+R.rid+((g && g.rot && R.gkFp) ? "-"+R.gkFp : ""); }
+async function isGroupAdmin(R){ const g=groupsLoad().find(x=>x.rid===R.rid); if(!g || !g.adm) return false; try{ return (await identEnsure()).pk===g.adm; }catch(e){ return false; } }
+async function rotateGroup(R, excludePk){
+  const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return false;
+  const id=await identEnsure(); if(g.adm!==id.pk){ toast(t("Only the person who created the group can do that")); return false; }
+  const mem=g.mem||{}; const keep=Object.keys(mem).filter(pk=>pk!==excludePk && pk!==id.pk && mem[pk].ek);
+  const newGk=crypto.getRandomValues(new Uint8Array(32)); const eph=await genKP(); const ephPub=b64(await pubRaw(eph));
+  const w={};
+  for(const pk of keep){ try{ const sec=await sharedSecret(eph.privateKey, await importPub(unb64(mem[pk].ek))); const k=await aesKey(await hkdf(sec,"gz-gk2/v1"));
+    const iv=crypto.getRandomValues(new Uint8Array(12)); const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,newGk); w[pk]={iv:b64(iv),ct:b64(ct)}; }catch(e){} }
+  const env={t:"gk2", g:await groupFp(newGk), e:ephPub, w, x:excludePk?[excludePk]:[]};
+  const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  const signed=await signGroupEnv(R, env, mid);
+  try{ await broadcastGroup(R, signed, mid); }catch(e){} try{ await depositMailbox(R, mid, signed); }catch(e){}
+  if(excludePk){ const m2=Object.assign({},g.mem||{}); delete m2[excludePk]; g.mem=m2; g.gone=(g.gone||[]).concat([excludePk]).slice(-50); groupsSave(l); }
+  await applyGroupKey(R, newGk, excludePk ? t("🔑 {who} was removed — the group now uses a new key they don't have.",{who:(mem[excludePk]&&mem[excludePk].n)||t("Member")}) : t("🔑 Group key renewed."));
+  return true;
+}
+async function applyGroupKey(R, gkBytes, line){
+  const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return;
+  g.prevGk=g.gk; g.rotAt=Date.now(); g.gk=b64(gkBytes); g.rot=(g.rot||0)+1; g.rotFp=await groupFp(gkBytes); groupsSave(l);
+  R.gk=gkBytes; R.gkMsg=await gkMsgKey(gkBytes); R.gkFp=g.rotFp; R.gcall=null; R.hiSent=false;
+  try{ if(R.channel) R.channel.unsubscribe(); }catch(e){}
+  if(R.bind) R.bind();
+  if(R.logEl && line) sysline(R.logEl, line);
+  renderContacts(); showCallBanner(R);
+}
+async function onGk2(R, env, vf, who){
+  const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return;
+  if(vf!=="ok" && vf!=="changed") return;
+  if(!g.adm || env.pk!==g.adm){ if(R.logEl) sysline(R.logEl, t("⚠ {who} tried to change the group key but isn't the group's creator — ignored.",{who}), true); return; }
+  if(!env.g || env.g===g.rotFp) return;                                       // already on that key
+  let id; try{ id=await identEnsure(); }catch(e){ return; }
+  const mine=env.w && env.w[id.pk];
+  if(!mine){ g.left=1; groupsSave(l); if(R.logEl) sysline(R.logEl, t("⛔ {who} removed you from this group. You can't read or write here any more.",{who}), true);
+    if(R.code===active){ enableComposer(false); setStatus(R, t("removed from the group"), false, "warn", t("removed")); } return; }
+  try{ const sec=await sharedSecret(id.dh, await importPub(unb64(env.e))); const k=await aesKey(await hkdf(sec,"gz-gk2/v1"));
+    const gk=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(mine.iv)},k,unb64(mine.ct))); if(gk.length!==32) throw new Error("bad key");
+    const gone=(Array.isArray(env.x)?env.x:[]).map(pk=>(g.mem&&g.mem[pk]&&g.mem[pk].n)||"").filter(Boolean);
+    if(Array.isArray(env.x) && env.x.length){ const m2=Object.assign({},g.mem||{}); env.x.forEach(pk=>{ delete m2[pk]; }); g.mem=m2; g.gone=(g.gone||[]).concat(env.x.filter(pk=>typeof pk==="string")).slice(-50); groupsSave(l); }
+    await applyGroupKey(R, gk, gone.length ? t("🔑 {who} removed {names} — new group key.",{who, names:gone.join(", ")}) : t("🔑 {who} renewed the group key.",{who}));
+  }catch(e){ if(R.logEl) sysline(R.logEl, t("⚠ Couldn't read the new group key from {who} — ask them to renew it again.",{who}), true); }
+}
+// a silent, signed "hi" when joining: tells the others (and the admin) which key we hold, once a day per group
+async function openMembers(){
+  const R=A(); if(!R||!R.group) return; const g=groupsLoad().find(x=>x.rid===R.rid); if(!g) return;
+  const admin=await isGroupAdmin(R); let me=null; try{ me=await identEnsure(); }catch(e){}
+  const list=$("memList"); list.innerHTML=""; const mem=g.mem||{};
+  const rows=[]; if(me) rows.push({pk:me.pk, n:realName(myName)?myName:t("Me"), ek:me.ek, me:true});
+  for(const pk in mem) if(!me || pk!==me.pk) rows.push({pk, n:mem[pk].n||t("Member"), ek:mem[pk].ek});
+  for(const m of rows){ const row=document.createElement("div"); row.className="mem-row";
+    const nm=document.createElement("span"); nm.className="mn"; nm.textContent=m.n+(m.me?" ("+t("you")+")":"")+(g.adm===m.pk?" · "+t("creator"):""); row.appendChild(nm);
+    const fp=document.createElement("span"); fp.className="mf"; fp.textContent=await keyFp(m.pk); row.appendChild(fp);
+    if(admin && !m.me){ const x=document.createElement("button"); x.className="mx"; x.type="button"; x.textContent=t("Remove");
+      x.addEventListener("click",async()=>{ if(!confirm(t("Remove {name} from the group? The group gets a new key they won't have.",{name:m.n}))) return; x.disabled=true; await rotateGroup(R, m.pk); openMembers(); });
+      row.appendChild(x); }
+    list.appendChild(row); }
+  const missing=rows.filter(m=>!m.me && !m.ek).length;
+  $("memTitle").textContent=t("Members · {n}",{n:rows.length});
+  $("memSub").textContent= g.adm ? (admin ? t("You created this group: you can remove people and renew the key.") : t("Only the group's creator can remove people or renew the key.")) : t("This group was created before member keys existed: nobody can renew its key — create a new group to exclude someone.");
+  $("memNote").textContent= rows.length<=1 ? t("Members appear here after their first message in the group.") : (missing ? t("{n} member(s) have not announced a key yet (older app): renewing the key now would lock them out until they reopen the group.",{n:missing}) : "");
+  const rn=$("memRenew"); rn.hidden=!admin; rn.onclick=async()=>{ if(!confirm(t("Renew the group key now? Everyone listed with a key keeps access; old invite links stop working."))) return; rn.disabled=true; await rotateGroup(R, null); rn.disabled=false; openMembers(); };
+  $("memModal").classList.add("show");
+}
+function groupGone(R, env){ const g=groupsLoad().find(x=>x.rid===R.rid); return !!(g && g.gone && env.pk && g.gone.includes(env.pk)); }
+async function sendGroupHi(R){
+  if(!R.group || R.hiSent) return; R.hiSent=true;
+  const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  try{ const signed=await signGroupEnv(R, {t:"hi"}, mid); await broadcastGroup(R, signed, mid);
+    if(!_meta.ghi) _meta.ghi={}; const last=_meta.ghi[R.rid]||0;
+    if(Date.now()-last>86400000){ _meta.ghi[R.rid]=Date.now(); localSaveSoon(); await depositMailbox(R, mid, signed); } }catch(e){}
+}
+function noteVerdict(R, who, vf, pk){
+  if(vf!=="bad" && vf!=="changed") return; R.vfNoted=R.vfNoted||new Set(); const k=vf+"|"+who; if(R.vfNoted.has(k)) return; R.vfNoted.add(k);
+  if(!R.logEl) return;
+  if(vf==="bad") sysline(R.logEl, t("⚠ A message signed as “{who}” has a broken signature — it was altered or forged. Treat it as not from them.",{who}), true);
+  else keyFp(pk).then(fp=>sysline(R.logEl, t("⚠ “{who}” is now signing with a different key ({fp}). If they didn't change account, someone else is using their name.",{who,fp}), true)).catch(()=>{});
+}
 function openGroup(rid,gkB64,name){ closeSidebar(); doJoinGroup(rid, unb64(gkB64), name); }
 async function createGroup(name){ const rid=newRid(); const gk=crypto.getRandomValues(new Uint8Array(32));
-  await doJoinGroup(rid, gk, (name||"").trim()||"New group");
+  let adm=""; try{ adm=(await identEnsure()).pk; }catch(e){}
+  await doJoinGroup(rid, gk, (name||"").trim()||"New group", adm);
   const R=A(); if(R&&R.logEl){ sysline(R.logEl,t("🔒 Group created. Tap the menu ⋮ → “Invite people” to add members.")); } }
-async function doJoinGroup(rid, gkBytes, name){
+async function doJoinGroup(rid, gkBytes, name, adm, rot){
   const code=rid;
-  groupUpsert(rid, b64(gkBytes), name);
+  groupUpsert(rid, b64(gkBytes), name, adm, rot);
+  { const g=groupsLoad().find(x=>x.rid===rid); if(g && g.rot && g.gk && g.gk!==b64(gkBytes)) gkBytes=unb64(g.gk); }   // a rotated key beats an old link
   if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
   if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
   R.group=true; R.rid=rid; R.gk=gkBytes; R.title=name||"Group"; R.peerName=dn(name||"Group"); R.avatar="👥"; R.paired=true;
   { const g=groupsLoad().find(x=>x.rid===rid); if(g&&g.alias){ R.title=g.alias; R.peerName=g.alias; } }
-  try{ R.gkMsg=await gkMsgKey(gkBytes); } finally { _joining.delete(code); }
+  try{ R.gkMsg=await gkMsgKey(gkBytes); R.gkFp=await groupFp(gkBytes); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl; watchLog(logEl);
   rooms.set(code,R); hideJoin(); switchTo(code);
   if(gHistKey){ renderHistory(R, await histLoad(code)); }
   if(!R.seen) R.seen=new Set();
-  R.bind=()=>{ const ch=client.channel("ratchet-"+rid,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
+  R.bind=()=>{ const ch=client.channel(groupChan(R),{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
     R.channel=ch;
     ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
     ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
-    ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ R.joinFails=0; await ch.track(presencePayload(R)); setStatus(R,t("🔒 encrypted group"),true,"online",t("group"));
-        if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; setAttach(false); } fetchMailbox(R); }
+    ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ R.joinFails=0; await ch.track(presencePayload(R)); const gl=groupsLoad().find(x=>x.rid===R.rid);
+        if(gl && gl.left){ setStatus(R, t("removed from the group"), false, "warn", t("removed")); if(R.code===active) enableComposer(false); return; }
+        setStatus(R,t("🔒 encrypted group"),true,"online",t("group"));
+        if(R.code===active){ $("msgInput").disabled=false; $("sendBtn").disabled=false; setAttach(false); } fetchMailbox(R); sendGroupHi(R).catch(()=>{}); }
       else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); scheduleRejoin(R, ch); } }); };
   R.bind();
   fetchMailbox(R);
@@ -505,7 +641,8 @@ function onSyncGroup(R){
 }
 async function broadcastGroup(R, env, mid){
   const iv=crypto.getRandomValues(new Uint8Array(12));
-  const ctBuf=await crypto.subtle.encrypt({name:"AES-GCM",iv}, R.gkMsg, enc.encode(JSON.stringify(Object.assign({},env,{mid,n:myName}))));
+  const signed=env.sig ? env : await signGroupEnv(R, env, mid);   // signed once; the signed object goes out untouched
+  const ctBuf=await crypto.subtle.encrypt({name:"AES-GCM",iv}, R.gkMsg, enc.encode(JSON.stringify(signed)));
   showWire(R,b64(ctBuf));
   try{ const r=await R.channel.send({type:"broadcast",event:"msg",payload:{from:R.id,iv:b64(iv),ct:b64(ctBuf),mid}}); return r==="ok"; }catch(e){ return false; }
 }
@@ -518,13 +655,17 @@ async function onMsgGroup(R,{payload:p}){
     const env=JSON.parse(dec.decode(pt)); const now=Date.now();
     if(env.mid && p.mid && env.mid!==p.mid) throw new Error("id mismatch");
     const who=(realName(env.n)||realName(p.name)||t("Member"));          // the name the sender sealed inside, never the relay's
-    if(env.t==="call"){ callSignal(R, env, who).catch(()=>{}); return; }
+    const vf=await verifyGroupEnv(R, env, who); noteVerdict(R, who, vf, env.pk); env.vf=vf;
+    if(groupGone(R, env)) return;                                           // a removed member still holding the old key
+    if(env.t==="hi") return;                                                 // a member announcing its key: recorded above
+    if(env.t==="gk2"){ await onGk2(R, env, vf, who); return; }
+    if(env.t==="call"){ if(vf!=="bad") callSignal(R, env, who).catch(()=>{}); return; }
     onInbound(R, env, who, now, p.mid, false, true);
     if(R.code===active) blinkEyes();
     soundRecv();
   }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail",t("⚠ could not decrypt this message"),""); }
 }
-function groupInviteLink(R){ const g=groupsLoad().find(x=>x.rid===R.rid); const payload=b64url(enc.encode(JSON.stringify({rid:R.rid,gk:b64(R.gk),name:(g&&g.name)||R.title}))); return CANONICAL+"/#g="+payload; }
+function groupInviteLink(R){ const g=groupsLoad().find(x=>x.rid===R.rid); const o={rid:R.rid,gk:b64(R.gk),name:(g&&g.name)||R.title}; if(g&&g.adm) o.adm=g.adm; if(g&&g.rot) o.rot=1; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); }
 async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
   const url=groupInviteLink(R); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:R.title,url});
   if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
@@ -532,7 +673,7 @@ async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
 }
 function parseInvite(text){ // accepts a full link or raw payload
   try{ const s=(text||"").trim(); const i=s.indexOf("#g="); const payload= i>=0 ? s.slice(i+3) : s;
-    const obj=JSON.parse(dec.decode(unb64url(payload))); if(obj&&obj.rid&&obj.gk) return obj; }catch(e){} return null; }
+    const obj=JSON.parse(dec.decode(unb64url(payload))); if(obj&&obj.rid&&obj.gk){ if(obj.adm!==undefined && !(typeof obj.adm==="string" && obj.adm.length===88)) delete obj.adm; if(obj.rot!==undefined && obj.rot!==1) delete obj.rot; return obj; } }catch(e){} return null; }
 
 // ---------- offline delivery: encrypted store-and-forward mailbox ----------
 const MBOX_FN="gizleme-mbox", LS_MBTS="gz-mboxts";
@@ -601,7 +742,9 @@ async function fetchMailbox(R){
     try{
       if(!R.seen) R.seen=new Set();
       let variants=[];
-      if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(id&&key) variants=[[id,key]]; }
+      if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(id&&key) variants=[[id,key]];
+        const g=groupsLoad().find(x=>x.rid===R.rid);   // the key before the last rotation stays readable for 14 days: late writers are not lost
+        if(g && g.prevGk && g.rotAt && Date.now()-g.rotAt<RECON_MS){ try{ variants.push([await mboxIdForSecret(g.prevGk), await gkMsgKey(unb64(g.prevGk))]); }catch(e){} } }
       else if(R.fromContact){ for(const ck of fetchCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck), ck]); }
       for(const [id,key,ck] of variants) delivered += await fetchMailboxId(R, id, key, ck);
     }catch(e){}
@@ -641,6 +784,9 @@ async function fetchMailboxId(R, id, key, ck){
         if(ck && !R.group){ const cc=contactFind(R.fromContact); const pend=contactFind(ck);
           if((cc && cc.v3 && ck!==R.fromContact) || (pend && pend.v3 && pend.pk)) continue; }
         const who=realName(env.n)||(R.group?t("Member"):"");
+        if(R.group && !own){ const vf=await verifyGroupEnv(R, env, who); noteVerdict(R, who, vf, env.pk); env.vf=vf;
+          if(groupGone(R, env)) continue; if(env.t==="hi") continue; if(env.t==="gk2"){ await onGk2(R, env, vf, who); continue; } if(env.t==="call" && vf==="bad") continue; }
+        if(R.group && own && (env.t==="hi" || env.t==="gk2")) continue;
         if(!own) adoptNameFromMessage(R, env.n);
         onInbound(R, env, who, ts, it.mid, own, false);
         if(!own) delivered++;
@@ -658,7 +804,7 @@ async function fetchMailboxId(R, id, key, ck){
 function onInbound(R, env, who, ts, mid, own, animate){
   const hk=histKeyOf(R); const open=!!R.logEl;
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
-    if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name);
+    if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name, env.adm);
     if(open){ if(env.t==="img") addText(R.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)});
       else if(env.t==="aud"){ if(validAud(env)) addVoice(R.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
       else if(validLoc(env)) addCard(R.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
@@ -666,13 +812,13 @@ function onInbound(R, env, who, ts, mid, own, animate){
       else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
     histSave(hk,{dir:"sent",env,ts,mid}); return;
   }
-  const tag=R.group?(who||""):"";
-  if(env.t==="img"){ if(open) addImageRecvOnce(R.logEl,env,tag,ts,mid); }
-  else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(R.logEl,"recv",env,tag,ts,{mid,room:hk}); }
-  else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(R.logEl,"recv",locCard(env,false),tag,ts,{mid}); }
-  else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(R.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid}); }
-  else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid});
-  histSave(hk,{dir:"recv",env,ts,who,mid});
+  const tag=R.group?(who||""):""; const vf=R.group?env.vf:undefined;
+  if(env.t==="img"){ if(open) addImageRecvOnce(R.logEl,env,tag,ts,mid,vf); }
+  else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(R.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
+  else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(R.logEl,"recv",locCard(env,false),tag,ts,{mid,vf}); }
+  else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(R.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid,vf}); }
+  else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf});
+  histSave(hk,{dir:"recv",env,ts,who,mid,vf});
   if(!open || R.code!==active) bumpUnread(R);
   if(!R.group && R.fromContact && mid) queueRcpt(R.fromContact, mid);
 }
@@ -1188,7 +1334,7 @@ async function voicePlay(st){
 function addVoice(logEl, cls, env, tag, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls+" voice"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
-  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
+  if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   const row=document.createElement("div"); row.className="vc";
   const btn=document.createElement("button"); btn.className="vbtn"; btn.type="button"; btn.textContent="▶"; btn.setAttribute("aria-label",t("Play voice message"));
   const bar=document.createElement("div"); bar.className="vbar"; const fill=document.createElement("div"); fill.className="vfill"; bar.appendChild(fill);
@@ -1543,10 +1689,18 @@ function metaRow(d, ts, st){ const m=document.createElement("span"); m.className
 function setMsgState(d, st){ const x=d.querySelector(".st"); if(!x) return; x.dataset.st=st; x.textContent=ST_GLYPH[st]||"";
   d.classList.toggle("failed",st==="failed"); x.title= st==="rcvd"?t("Received on their device") : st==="sent"?t("Sent") : st==="failed"?t("Not sent — tap to retry") : t("Sending…"); }
 // opts: {mid, st} — st for our own messages: pending | sent | rcvd | failed
+// Sender line of a group bubble, with the signature verdict: ✓ signed by the key this member has always used,
+// ⚠ a different key for that name (or a broken signature), nothing for an older build that does not sign.
+function whoEl(tag, vf){
+  const w=document.createElement("span"); w.className="who"+(vf==="ok"?" vf-ok":(vf==="bad"||vf==="changed")?" vf-bad":""); w.textContent=tag;
+  if(vf==="ok"){ const b=document.createElement("span"); b.className="vfb"; b.textContent="✓"; b.title=t("Signed with this member's usual key"); w.appendChild(b); }
+  else if(vf==="bad"||vf==="changed"){ const b=document.createElement("span"); b.className="vfb warn"; b.textContent=vf==="bad"?t("⚠ bad signature"):t("⚠ different key"); w.appendChild(b); }
+  return w;
+}
 function addText(logEl, cls, body, tag, animate, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
-  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
+  if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   const t=document.createElement("span"); t.className="txt"; d.appendChild(t);
   if(cls==="sent"||cls==="recv") metaRow(d, ts, cls==="sent" ? (opts.st||"sent") : null);
   if(cls==="sent"){ d.addEventListener("click",()=>{ if(d.classList.contains("failed") && d._retry) d._retry(); }); }
@@ -1558,7 +1712,7 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
 function addCard(logEl, cls, card, tag, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
-  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
+  if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   const row=document.createElement("div"); row.className="cardl";
   const ico=document.createElement("span"); ico.className="cl-ico"; ico.textContent=card.ico||""; row.appendChild(ico);
   const tx=document.createElement("div"); const tt=document.createElement("div"); tt.className="cl-t"; tt.textContent=card.title||""; tx.appendChild(tt);
@@ -1582,9 +1736,9 @@ function mapsUrl(lat,lng){ const q=lat+","+lng;
 function locCard(env, mine){ const acc=env.acc?t("±{m} m",{m:env.acc})+" · ":""; return { ico:"📍", title: mine?t("My location"):t("Location"), sub: acc+env.lat.toFixed(5)+", "+env.lng.toFixed(5), action:{label:t("Open in Maps"), href:mapsUrl(env.lat,env.lng)} }; }
 function ginvCard(env, who, dir){ const name=String(env.name||"Group").slice(0,40);
   return { ico:"👥", title: dir==="sent" ? t("Group “{name}” created",{name}) : t("{who} invited you to the group “{name}”",{who:who||t("Contact"),name}),
-    sub: dir==="sent" ? t("invitation sent in this chat") : "", action:{label: dir==="sent"?t("Open the group"):(groupsLoad().some(g=>g.rid===env.rid)?t("Open the group"):t("Join the group")), onclick:()=>openGroup(env.rid, env.gk, name)} }; }
+    sub: dir==="sent" ? t("invitation sent in this chat") : "", action:{label: dir==="sent"?t("Open the group"):(groupsLoad().some(g=>g.rid===env.rid)?t("Open the group"):t("Join the group")), onclick:()=>{ closeSidebar(); doJoinGroup(env.rid, unb64(env.gk), name, env.adm); }} }; }
 function validGinv(env){ return env && env.t==="ginv" && typeof env.rid==="string" && /^[a-z0-9]{8,32}$/.test(env.rid) && typeof env.gk==="string" && env.gk.length>=40 && env.gk.length<=64; }
-function groupAddIfNew(rid, gkB64, name){ const l=groupsLoad(); if(l.some(g=>g.rid===rid)) return false; l.push({rid,gk:gkB64,name:(name||"Group").slice(0,40),ts:Date.now()}); groupsSave(l); return true; }
+function groupAddIfNew(rid, gkB64, name, adm){ const l=groupsLoad(); if(l.some(g=>g.rid===rid)) return false; const g={rid,gk:gkB64,name:(name||"Group").slice(0,40),ts:Date.now()}; if(adm) g.adm=adm; l.push(g); groupsSave(l); return true; }
 function openLightbox(url, opts){
   opts=opts||{}; const t_=t;   // the countdown label shadows t below
   const lb=document.createElement("div"); lb.className="lightbox";
@@ -1616,10 +1770,10 @@ function addImageSent(logEl, meta, localUrl, ts, opts){
   logEl.appendChild(d); scrollEl(logEl);
   return d;
 }
-function addImageRecvOnce(logEl, meta, tag, ts, mid){
-  ts=ts||Date.now(); ensureDaySep(logEl, ts);
+function addImageRecvOnce(logEl, meta, tag, ts, mid, vf){
+  const opts={vf}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble recv"; d.dataset.ts=ts; if(mid) d.dataset.mid=mid;
-  if(tag){ const w=document.createElement("span"); w.className="who"; w.textContent=tag; d.appendChild(w); }
+  if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   const btn=document.createElement("div"); btn.className="tapview"; btn.innerHTML=t("📷 Photo")+"<small>"+t("tap to view — once only")+"</small>";
   d.appendChild(btn);
   metaRow(d, ts, null);
@@ -1642,17 +1796,17 @@ function renderHistory(R, past){
   const hk=histKeyOf(R); const dur=expFor(hk); const cut=dur?Date.now()-dur:0; if(dur) histSweep(hk,cut);
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
     if(r.env.t==="img"){
-      if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid); }
+      if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid,r.vf); }
       else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
       continue; }
     if(r.env.t==="aud"){ if(!validAud(r.env)) continue;
-      addVoice(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk}); continue; }
+      addVoice(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
     if(r.env.t==="loc"){ if(!validLoc(r.env)) continue;
-      if(r.dir==="sent") addCard(R.logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
+      if(r.dir==="sent") addCard(R.logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid,vf:r.vf}); continue; }
     if(r.env.t==="ginv"){ if(!validGinv(r.env)) continue;
       if(r.dir==="sent") addCard(R.logEl,"sent",ginvCard(r.env,"","sent"),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",ginvCard(r.env,r.who||R.title,"recv"),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
     if(r.dir==="sent") addText(R.logEl,"sent",r.env.body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
-    else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid});
+    else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf});
   }
   seedSeen(R, past);
 }
@@ -1896,7 +2050,7 @@ async function deliverOut(R, env, mid, el, now){
   // a v3 invite nobody has opened yet: hold the message here rather than depositing it under the link key
   if(!R.group && R.fromContact && !R.paired){ const c=contactFind(R.fromContact); if(c && c.v3 && c.pk){ queueOut(R, env, mid, now, el); return; } }
   try{
-    if(R.group){ const a=await broadcastGroup(R,env,mid); const b=await depositMailbox(R,mid,env); ok=a||b; }
+    if(R.group){ const signed=await signGroupEnv(R, env, mid); const a=await broadcastGroup(R,signed,mid); const b=await depositMailbox(R,mid,signed); ok=a||b; }
     else if(R.paired){ const a=await broadcast(R,env,mid); const b=R.fromContact ? await depositMailbox(R,mid,env) : false; ok=a||b; }
     else { ok=await depositMailbox(R,mid,env); }
   }catch(e){ ok=false; }
@@ -1929,12 +2083,13 @@ async function convertToGroup(){
   const v=prompt(t("Group name:"), me+" & "+other); if(v===null) return;
   const gname=(v.trim()||(me+" & "+other)).slice(0,40);
   const grid=newRid(); const gk=crypto.getRandomValues(new Uint8Array(32)); const gkB64=b64(gk);
-  const env={t:"ginv",rid:grid,gk:gkB64,name:gname}; const mid=rid(); const now=Date.now(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  let adm=""; try{ adm=(await identEnsure()).pk; }catch(e){}
+  const env={t:"ginv",rid:grid,gk:gkB64,name:gname}; if(adm) env.adm=adm; const mid=rid(); const now=Date.now(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
   const el=addCard(R.logEl,"sent",ginvCard(env,"","sent"),"",now,{mid,st:"pending"});
   deliverOut(R, env, mid, el, now).catch(()=>{});
-  await doJoinGroup(grid, gk, gname);
+  await doJoinGroup(grid, gk, gname, adm);
   const G=A(); if(G&&G.logEl) sysline(G.logEl, t("🔒 Group created from your chat with {name} — they have been invited.",{name:other}));
-  _ginvPending={rid:grid,gk:gkB64,name:gname};
+  _ginvPending={rid:grid,gk:gkB64,name:gname,adm};
   $("ginvTitle").textContent=t("Group “{name}” created",{name:gname}); $("ginvSub").textContent=t("{name} has been invited.",{name:other});
   $("ginvModal").classList.add("show");
 }
@@ -2109,7 +2264,7 @@ async function applyDeepLink(){
   const p=window.__pending||{}; window.__pending=null;
   if(p.group && p.group.rid && p.group.gk){ try{
     const known=groupsLoad().some(g=>g.rid===p.group.rid);
-    if(known || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(p.group.name||"Group").slice(0,40)}))) { await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name); return; }
+    if(known || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(p.group.name||"Group").slice(0,40)}))) { await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name, p.group.adm, p.group.rot); return; }
     else { try{ history.replaceState(null,"","/"); }catch(e){} goHome(); return; } }catch(e){} }
   if(p.invite && p.invite.s){ try{ await acceptInvite(p.invite); return; }catch(e){} }
   if(p.room){ if(rooms.has(p.room)) switchTo(p.room); else await doJoin(p.room); return; }
@@ -2234,7 +2389,8 @@ function mergeContacts(remote){
   (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];
     if(!e){ byRid[rg.rid]=Object.assign({},rg); }
     else { if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk) e.gk=rg.gk; }
-           if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; } } });
+           if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; }
+           if(rg.mem){ const mem=Object.assign({},e.mem||{}); for(const pk in rg.mem){ if(!mem[pk] || (rg.mem[pk].ts||0)<(mem[pk].ts||0)) mem[pk]=rg.mem[pk]; } e.mem=mem; } } });
   return { contacts:Object.values(byCk), groups:Object.values(byRid) };
 }
 async function vaultDecrypt(cipher){ if(!gContactsKey||!cipher||!cipher.ct) return null;
@@ -2247,6 +2403,7 @@ async function pullMerge(){
   if(data.contacts){ const remote=await vaultDecrypt(data.contacts); if(ep!==gEpoch) return false;
     if(remote){ const m=mergeContacts(remote);
       _contacts=m.contacts; _groups=m.groups; localSaveSoon();
+      if(remote.ident && identAdopt(remote.ident)) syncPushSoon();
       await ensureHistKeys();                                   // records that came from another device get their opaque ids
       try{ await advanceChains(); }catch(e){}
       renderContacts();
@@ -2260,11 +2417,11 @@ async function pullMerge(){
 async function pushBlob(){
   if(!gContactsKey) return false;
   const ep=gEpoch;
-  const cipher=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ts:Date.now() });
+  const cipher=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ident:identLoad()||undefined, ts:Date.now() });
   let res=await vaultFn("pushContacts",{contacts:cipher, cver:gVaultCver}); if(ep!==gEpoch) return false;
   if(res.data && res.data.conflict){            // another device advanced it — merge then retry once
     gVaultCver=res.data.cver||gVaultCver; try{ await pullMerge(); }catch(e){} if(ep!==gEpoch) return false;
-    const c2=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ts:Date.now() });
+    const c2=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ident:identLoad()||undefined, ts:Date.now() });
     res=await vaultFn("pushContacts",{contacts:c2, cver:gVaultCver}); if(ep!==gEpoch) return false;
   }
   if(res.data && res.data.ok){ gVaultCver=res.data.cver||gVaultCver; return true; }
@@ -2420,7 +2577,7 @@ async function startScan(){
 function stopScan(){ const sc=_scan; _scan=null; if(!sc) return; clearTimeout(sc.timer); try{ sc.stream.getTracks().forEach(tr=>tr.stop()); }catch(e){} const v=$("scanVideo"); if(v) v.srcObject=null; $("scanModal").classList.remove("show"); }
 async function openScanned(text){
   const pi=parseInviteLink(text); if(pi){ try{ hideJoin(); await acceptInvite(pi); }catch(e){ toast(t("Couldn't open that invite — try again")); } return; }
-  const inv=parseInvite(text); if(inv){ if(groupsLoad().some(g=>g.rid===inv.rid) || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(inv.name||"Group").slice(0,40)}))){ try{ hideJoin(); await doJoinGroup(inv.rid, unb64(inv.gk), inv.name); }catch(e){ toast(t("Couldn't join — try again")); } } return; }
+  const inv=parseInvite(text); if(inv){ if(groupsLoad().some(g=>g.rid===inv.rid) || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(inv.name||"Group").slice(0,40)}))){ try{ hideJoin(); await doJoinGroup(inv.rid, unb64(inv.gk), inv.name, inv.adm, inv.rot); }catch(e){ toast(t("Couldn't join — try again")); } } return; }
   toast(t("That's not a Gizleme code"));
 }
 async function joinFromInviteInput(){ initAudio(); const raw=$("invInput").value;
@@ -2428,7 +2585,7 @@ async function joinFromInviteInput(){ initAudio(); const raw=$("invInput").value
   if(pi){ try{ $("invInput").value=""; hideJoin(); await acceptInvite(pi); }catch(e){ authMsg(t("Couldn't open that invite — try again")); } return; }
   const inv=parseInvite(raw);
   if(!inv){ authMsg(t("That link doesn't look like a Gizleme invite")); return; }
-  try{ $("invInput").value=""; await doJoinGroup(inv.rid, unb64(inv.gk), inv.name); }catch(e){ authMsg(t("Couldn't join — try again")); } }
+  try{ $("invInput").value=""; await doJoinGroup(inv.rid, unb64(inv.gk), inv.name, inv.adm, inv.rot); }catch(e){ authMsg(t("Couldn't join — try again")); } }
 async function join(){ const m=($("join").dataset.mode)||"register";
   if(m==="register") return doRegister();
   if(m==="login") return doLoginAccount();
@@ -2542,7 +2699,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("callMute").addEventListener("click",toggleMute); $("callCam").addEventListener("click",toggleCam); $("callFlip").addEventListener("click",flipCam);
   $("callBannerJoin").addEventListener("click",joinGroupCall);
   window.addEventListener("pagehide",()=>{ if(call) endCall("ended"); });
-  const ginvLink=()=>{ const g=_ginvPending; if(!g) return ""; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify({rid:g.rid,gk:g.gk,name:g.name}))); };
+  const ginvLink=()=>{ const g=_ginvPending; if(!g) return ""; const o={rid:g.rid,gk:g.gk,name:g.name}; if(g.adm) o.adm=g.adm; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); };
   $("ginvShare").addEventListener("click",async()=>{ const g=_ginvPending; if(!g) return; const url=ginvLink(); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:g.name,url});
     if(navigator.share){ try{ await navigator.share({text:msg}); $("ginvModal").classList.remove("show"); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
     try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); } $("ginvModal").classList.remove("show"); });
@@ -2604,6 +2761,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("logoutBtn").addEventListener("click",()=>{ if(!confirm(String(LOGOUT_MSG))) return; $("settingsModal").classList.remove("show"); logoutAccount(); });
   // forgot / change / delete password & account
   const openModal=id=>$(id).classList.add("show"), closeModal=id=>$(id).classList.remove("show");
+  $("memClose").addEventListener("click",()=>closeModal("memModal"));
   $("forgotLink").addEventListener("click",()=>openModal("forgotModal"));
   $("forgotClose").addEventListener("click",()=>closeModal("forgotModal"));
   $("forgotNew").addEventListener("click",()=>{ closeModal("forgotModal"); if($("join").dataset.mode==="unlock"){ if(confirm(String(LOGOUT_MSG))) logoutAccount().then(()=>showAuth("register")); } else showAuth("register"); });
@@ -2776,7 +2934,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   function closeMenu(){ $("barMenu").hidden=true; }
   function toggleMenu(){ const m=$("barMenu");
     if(m.hidden){ const R=A(); const grp=!!(R&&R.group);
-      $("mi-invite").hidden=!grp;
+      $("mi-invite").hidden=!grp; $("mi-members").hidden=!grp;
       $("mi-verify").hidden=!(R&&((R.fromContact&&R.paired)||grp));
       $("mi-notify").hidden=!(R&&R.fromContact&&!grp);
       $("mi-rekey").hidden=!(R&&R.paired&&!grp);
@@ -2791,6 +2949,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("barMenu").addEventListener("click",e=>{ const b=e.target.closest(".menu-item"); if(!b) return; closeMenu();
     const act=b.dataset.act;
     if(act==="invite") inviteToGroup();
+    else if(act==="members") openMembers();
     else if(act==="verify") openVerify();
     else if(act==="notify") nudgeContact();
     else if(act==="rekey") rekey();

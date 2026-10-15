@@ -93,7 +93,8 @@ consent issues; **Low** = hardening.
    message secrecy with per-device ephemeral pre-keys (Signal model) remains the long-term option.
 2. **aPAKE login (OPAQUE) and a memory-hard KDF** — removes the replayable `av` and raises the cost of
    offline guessing from a database leak.
-3. **Authenticated presence and group sender authentication / key rotation.**
+3. ~~Group sender authentication / key rotation~~ — done 15 Oct 2026 (signed messages, creator-driven
+   rotation and removal; see SECURITY.md). Authenticated presence remains open.
 4. ~~Own Supabase project (M8)~~ — done 15 Oct 2026.
 
 ## Verified as sound
