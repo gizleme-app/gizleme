@@ -1045,8 +1045,8 @@ async function startRec(){
   const chunks=[]; proc.onaudioprocess=e=>{ if(rec && rec.proc===proc) chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
   src.connect(proc); proc.connect(gain); gain.connect(ctx.destination);   // silent sink: the processor only runs when connected
   rec={stream, ctx, src, proc, gain, chunks, t0:Date.now(), rate:ctx.sampleRate, timer:null};
-  const comp=document.querySelector(".composer"); if(comp) comp.classList.add("rec"); $("recBar").hidden=false; $("recTime").textContent="0:00";
-  rec.timer=setInterval(()=>{ if(!rec) return; const s=(Date.now()-rec.t0)/1000; $("recTime").textContent=fmtSec(s); if(s>=VOICE_MAX_S) stopRec(true); },250);
+  const comp=document.querySelector(".composer"); if(comp) comp.classList.add("rec"); $("recBar").hidden=false;
+  rec.timer=setInterval(()=>{ if(!rec) return; if((Date.now()-rec.t0)/1000>=VOICE_MAX_S) stopRec(true); },250);   // 2-minute cap
 }
 function recTeardown(){ const r=rec; rec=null; if(!r) return null; clearInterval(r.timer);
   r.rate=r.ctx.sampleRate;   // read at the end: the rate the samples were really captured at

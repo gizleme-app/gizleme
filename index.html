@@ -276,14 +276,14 @@
   .composer textarea:disabled{opacity:.6}
   .attach{width:42px;height:42px;flex:none;border:1px solid var(--line);border-radius:50%;background:var(--surface-2);color:var(--fg);font-size:1.15rem;display:grid;place-items:center}
   .attach:disabled{opacity:.5}
+  #recBar{display:none}
   .composer.rec>:not(#recBar){display:none}
-  #recBar{display:flex;flex:1;align-items:center;gap:10px;min-width:0}
-  #recBar .rechint{flex:1;min-width:0;font-size:.82rem;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #recTime{font-variant-numeric:tabular-nums;font-weight:700}
+  .composer.rec #recBar{display:flex;flex:1;align-items:center;gap:10px;min-width:0}
+  #recBar .rechint{flex:1;min-width:0;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .recdot{width:11px;height:11px;border-radius:50%;background:#e5484d;animation:recpulse 1s ease-in-out infinite}
   @keyframes recpulse{0%,100%{opacity:1}50%{opacity:.25}}
   .vc{display:flex;align-items:center;gap:9px;min-width:190px;padding:2px 0}
-  .vbtn{width:36px;height:36px;flex:none;border:0;border-radius:50%;background:var(--accent);color:#fff;font-size:.95rem;display:grid;place-items:center;cursor:pointer}
+  .vbtn{width:36px;height:36px;flex:none;border:0;border-radius:50%;background:var(--accent);color:#fff;font-size:1.1rem;display:grid;place-items:center;cursor:pointer}
   .vbtn:disabled{opacity:.6;cursor:default}
   .bubble.sent .vbtn{background:#fff;color:var(--me)}
   .vbar{flex:1;height:4px;border-radius:2px;background:rgba(127,127,127,.35);overflow:hidden;cursor:pointer}
@@ -611,7 +611,7 @@
     <button class="attach" id="micBtn" title="Record a voice message" aria-label="Record a voice message" disabled><svg class="ico"><use href="#i-mic"/></svg></button>
     <textarea id="msgInput" placeholder="Message…" autocomplete="off" maxlength="2000" rows="1" enterkeyhint="send" disabled></textarea>
     <button class="send" id="sendBtn" disabled aria-label="Send"><svg class="ico"><use href="#i-send"/></svg></button>
-    <div id="recBar" hidden><span class="recdot"></span><span id="recTime">0:00</span><span class="rechint">Recording… tap ✓ to send</span>
+    <div id="recBar" hidden><span class="recdot"></span><span class="rechint">Recording…</span>
       <button class="attach" id="recCancel" type="button" aria-label="Cancel recording">✕</button>
       <button class="send" id="recSend" type="button" aria-label="Send voice message"><svg class="ico"><use href="#i-send"/></svg></button></div>
   </div>

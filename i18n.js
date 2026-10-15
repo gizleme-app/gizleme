@@ -173,7 +173,7 @@ window.GZ_I18N = {
     "{who} invited you to the group “{name}”": "{who} t'invite dans le groupe « {name} »",
     "Join the group": "Rejoindre le groupe",
     "Record a voice message": "Enregistrer un message vocal",
-    "Recording… tap ✓ to send": "Enregistrement… touche ✓ pour envoyer",
+    "Recording…": "Enregistrement…",
     "Cancel recording": "Annuler l'enregistrement",
     "Send voice message": "Envoyer le message vocal",
     "Voice messages aren't available in this browser": "Les messages vocaux ne sont pas disponibles dans ce navigateur",
