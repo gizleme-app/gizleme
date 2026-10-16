@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>Gizleme — Confidentialité / Privacy</title>
+<title>Gizleme — Confidentialité / Privacy / Gizlilik</title>
 <meta name="description" content="Ce que Gizleme conserve, pendant combien de temps, et ce qu'il ne peut pas lire. / What Gizleme keeps, for how long, and what it cannot read."/>
 <link rel="icon" href="/icon-192.png"/>
 <style>
@@ -24,7 +24,7 @@
 <body>
 <main>
   <header><img src="/icon-192.png" alt=""/><b>Gizleme</b></header>
-  <nav><a href="#fr">Français</a><a href="#en">English</a><a href="/">← gizleme.com</a></nav>
+  <nav><a href="#fr">Français</a><a href="#en">English</a><a href="#tr">Türkçe</a><a href="/">← gizleme.com</a></nav>
 
   <section id="fr" class="lang">
     <h1>Confidentialité</h1>
@@ -110,6 +110,48 @@
       <li>The code went through an internal audit (October 2026 — findings and fixes in the repository, <code>AUDIT.md</code>) but not yet an independent one, and it is not public yet. The "Why Gizleme?" table in the app says so too.</li>
     </ul>
     <p>Questions: <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>
+  </section>
+  <section id="tr" class="lang">
+    <h1>Gizlilik</h1>
+    <p>Gizleme, tarayıcıda çalışan uçtan uca şifreli bir mesajlaşma uygulamasıdır. Bu sayfa, sunucularımızın neyi, ne kadar süre sakladığını ve neyi okuyamadığını açıkça anlatır. Son güncelleme: Ekim 2026.</p>
+
+    <div class="card">
+      <h2>Sunucunun asla okuyamadıkları</h2>
+      <ul>
+        <li><b>Mesajların ve fotoğrafların.</b> Cihazında şifrelenirler (AES-256-GCM, anahtarlar ECDH P-256 ile kararlaştırılır); aktarıcı yalnızca şifreli metni taşır ve saklar.</li>
+        <li><b>Kişi listen.</b> Şifrenden türetilen bir anahtarla şifreli olarak saklanır. Şifren olmadan kimse onu açamaz — biz de. “Şifremi unuttum” seçeneğinin olmamasının nedeni de budur.</li>
+        <li><b>Şifren.</b> Cihazından hiç çıkmaz; sunucu yalnızca türetilmiş bir doğrulayıcı alır (PBKDF2, 200.000 yineleme, ardından SHA-256).</li>
+        <li><b>Sohbetlerindeki kullanıcı adın.</b> Sohbetler, ortak sırlardan türetilen değerlerle tanımlanır; hesabının kullanıcı adı bunlara hiçbir zaman bağlanmaz. (Aktarıcının yine de gördükleri aşağıda anlatılıyor.)</li>
+      </ul>
+    </div>
+
+    <h2>Sunucunun sakladıkları</h2>
+    <table>
+      <tr><th>Veri</th><th>İçerik</th><th>Saklama süresi</th></tr>
+      <tr><td>Hesap</td><td>Kullanıcı adı (küçük harfle), görünen ad, rastgele tuz, şifre doğrulayıcısı</td><td>Hesabı silene kadar (Ayarlar → Hesap)</td></tr>
+      <tr><td>Oturumlar</td><td>Giriş yapılmış her cihazın oturum belirtecinin SHA-256 parmak izi</td><td>1 yıl ya da çıkışa / şifre değişikliğine kadar</td></tr>
+      <tr><td>Hesap yedeği</td><td>Şifrenle sarılmış yedek anahtarı; bu anahtarla şifrelenmiş kişi listesi</td><td>Hesabı silene kadar</td></tr>
+      <tr><td>Posta kutusu</td><td>Teslim edilmeyi bekleyen şifreli mesajlar (ortak bir sırdan türetilen kutu kimliği, rastgele mesaj kimliği, zaman damgası, teslim zamanı)</td><td>Cihazlarından biri aldıktan 48 saat sonra; aksi hâlde en fazla 14 gün</td></tr>
+      <tr><td>Fotoğraflar ve sesli mesajlar</td><td>Rastgele adlarla şifreli dosyalar (anahtar yalnızca mesajın içinde gider)</td><td>Görüldüğünde / ilk dinlendiğinde silinir, en geç 14 gün sonra</td></tr>
+      <tr><td>Bildirimler</td><td>Cihazın anlık bildirim aboneliği (Apple/Google/Mozilla/Microsoft adresi), kişi başına türetilmiş bir bildirim anahtarı, hesabın opak işareti</td><td>Kapatılana, çıkış yapılana ya da bildirim hizmeti süresini doldurana kadar</td></tr>
+      <tr><td>Aramalar</td><td>Hiçbir şey saklanmaz. İki telefon da kapalı ağların arkasındaysa aramayı aktarmak için cihaza kısa ömürlü TURN kimlik bilgileri (15 dk) verilir</td><td>—</td></tr>
+      <tr><td>Kötüye kullanım önleme</td><td>IP adresi ve hesap başına istek sayaçları</td><td>1 gün</td></tr>
+    </table>
+    <p>Gerçek zamanlı aktarıcı ve sunucu işlevleri Supabase üzerinde çalışır; site Cloudflare tarafından sunulur. Her web hizmetinde olduğu gibi bu sağlayıcılar bağlantı üst verilerini (IP adresi, zaman, hacim) görür. Bir sohbete bağlıyken gerçek zamanlı aktarıcı ayrıca seçtiğin görünen adı ve hesabının opak bir işaretini (kendi cihazlarının birbirini tanıma yolu) görür — kullanıcı adını, kişilerini ya da mesajlarını değil. Bir arama sırasında ses ve görüntü doğrudan cihazlar arasında (şifreli) gider: diğer katılımcı IP adresini görür ya da gerektiğinde onun yerine Cloudflare'in TURN aktarıcısı görür; bu aktarıcı yalnızca şifreli veriyi iletir. Anlık bildirimler asla mesaj içeriği ya da ad taşımaz: yalnızca “Yeni mesaj”, “Bir kişi sohbet etmek istiyor” ya da “Gelen arama” — kişinin adını senin cihazın ekler.</p>
+
+    <h2>Cihazında</h2>
+    <p>Mesaj geçmişi tarayıcıda (IndexedDB), şifrenle ya da Face ID / parmak iziyle korunan bir ana anahtar altında şifreli olarak saklanır. Kişi anahtarları şifreli saklanır ve uygulama kilitlendiğinde bellekten silinir; kilitleme ayrıca açık pencereleri kapatır ve görüntülenen sohbeti temizler. Bildirimlerde gösterilebilsin diye kişilerinin adları (asla anahtarları değil) tarayıcı önbelleğinde tutulur; çıkışta silinir. Fotoğraflar gönderilmeden önce yeniden kodlanır: üst veriler (GPS konumu, kamera) telefonundan çıkmaz. Alınan bir sesli mesaj, tekrar dinlenebilmesi için cihazında şifreli olarak tutulur; aktarıcı ilk dinlemeden sonra ondan hiçbir şey saklamaz. Varsayılan olarak mesajlar 24 saat sonra kaybolur ve uygulama 15 dakika sonra kilitlenir (Ayarlar'dan değiştirilebilir). Çıkış yapmak ya da hesabı silmek her şeyi siler. İzleyici yok, çerez yok, analitik yok.</p>
+
+    <h2>Gizleme'nin (henüz) yapmadıkları</h2>
+    <ul>
+      <li>İleriye dönük gizlilik mesaj başına değil, hafta başına: bağlantıyla eklenen bir kişinin posta kutusu mesajları her hafta ilerleyen bir anahtar zinciriyle şifrelenir ve zincirin eski halkaları, aktarıcı mesajlarını artık tutamaz olur olmaz (14 gün) yok edilir. Sonradan ele geçirilen bir cihaz ya da kasa, aktarıcıda hâlâ duran yalnızca son üç haftayı okuyabilir — biri her şeyi kaydetmiş olsa bile daha öncesini değil. Bu sürümden önceki kişiler, bir sonraki canlı buluşmada (iki cihaz aynı anda çevrimiçi) otomatik olarak buna geçer. Ele geçirilmiş bir cihaz elbette kendisini bekleyeni okuyabilir (her yerde böyledir); teslim edilen bir mesaj alındıktan 48 saat sonra aktarıcıdan silinir. Grupların anahtarı sabittir. Mesaj başına ileriye dönük gizlilik (cihaz başına geçici anahtarlar) ayrı bir proje olarak duruyor.</li>
+      <li>Davet bağlantısı bir anahtar değildir: tek kullanımlık bir açık anahtar taşır ve onu ilk açan cihaz seninle, başka kimsenin hesaplayamayacağı bir kişi anahtarı kararlaştırır — bağlantı elinde olsa bile. Bağlantı açılmadan önce yazdıkların cihazında bekler. Bağlantının bir kopyası sonradan açılırsa o kişi eklenmez ve sen uyarılırsın. Geriye, bağlantıyı yakalayıp arkadaşından <em>önce</em> açan biri kalıyor: buna karşı üç savunma var — bağlantının süresi dolar (varsayılan 24 saat, 1 saatten 7 güne), sözlü söylenen 4 haneli bir kodla koruyabilirsin (üç yanlış kod bağlantıyı iptal eder) ya da yüz yüze QR kod olarak gösterirsin, böylece hiçbir yerden geçmez. Ve yüz yüze karşılaştırdığın güvenlik kodu da bunu yakalamak için hâlâ orada.</li>
+      <li>Gruplarda her mesaj yazarı tarafından imzalanır: ✓ işareti üyenin her zamanki anahtarıyla imzalanmış mesajları gösterir, başkasının adıyla imzalayan bir üye işaretlenir. Grubun kurucusu bir üyeyi çıkarabilir ya da anahtarı yenileyebilir: kalan üyeler yeni anahtarı her biri kendi anahtarıyla alır, çıkarılan kişi artık okuyamaz ve yazamaz (eski davet bağlantıları da çalışmaz). Bu sürümden önce kurulan grupların kayıtlı bir kurucusu yoktur ve anahtar değiştiremez: yeni bir grup kur. Bir üyenin ilk anahtarı olduğu gibi kabul edilir (ilk temasta güven). Bir sohbette alınan grup daveti, grubu ancak sen dokunduğunda ekler. Grup aramaları her katılımcıyı diğer herkese bağlar (en fazla 4 kişi).</li>
+      <li>“Tek görümlük” ve kaybolan mesajlar alıcının cihazı tarafından uygulanır: ekran görüntüsü alınmasını hiçbir şey engelleyemez.</li>
+      <li>Bir davet bağlantısını WhatsApp üzerinden paylaştığında, bağlantı oraya gönderdiğin her şey gibi WhatsApp'tan geçer; bir kopyanın neye izin verdiğini sınırlayan şey bağlantının tasarımı (yukarıda), süresi ve isteğe bağlı koddur — yüz yüze QR kod ise hiçbir aktarıma gerek bırakmaz.</li>
+      <li>Kod bir iç denetimden geçti (Ekim 2026 — bulgular ve düzeltmeler depoda, <code>AUDIT.md</code>) ama henüz bağımsız bir denetimden geçmedi ve henüz herkese açık değil. Uygulamadaki “Neden Gizleme?” tablosu da bunu söylüyor.</li>
+    </ul>
+    <p>Sorular: <a href="mailto:admin@gizleme.com">admin@gizleme.com</a></p>
   </section>
 </main>
 <script src="/privacy.js"></script>

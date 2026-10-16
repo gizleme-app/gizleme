@@ -37,3 +37,4 @@ files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose
 | test38 | groups: key rotation, removing a member |
 | test39 | key chain for existing contacts, seeded at a live meeting |
 | test40 | vault merge rules for the key chain |
+| test41 | Turkish: detection, every string translated (placeholders intact), switching, dates, initials, privacy page |

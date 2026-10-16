@@ -15,10 +15,16 @@ const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ event
 const $ = id => document.getElementById(id);
 // ---------- language ----------
 const LS_LANG="gz-lang";
-let LANG=(()=>{ try{ const v=localStorage.getItem(LS_LANG); if(v==="fr"||v==="en") return v; }catch(e){} return /^fr\b/i.test(navigator.language||"") ? "fr" : "en"; })();
+const LANGS=["en","fr","tr"];   // English is the source; fr and tr live in i18n.js
+let LANG=(()=>{ try{ const v=localStorage.getItem(LS_LANG); if(LANGS.includes(v)) return v; }catch(e){}
+  // the first of the browser's preferred languages that Gizleme speaks
+  const pref=(navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language||""];
+  for(const l of pref){ const b=String(l||"").slice(0,2).toLowerCase(); if(LANGS.includes(b)) return b; } return "en"; })();
 const DICT=(window.GZ_I18N||{});
 function t(key, vars){ let v=(LANG!=="en" && DICT[LANG] && DICT[LANG][key]) || key; if(vars) for(const k in vars) v=v.split("{"+k+"}").join(vars[k]); return v; }
-function LOC(){ return LANG==="fr" ? "fr-FR" : []; }
+function LOC(){ return LANG==="fr" ? "fr-FR" : LANG==="tr" ? "tr-TR" : []; }
+// Initials on avatars: Turkish casing when the app speaks Turkish (i → İ). Never used for room codes.
+function up(s){ try{ return LANG==="tr" ? String(s).toLocaleUpperCase("tr-TR") : String(s).toUpperCase(); }catch(e){ return String(s).toUpperCase(); } }
 // Stored placeholder names (an invite not yet opened, a default group name) are kept in English in the data
 // and translated only when displayed.
 const DN_KEYS={"Invited friend":1,"Friend":1,"Group":1,"Contact":1,"Member":1,"Peer":1,"Waiting for peer…":1};
@@ -329,7 +335,7 @@ async function processHello(ckLink, e, n, m, fs){
   contactsSave(l);
   const shown=x.alias||dn(x.name);
   rooms.forEach(r=>{ if(r.fromContact!==ckLink) return; r.fromContact=ck2;
-    if(realName(n) && !x.alias){ r.title=n; r.peerName=dn(n); r.avatar=(n[0]||"?").toUpperCase(); if(r.code===active){ $("peerName").textContent=r.peerName; $("peerAvatar").textContent=r.avatar; } }
+    if(realName(n) && !x.alias){ r.title=n; r.peerName=dn(n); r.avatar=up(n[0]||"?"); if(r.code===active){ $("peerName").textContent=r.peerName; $("peerAvatar").textContent=r.avatar; } }
     ensureTag(r).then(()=>{ try{ if(r.tag&&r.channel) r.channel.track(presencePayload(r)); }catch(_e){} });
     if(r.logEl) sysline(r.logEl, t("🔐 {name} opened your link — this chat now uses a key only your two devices know.",{name:shown}));
     if(r.code===active) setIdle(r); });
@@ -405,7 +411,7 @@ async function acceptInvite(inv){   // someone opened a link: become their conta
 function adoptNameFromMessage(R, n){
   if(!R||R.group||!R.fromContact||!realName(n)) return;
   const c=contactFind(R.fromContact); if(!c || (c.name!==INV_PLACEHOLDER && c.name!=="Friend")) return;
-  contactPatch(R.fromContact,{name:n}); if(c.alias) return; R.title=n; R.peerName=dn(n); R.avatar=(n[0]||"?").toUpperCase();
+  contactPatch(R.fromContact,{name:n}); if(c.alias) return; R.title=n; R.peerName=dn(n); R.avatar=up(n[0]||"?");
   if(R.code===active){ $("peerName").textContent=n; $("peerAvatar").textContent=R.avatar; } renderTabs();
 }
 function activeCK(){ const R=A(); return R&&R.fromContact||null; }
@@ -426,7 +432,7 @@ function renderContacts(fromPreview){
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
   items.forEach(it=>{
     const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":"");
-    const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":(((it.alias||it.name)&&(it.alias||it.name)[0]||"?").toUpperCase());
+    const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":(up((it.alias||it.name)&&(it.alias||it.name)[0]||"?"));
     const ci=document.createElement("div"); ci.className="ci";
     // line 1: name (+ verified) ……… time of the last message
     const r1=document.createElement("div"); r1.className="crow";
@@ -1449,10 +1455,10 @@ function soundEnd(){ beep([{f:523.25,t0:0,dur:.14,gain:.04},{f:392,t0:.15,dur:.2
 // ----- stage (remote participants) -----
 function peerEl(pid, name){
   const st=$("callStage"); let d=st.querySelector('[data-pid="'+CSS.escape(pid)+'"]');
-  if(!d){ d=st.querySelector('[data-pid="?"]'); if(d){ d.dataset.pid=pid; d.querySelector(".pname").textContent=name||""; d.querySelector(".pav").textContent=((name||"?")[0]||"?").toUpperCase(); } }
+  if(!d){ d=st.querySelector('[data-pid="?"]'); if(d){ d.dataset.pid=pid; d.querySelector(".pname").textContent=name||""; d.querySelector(".pav").textContent=up((name||"?")[0]||"?"); } }
   if(!d){ d=document.createElement("div"); d.className="peer audio"; d.dataset.pid=pid;
     const v=document.createElement("video"); v.autoplay=true; v.playsInline=true; d.appendChild(v);
-    const av=document.createElement("div"); av.className="pav"; av.textContent=((name||"?")[0]||"?").toUpperCase(); d.appendChild(av);
+    const av=document.createElement("div"); av.className="pav"; av.textContent=up((name||"?")[0]||"?"); d.appendChild(av);
     const nm=document.createElement("div"); nm.className="pname"; nm.textContent=name||""; d.appendChild(nm);
     st.appendChild(d); }
   st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); return d;
@@ -1889,9 +1895,9 @@ async function establish(R, other, authed){
   R.establishing=false;
   const changed=rootFp!==R.rootFp;
   R.peer=other; R.root=root; R.rootFp=rootFp; if(changed){ R.sendI=0; R.recvI=-1; } R.paired=true; R.authOk=!!authed;
-  const nm=other.name||"Peer"; R.peerName=dn(nm); R.avatar=(nm[0]||"?").toUpperCase();
+  const nm=other.name||"Peer"; R.peerName=dn(nm); R.avatar=up(nm[0]||"?");
   const alias=R.fromContact ? (contactFind(R.fromContact)||{}).alias : "";
-  if(alias){ R.title=alias; R.peerName=alias; R.avatar=(alias[0]||"?").toUpperCase(); }
+  if(alias){ R.title=alias; R.peerName=alias; R.avatar=up(alias[0]||"?"); }
   else if(realName(nm)) R.title=nm;                    // show the person's name in the tab/header
   setStatus(R, authed ? t("🔒 secure · same key as your first connection ✓") : t("🔒 secure · key {fp}",{fp:rootFp}), true, "online");
   if(R.code===active){ $("peerName").textContent=alias||dn(nm); $("peerAvatar").textContent=R.avatar; $("msgInput").disabled=false; $("sendBtn").disabled=false; setAttach(false); }
@@ -1955,7 +1961,7 @@ async function establish(R, other, authed){
 function unpair(R){ R.paired=false; R.peer=null; R.root=null; R.rootFp=""; R.authOk=false; R.recvI=-1; R.peerNewKey=false;
   // A saved contact keeps their name in the header while offline; only an anonymous manual room shows "Waiting for peer…".
   const known=!!(R.fromContact && realName(R.title));
-  R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?(R.title[0]||"?").toUpperCase():"?";
+  R.peerName=known?dn(R.title):t("Waiting for peer…"); R.avatar=known?up(R.title[0]||"?"):"?";
   setIdle(R);
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; const keep=!!R.fromContact; $("msgInput").disabled=!keep; $("sendBtn").disabled=!keep; setAttach(!keep); updateVerifyUI(); } }
 function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group){ p.pub=R.pubB64; if(R.tag) p.tag=R.tag; if(R.tagp) p.tagp=R.tagp; if(R.peerNewKey) p.rk=1;
@@ -2137,7 +2143,7 @@ async function doJoin(code, opts){
   if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
   R.fromContact=opts.fromContact||null; R.title=opts.title||null;
-  if(R.fromContact && realName(R.title)){ R.peerName=dn(R.title); R.avatar=(R.title[0]||"?").toUpperCase(); }   // a known contact: show their name right away
+  if(R.fromContact && realName(R.title)){ R.peerName=dn(R.title); R.avatar=up(R.title[0]||"?"); }   // a known contact: show their name right away
   try{ R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); await ensureTag(R); } finally { _joining.delete(code); }
   if(rooms.has(code)){ switchTo(code); return; }          // someone joined it while we were generating keys
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none";
@@ -2644,7 +2650,7 @@ function renameChat(){
   else if(R.fromContact){ const l=contactsLoad(); const c=l.find(x=>x.ck===R.fromContact); if(!c) return;
     const v=prompt(t("Nickname for this chat (only on your devices):"), c.alias||dn(c.name)||""); if(v===null) return;
     const nv=v.trim().slice(0,32); if(nv && nv!==c.name) c.alias=nv; else delete c.alias; c.ats=Date.now(); contactsSave(l);
-    R.title=c.alias||c.name; R.peerName=c.alias||dn(c.name); R.avatar=((R.peerName||"?")[0]).toUpperCase(); }
+    R.title=c.alias||c.name; R.peerName=c.alias||dn(c.name); R.avatar=up((R.peerName||"?")[0]); }
   else return;
   if(R.code===active){ $("peerName").textContent=R.peerName; $("peerAvatar").textContent=R.avatar; } renderTabs(); renderContacts(); updateVerifyUI(); toast(t("Name updated"));
 }
@@ -2776,8 +2782,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     if(!soundOn){ soundOn=true; try{ localStorage.setItem("vesper-sound","on"); }catch(x){} }
     btn.classList.remove("playing"); void btn.offsetWidth; btn.classList.add("playing");
     previewTone(btn.dataset.tone); refreshSoundUI(); }));
-  function refreshLangUI(){ if($("langState")) $("langState").textContent=LANG==="fr"?"Français":"English"; if($("langToggle")) $("langToggle").textContent=LANG==="fr"?"English":"Français"; }
-  $("langToggle").addEventListener("click",()=>{ setLang(LANG==="fr"?"en":"fr"); });
+  function refreshLangUI(){ const s=$("langSel"); if(s) s.value=LANG; }
+  $("langSel").addEventListener("change",e=>{ const v=e.target.value; if(LANGS.includes(v)) setLang(v); });
+  refreshLangUI();   // the selector shows the language in use from the start (detected or saved)
   _refreshSettingsUI=()=>{ refreshThemeUI(); refreshSoundUI(); refreshLangUI(); refreshPrevUI(); updateNotifyUI(); };
   function toggleSound(){ soundOn=!soundOn; try{ localStorage.setItem("vesper-sound",soundOn?"on":"off"); }catch(e){} if(soundOn){ initAudio(); soundRecv(); } refreshSoundUI(); }
   $("themeToggle").addEventListener("click",toggleTheme);

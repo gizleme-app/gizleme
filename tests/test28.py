@@ -84,7 +84,7 @@ with sync_playwright() as pw:
     r["back_online"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-online')")
     r["connLineStillOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('verified automatically')).length")==1
     # French
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.click("#langToggle"); p.wait_for_timeout(500)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.select_option("#langSel","fr"); p.wait_for_timeout(500)
     p.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
     p.evaluate("()=>window.__sync({})"); p.wait_for_timeout(400)
     r["fr_offline"]= p.eval_on_selector("#statusText","e=>e.textContent")

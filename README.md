@@ -3,7 +3,7 @@
 End-to-end encrypted messaging that runs in the browser. **No phone number. No app. No trace.**
 
 - Live: https://gizleme.com — open a friend's invite link, pick a name, reply.
-- Languages: English, French (auto from the browser, switchable in Settings).
+- Languages: English, French, Turkish (picked from the browser's preferred languages, switchable in Settings).
 
 ## What it is
 

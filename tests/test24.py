@@ -72,7 +72,7 @@ with sync_playwright() as pw:
     n=p.evaluate("()=>window.__names()"); r["names_afterRename"]= n and n["names"].get(NKH)=="Baba"
     # the sender side now says what kind of push it is
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100)
-    p.click("#langToggle"); p.wait_for_timeout(1200)
+    p.select_option("#langSel","fr"); p.wait_for_timeout(1200)
     n=p.evaluate("()=>window.__names()"); r["tmpl_fr"]= n and n["tmpl"].get("msg")=="Nouveau message de {name}" and n["names"].get(NKH)=="Baba"
     r["errors"]= errs[:3]
     # logout clears the names

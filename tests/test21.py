@@ -82,7 +82,8 @@ with sync_playwright() as pw:
     r["renamed"]= p.evaluate("()=>window.__renamed")
     r["presenceUsesNewName"]= p.evaluate("()=>window.__chan._me && window.__chan._me.name")
     # switch to English live
-    p.click("#langToggle"); p.wait_for_timeout(300)
+    r["fr_selShowsFr"]= p.evaluate("()=>document.getElementById('langSel').value")=="fr"
+    p.select_option("#langSel","en"); p.wait_for_timeout(300)
     r["en_htmlLang"]= p.evaluate("()=>document.documentElement.lang")
     r["en_settingsTitle"]= p.eval_on_selector("#settingsModal h1","e=>e.textContent")
     r["en_lockTitle"]= p.get_attribute("#sbLock","title")
