@@ -7,7 +7,7 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v23";
+const CACHE = "gizleme-v24";
 const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
                "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
 
@@ -48,16 +48,28 @@ function safeTarget(u) {
   return self.location.origin + "/";
 }
 
-// The page sends the names it uses for contacts (nicknames first) and sentence templates in its language;
-// kept in a small cache entry so a push can use them even after the worker was restarted. Names only.
+// The page sends the names it uses for contacts (nicknames first), until when a muted chat stays quiet, and
+// sentence templates in its language; kept in a small cache entry so a push can use them even after the worker
+// was restarted. Names and times only. It also sends the unread count, so a push can add one to the app icon.
 const META = "gizleme-meta";
+const JSONH = { headers: { "Content-Type": "application/json" } };
 self.addEventListener("message", e => {
   const m = e.data || {};
+  if (m.type === "badge") { e.waitUntil(badgeStore(Math.max(0, Math.floor(+m.n || 0)))); return; }
   if (m.type !== "names") return;
-  e.waitUntil(caches.open(META).then(c => c.put("/names.json", new Response(JSON.stringify({ names: m.names || {}, tmpl: m.tmpl || {} }), { headers: { "Content-Type": "application/json" } }))));
+  e.waitUntil(caches.open(META).then(c => c.put("/names.json", new Response(JSON.stringify({ names: m.names || {}, muted: m.muted || {}, tmpl: m.tmpl || {} }), JSONH))));
 });
 async function loadNames() {
   try { const c = await caches.open(META); const r = await c.match("/names.json"); return r ? await r.json() : null; } catch (_) { return null; }
+}
+async function badgeStore(n) { try { const c = await caches.open(META); await c.put("/badge.json", new Response(JSON.stringify({ n }), JSONH)); } catch (_) {} }
+async function badgeLoad() { try { const c = await caches.open(META); const r = await c.match("/badge.json"); return r ? (+(await r.json()).n || 0) : 0; } catch (_) { return 0; } }
+function pushNk(d) { try { const u = new URL(d.url || "", self.location.origin); const h = (u.hash || "").replace(/^#/, ""); if (h.indexOf("n=") === 0) return decodeURIComponent(h.slice(2)); } catch (_) {} return ""; }
+// a muted chat: its message (and "wants to chat") notifications arrive without sound or vibration; calls ring
+async function mutedPush(d, meta) {
+  if (d.kind === "call" || !meta || !meta.muted) return false;
+  const nk = pushNk(d); if (!nk) return false;
+  try { const u = +meta.muted[await nkHash(nk)] || 0; return u > Date.now(); } catch (_) { return false; }
 }
 // "New message from Baba" rather than the sender's own name and language: compose the text here when the
 // contact is known; otherwise keep what the sender wrote.
@@ -66,7 +78,7 @@ async function nkHash(nk) { const b = new Uint8Array(await crypto.subtle.digest(
 async function composeBody(d, meta) {
   const fallback = String(d.body || "A contact wants to chat").slice(0, 140);
   if (!meta || !meta.tmpl) return fallback;
-  let nk = ""; try { const u = new URL(d.url || "", self.location.origin); const h = (u.hash || "").replace(/^#/, ""); if (h.indexOf("n=") === 0) nk = decodeURIComponent(h.slice(2)); } catch (_) {}
+  const nk = pushNk(d);
   const kind = d.kind === "chat" ? "chat" : d.kind === "call" ? "call" : "msg";
   let name = ""; if (nk && meta.names) { try { name = meta.names[await nkHash(nk)] || ""; } catch (_) { name = ""; } }
   const t = meta.tmpl;
@@ -85,10 +97,16 @@ self.addEventListener("push", e => {
   try { d = e.data ? e.data.json() : {}; } catch (_) { try { d = { body: e.data.text() }; } catch (__) { d = {}; } }
   e.waitUntil((async () => {
     const meta = await loadNames();
+    const quiet = await mutedPush(d, meta);
+    if (!quiet && d.kind !== "call" && d.kind !== "chat") {          // one more unread message on the app icon
+      const n = (await badgeLoad()) + 1; await badgeStore(n);
+      try { if (self.navigator.setAppBadge) await self.navigator.setAppBadge(n); } catch (_) {}
+    }
     return self.registration.showNotification("Gizleme", {
       body: await composeBody(d, meta),
       tag: String(d.tag || "gizleme").slice(0, 64),
-      renotify: true,
+      renotify: !quiet,
+      silent: quiet,
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       data: { url: safeTarget(d.url) },

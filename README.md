@@ -42,9 +42,13 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   key — the new key reaches each remaining member under their own key, the removed one is locked out.
 - Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
   phone's own maps app — Gizleme never fetches anything from a map provider.
-- Quiet by design: one tone for a message in a chat you are not looking at (at most once every few
-  seconds), nothing when you send, when someone comes online or for a reaction; that chat's row glows
-  briefly in the list. Calls keep their ringtone.
+- Quiet by design, with its own sound: "Gizleme", a three-note glass chime (one note per syllable), for a
+  message in a chat you are not looking at — at most once every few seconds — and a small echo of it in the
+  chat you have open; nothing when you send, when someone comes online or for a reaction. That chat's row
+  glows briefly in the list. Settings → Sounds: messages and calls / calls only / no sound. Mute a chat for
+  1 hour, 8 hours or until you turn it back on (it follows your account; its notifications arrive silently).
+- Unread count in the tab title and on the app icon (a number, never a name), and a "New messages" line
+  where you left off when you open a chat.
 - Web Push: the wire carries only "New message" / "Incoming call" / "A contact wants to chat"; the
   receiving device adds the contact's name ("New message from X"). Never message content.
 - Audio and video calls (WebRTC): media goes peer-to-peer and is end-to-end encrypted by construction
@@ -69,7 +73,7 @@ sw.js                 service worker (offline shell, Web Push)
 _headers              Cloudflare security headers (CSP, HSTS, …)
 manifest.webmanifest  PWA manifest
 vendor/               supabase-js and qrcode-generator (pinned versions, served same-origin)
-privacy.html/.js      privacy page (FR/EN)
+privacy.html/.js      privacy page (FR/EN/TR)
 supabase/             the server: database schema (migrations/) and the five Edge Functions (functions/)
 tests/                end-to-end scenarios (Playwright) and their runner
 ```

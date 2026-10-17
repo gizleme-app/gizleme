@@ -196,10 +196,12 @@ function swNamesSoon(){ clearTimeout(_swNamesT); _swNamesT=setTimeout(()=>{ swNa
 async function nkHash(nk){ return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(nk)))); }
 async function swNames(clear){
   if(!("serviceWorker" in navigator)) return;
-  const names={};
-  // keyed by a hash of the notify key: the worker's cache (readable at rest) holds names but no capability
-  if(!clear) for(const c of contactsLoad()){ try{ const nm=c.alias||(DN_KEYS[c.name]?"":realName(c.name)); if(nm) names[await nkHash(await notifyKeyFor(c.ck))]=nm; }catch(e){} }
-  const msg={type:"names", names, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), call:t("{name} is calling you"), anyMsg:t("New message"), anyChat:t("A contact wants to chat"), anyCall:t("Incoming call") }};
+  const names={}, muted={};
+  // keyed by a hash of the notify key: the worker's cache (readable at rest) holds names but no capability;
+  // for a muted chat, until when its notifications arrive silently
+  if(!clear) for(const c of contactsLoad()){ try{ const nm=c.alias||(DN_KEYS[c.name]?"":realName(c.name)); const mu=mutedUntil(c); if(!nm && !mu) continue;
+    const h=await nkHash(await notifyKeyFor(c.ck)); if(nm) names[h]=nm; if(mu) muted[h]=mu; }catch(e){} }
+  const msg={type:"names", names, muted, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), call:t("{name} is calling you"), anyMsg:t("New message"), anyChat:t("A contact wants to chat"), anyCall:t("Incoming call") }};
   try{ const reg=await navigator.serviceWorker.ready; (reg.active||navigator.serviceWorker.controller)?.postMessage(msg); }catch(e){}
 }
 async function localSave(){ if(!gHistKey) return; const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify({contacts:_contacts,groups:_groups,meta:_meta})));
@@ -225,7 +227,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   inboxPull(true);                                   // deliver what arrived while the app was closed, for every chat
 }
 function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{}}; _identKeys=null; for(const k in _hid) delete _hid[k]; }                       // lock: out of memory, ciphertext stays on disk
-function localWipe(){ localClear(); try{ localStorage.removeItem(LS_LOCAL); localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} }
+function localWipe(){ localClear(); try{ updateBadge(true); }catch(e){} try{ localStorage.removeItem(LS_LOCAL); localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} }
 function realName(n){ return n && n!=="Peer" && n!=="Contact" && n!=="Anon" && n!=="Waiting for peer…" ? n : ""; }
 function contactUpsert(name, ckB64){
   const list=contactsLoad(); const i=list.findIndex(c=>c.ck===ckB64); const nm=realName(name);
@@ -445,6 +447,9 @@ function renderContacts(fromPreview){
     const r1=document.createElement("div"); r1.className="crow";
     const cn=document.createElement("div"); cn.className="cn"; cn.textContent=it.alias||dn(it.name)||(it.t==="g"?t("Group"):t("Contact"));
     if(it.t==="c"&&it.v){ const vb=document.createElement("span"); vb.className="vbadge"; vb.textContent="✓"; vb.title=t("Verified"); cn.appendChild(vb); }
+    const muted=isMutedItem(it);
+    if(muted){ row.classList.add("muted"); const mi=document.createElementNS("http://www.w3.org/2000/svg","svg"); mi.setAttribute("class","ico mute-ico"); mi.setAttribute("aria-label",t("Muted chat"));
+      const u=document.createElementNS("http://www.w3.org/2000/svg","use"); u.setAttribute("href","#i-bell-off"); mi.appendChild(u); cn.appendChild(mi); }
     const pv=_prev[previewKeyOf(it)]||null;
     const ct=document.createElement("span"); ct.className="ctime"; ct.textContent=pv?fmtListTime(pv.ts):"";
     r1.appendChild(cn); r1.appendChild(ct);
@@ -461,7 +466,7 @@ function renderContacts(fromPreview){
       : (pv ? pv.text : placeholder);
     if(unread) cm.classList.add("unread");
     r2.appendChild(cm);
-    if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"; ub.textContent=unread>99?"99+":String(unread); ub.title=t("{n} unread",{n:unread}); r2.appendChild(ub); ct.classList.add("unread"); }
+    if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"+(muted?" muted":""); ub.textContent=unread>99?"99+":String(unread); ub.title=t("{n} unread",{n:unread}); r2.appendChild(ub); ct.classList.add("unread"); }
     ci.appendChild(r1); ci.appendChild(r2);
     const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?t("Leave group"):t("Remove contact"); x.setAttribute("aria-label",x.title);
     x.addEventListener("click",ev=>{ ev.stopPropagation();
@@ -471,6 +476,7 @@ function renderContacts(fromPreview){
     row.addEventListener("click",()=> it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.alias||it.name));
     el.appendChild(row);
   });
+  updateBadge(); scheduleMuteRefresh();
 }
 
 // ---------- group chats (named, invite-only, shared group key) ----------
@@ -844,6 +850,59 @@ function onInbound(R, env, who, ts, mid, own, animate){
 }
 function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; pulseChat(R); localSaveSoon(); renderTabs(); renderContacts(); }
 function clearUnread(R){ const k=histKeyOf(R); if(_meta.unread[k]){ delete _meta.unread[k]; localSaveSoon(); } R.unread=0; }
+// ----- muted chats -----
+// A muted chat makes no sound, doesn't glow and isn't counted on the app icon; its notifications still arrive,
+// silently (a push must always show something). Kept with the contact / group in the encrypted vault, so it
+// follows the account to its other devices (last change wins); "always" is simply the far future.
+const MUTE_ALWAYS=8.64e15;
+function muteRecOf(R){ if(!R) return null; if(R.group) return _groups.find(g=>g.rid===R.rid)||null; if(R.fromContact) return _contacts.find(c=>c.ck===R.fromContact)||null; return null; }
+function mutedUntil(rec){ const u=rec ? +rec.mu||0 : 0; return u>Date.now() ? u : 0; }
+function isMutedRoom(R){ return !!mutedUntil(muteRecOf(R)); }
+function isMutedItem(it){ return !!mutedUntil(it.t==="g" ? _groups.find(g=>g.rid===it.rid) : _contacts.find(c=>c.ck===it.ck)); }
+function fmtUntil(ts){ const d=new Date(ts), now=new Date(); const hm=d.toLocaleTimeString(LOC(),{hour:"2-digit",minute:"2-digit"});
+  return d.toDateString()===now.toDateString() ? hm : d.toLocaleDateString(LOC(),{weekday:"short"})+" "+hm; }
+function setMute(R, ms){                  // ms: how long; MUTE_ALWAYS for always; 0 turns sound back on
+  if(!R) return; const now=Date.now(); const until=ms ? (ms>=MUTE_ALWAYS ? MUTE_ALWAYS : now+ms) : 0;
+  const apply=rec=>{ if(until) rec.mu=until; else delete rec.mu; rec.mts=now; };
+  if(R.group){ const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return; apply(g); groupsSave(l); }
+  else if(R.fromContact){ const l=contactsLoad(); const c=l.find(x=>x.ck===R.fromContact); if(!c) return; apply(c); contactsSave(l); }
+  else return;
+  if(until) _pulse.delete(histKeyOf(R)), R._pulseAt=0;
+  renderTabs(); updateBadge();
+  toast(!until ? t("Sound back on for this chat") : until>=MUTE_ALWAYS ? t("Chat muted") : t("Muted until {time}",{time:fmtUntil(until)}));
+}
+// a timed mute ends by itself: the list (and the icon count) follow at that moment
+let _muteT=null;
+function scheduleMuteRefresh(){ clearTimeout(_muteT); const now=Date.now(); let next=0;
+  for(const r of _contacts.concat(_groups)){ const u=+r.mu||0; if(u>now && u<MUTE_ALWAYS && (!next || u<next)) next=u; }
+  if(next) _muteT=setTimeout(()=>{ renderContacts(); renderTabs(); swNamesSoon(); }, Math.min(2147483000, next-now+500)); }
+// ----- unread total: in the tab title and on the app icon -----
+// Only a number — never a name. Muted chats are left out. The service worker adds one per message push while
+// the app is closed; the app sets the exact figure whenever it is open.
+let _badgeN=-1;
+function unreadTotal(){ if(!gHistKey) return 0; const muted=new Set();
+  _contacts.forEach(c=>{ if(mutedUntil(c)) muted.add(ckHistKey(c.ck)); }); _groups.forEach(g=>{ if(mutedUntil(g)) muted.add(g.rid); });
+  let n=0; for(const k in (_meta.unread||{})) if(!muted.has(k)) n+=(+_meta.unread[k]||0); return n; }
+function updateBadge(force){ const n=unreadTotal(); if(n===_badgeN && !force) return; _badgeN=n;
+  try{ document.title=(n ? "("+(n>99?"99+":n)+") " : "")+"Gizleme"; }catch(e){}
+  try{ if(n && navigator.setAppBadge) navigator.setAppBadge(n).catch(()=>{}); else if(navigator.clearAppBadge) navigator.clearAppBadge().catch(()=>{}); }catch(e){}
+  try{ if("serviceWorker" in navigator) navigator.serviceWorker.ready.then(reg=>{ (reg.active||navigator.serviceWorker.controller)?.postMessage({type:"badge", n}); }).catch(()=>{}); }catch(e){} }
+// ----- "New messages": opening a chat with unread messages puts a line above the first of them and starts there
+let _sepRoom=null;
+function markNew(R, n){
+  if(!n && R && R.code===_sepRoom) return;            // the same chat shown again: the line stays until you leave it
+  document.querySelectorAll("#logs .newsep").forEach(e=>e.remove()); _sepRoom=null;
+  if(!R || !R.logEl || !n) return;
+  const recv=[...R.logEl.querySelectorAll(":scope > .bubble.recv")];
+  if(!recv.length){ R._newN=n; return; }              // the history isn't on screen yet: placed once it is
+  R._newN=0; _sepRoom=R.code;
+  const first=recv[Math.max(0, recv.length-n)], sep=document.createElement("div"); sep.className="newsep";
+  sep.textContent=t(n>1?"{n} new messages":"{n} new message",{n}); R.logEl.insertBefore(sep, first);
+  // after the "stick to the bottom" passes of rendering: only move up when the line would be out of sight
+  const go=()=>{ try{ const l=R.logEl, top=sep.getBoundingClientRect().top-l.getBoundingClientRect().top;
+    if(top<0) l.scrollTop+=top-10; }catch(e){} };
+  requestAnimationFrame(()=>requestAnimationFrame(go));
+}
 function stateFor(mid){ if(mid && outqHas(mid)) return "pending"; return mid && _meta.rcpt[mid] ? "rcvd" : "sent"; }
 // Messages written to a v3 invite before it is opened wait on this device (nothing is ever deposited under
 // the link key) and are sent under the agreed key the moment the hello arrives.
@@ -914,7 +973,7 @@ async function inboxPull(force){
     for(const it of items){
       let R=null; rooms.forEach(x=>{ if(it.t==="g" ? x.rid===it.rid : x.fromContact===it.ck) R=x; });
       if(R){ await fetchMailbox(R); continue; }
-      try{ const S=await shadowRoom(it); bg+=(await fetchMailbox(S))||0; }catch(e){}
+      try{ const S=await shadowRoom(it); const d=(await fetchMailbox(S))||0; if(!isMutedRoom(S)) bg+=d; }catch(e){}
     }
     if(bg){ messageTone(null); renderContacts(); }
   } finally { _inboxBusy=false; }
@@ -1390,38 +1449,72 @@ function scramble(el,final,done){
 }
 
 // ---------- UI ----------
-let audioCtx=null, soundOn=true;
-try{ soundOn = localStorage.getItem("vesper-sound")!=="off"; }catch(e){}
+let audioCtx=null;
 function initAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state!=="running") return audioCtx.resume(); }catch(e){} return Promise.resolve(); }
-function beep(seq, force){ if((!soundOn&&!force)||!audioCtx) return; const now=audioCtx.currentTime;
-  seq.forEach(n=>{ const o=audioCtx.createOscillator(), g=audioCtx.createGain(); o.type=n.type||"sine"; o.frequency.value=n.f;
-    g.gain.setValueAtTime(0, now+n.t0); g.gain.linearRampToValueAtTime(n.gain||0.06, now+n.t0+0.012);
-    g.gain.exponentialRampToValueAtTime(0.0001, now+n.t0+n.dur); o.connect(g).connect(audioCtx.destination);
+// What may make a sound: "all" (messages and calls, the default) | "calls" (messages are silent, a call still
+// rings) | "none". The former on/off switch maps onto it: "off" used to keep the ringtone, so it means "calls".
+const LS_SOUNDS="gz-sounds";
+function soundMode(){ try{ const v=localStorage.getItem(LS_SOUNDS); if(v==="all"||v==="calls"||v==="none") return v;
+  return localStorage.getItem("vesper-sound")==="off" ? "calls" : "all"; }catch(e){ return "all"; } }
+function setSoundMode(m){ if(m!=="all"&&m!=="calls"&&m!=="none") return; try{ localStorage.setItem(LS_SOUNDS,m); localStorage.removeItem("vesper-sound"); }catch(e){} }
+function soundAllowed(kind){ if(kind==="preview") return true; const m=soundMode(); return m==="all" || (m==="calls" && kind==="call"); }
+// A small synthetic hall for the bell tones (stereo noise with an exponential decay, built once per audio
+// context): the signature chime rings like an announcement in a station concourse. Dry if anything is missing.
+let _hall=null;
+function hallOf(ctx){
+  if(_hall && _hall.ctx===ctx) return _hall.node;
+  const sr=ctx.sampleRate, n=Math.floor(sr*1.9), b=ctx.createBuffer(2,n,sr);
+  for(let ch=0;ch<2;ch++){ const d=b.getChannelData(ch); let lp=0, s=ch?7919:104729;
+    for(let i=0;i<n;i++){ s=(s*16807)%2147483647; const w=s/1073741823.5-1; lp+=.32*(w-lp); const t=i/sr;
+      d[i]=lp*Math.exp(-t/.46)*(t<.018?t/.018:1)*(t>1.5?.5+.5*Math.cos(Math.PI*(t-1.5)/.4):1); } }
+  const cv=ctx.createConvolver(); cv.buffer=b; cv.connect(ctx.destination); _hall={ctx,node:cv}; return cv;
+}
+// seq: notes {f, t0, dur, gain, type?, a? (attack, s)}; kind: "msg" | "call" | "preview"; wet: hall level (0 = dry)
+function beep(seq, kind, wet){ if(!audioCtx || !soundAllowed(kind||"msg")) return; const ctx=audioCtx, now=ctx.currentTime;
+  const out=ctx.createGain(); out.connect(ctx.destination);
+  if(wet){ try{ const wg=ctx.createGain(); wg.gain.value=wet; out.connect(wg); wg.connect(hallOf(ctx)); }catch(e){} }
+  seq.forEach(n=>{ const o=ctx.createOscillator(), g=ctx.createGain(); o.type=n.type||"sine"; o.frequency.value=n.f;
+    g.gain.setValueAtTime(0, now+n.t0); g.gain.linearRampToValueAtTime(n.gain||0.06, now+n.t0+(n.a||0.012));
+    g.gain.exponentialRampToValueAtTime(0.0001, now+n.t0+n.dur); o.connect(g).connect(out);
     o.start(now+n.t0); o.stop(now+n.t0+n.dur+0.03); }); }
-// Message tones, all synthesized (no audio files, works offline). "classic" is the original.
+// Bell notes: each partial [ratio, relative gain, relative length] rings and fades on its own.
+const BELL={
+  warm:  [[1,1,1],[1.0018,.38,.92],[2,.24,.46],[3,.08,.24],[4.16,.05,.10]],
+  glass: [[1,1,1],[1.0012,.25,.9],[2.76,.30,.34],[5.40,.10,.16],[8.93,.035,.07]],
+  soft:  [[1,1,1],[1.0026,.50,.96],[2,.13,.42],[3,.03,.20]],
+};
+function bell(f,t0,gain,len,kind){ return BELL[kind].map(([r,g,l])=>({f:f*r,t0,dur:len*l,gain:gain*g,a:.004})); }
+// Message tones, all synthesized (no audio files, works offline). "gizleme" is the signature chime — three
+// notes of glass bells in a small hall, one per syllable, Giz·le·me — and the default; "classic" is the original.
 const LS_TONE="gz-tone";
 const TONES={
+  gizleme:[...bell(1318.51,0,.026,1.0,"glass"), ...bell(987.77,.16,.026,1.0,"glass"), ...bell(1661.22,.32,.022,1.4,"glass")],
   classic:[{f:783.99,t0:0,dur:0.18,gain:0.042},{f:587.33,t0:0.07,dur:0.26,gain:0.040},{f:392.00,t0:0.07,dur:0.30,gain:0.016}],
   pop:    [{f:659.25,t0:0,dur:0.07,gain:0.05,type:"triangle"},{f:987.77,t0:0.06,dur:0.12,gain:0.045,type:"triangle"}],
   chime:  [{f:1046.50,t0:0,dur:0.55,gain:0.038},{f:2093.00,t0:0,dur:0.30,gain:0.010},{f:1318.51,t0:0.14,dur:0.50,gain:0.030},{f:1567.98,t0:0.28,dur:0.55,gain:0.022}],
   marimba:[{f:523.25,t0:0,dur:0.16,gain:0.034,type:"triangle"},{f:659.25,t0:0.11,dur:0.16,gain:0.034,type:"triangle"},{f:783.99,t0:0.22,dur:0.24,gain:0.034,type:"triangle"}],
   soft:   [{f:392.00,t0:0,dur:0.38,gain:0.030},{f:523.25,t0:0.16,dur:0.42,gain:0.026}]
 };
-function toneName(){ try{ const v=localStorage.getItem(LS_TONE); return TONES[v]?v:"classic"; }catch(e){ return "classic"; } }
+const TONE_WET={gizleme:.24};
+// In the chat you have open, a message gets a small, quiet echo of the chime rather than the whole of it.
+const TONE_INCHAT=[...bell(987.77,0,.012,.6,"glass"), ...bell(1661.22,.09,.011,.85,"glass")];
+function toneName(){ try{ const v=localStorage.getItem(LS_TONE); return TONES[v]?v:"gizleme"; }catch(e){ return "gizleme"; } }
 function setTone(n){ if(!TONES[n]) return; try{ localStorage.setItem(LS_TONE,n); }catch(e){} }
-function soundRecv(){ beep(TONES[toneName()]); }
-// Sound policy, deliberately quiet: one tone for a message in a chat you are not looking at, at most once
-// every few seconds (a mailbox catch-up after a while away rings once). Nothing when you send, nothing when
-// someone comes online, nothing for a reaction, nothing in the chat you have open (you see it arrive).
-// Calls keep their ringtone.
-let _toneAt=0;
+function soundRecv(){ const n=toneName(); beep(TONES[n], "msg", TONE_WET[n]||0); }
+// Sound policy: the chime for a message in a chat you are not looking at (or while the app is in the
+// background), at most once every few seconds — a mailbox catch-up after a while away rings once; a small
+// echo of it in the chat you have open. Nothing when you send, when someone comes online or for a reaction;
+// nothing at all for a muted chat. Calls keep their own sounds. Settings → Sounds decides what may ring.
+let _toneAt=0, _tickAt=0;
 function messageTone(R){
-  if(R && !R.shadow && R.code===active && !document.hidden) return;
-  const now=Date.now(); if(now-_toneAt<4000) return; _toneAt=now; soundRecv();
+  if(R && isMutedRoom(R)) return;
+  const now=Date.now();
+  if(R && !R.shadow && R.code===active && !document.hidden){ if(now-_tickAt<1500) return; _tickAt=now; beep(TONE_INCHAT, "msg", .16); return; }
+  if(now-_toneAt<4000) return; _toneAt=now; soundRecv();
 }
 // A message for a chat you are not looking at: its row in the list (and its tab) glows twice, gently.
 const PULSE_MS=2600; const _pulse=new Map();   // history key -> when it started
-function pulseChat(R){ try{ const k=histKeyOf(R); if(k) _pulse.set(k, Date.now()); R._pulseAt=Date.now(); }catch(e){} }
+function pulseChat(R){ try{ if(isMutedRoom(R)) return; const k=histKeyOf(R); if(k) _pulse.set(k, Date.now()); R._pulseAt=Date.now(); }catch(e){} }
 function pulseAge(at){ const a=at ? Date.now()-at : PULSE_MS; return a<PULSE_MS ? a : -1; }
 // Preview from Settings. Must run inside a tap (iOS only unlocks audio in a user gesture) and waits for the
 // context to actually be running. On iPhone, Web Audio follows the silent switch; for the preview alone we
@@ -1462,11 +1555,11 @@ async function callMedia(video, facing){
 // ----- ring sounds (synthesized; the ringtone plays even if message sounds are off) -----
 let _ringI=null;
 function startRing(kind){ stopRing(); const play=()=>{ initAudio();
-    if(kind==="tone") beep([{f:659.25,t0:0,dur:.3,gain:.05},{f:880,t0:.35,dur:.3,gain:.05},{f:659.25,t0:.7,dur:.3,gain:.05},{f:880,t0:1.05,dur:.45,gain:.05}], true);
-    else beep([{f:425,t0:0,dur:1.0,gain:.028},{f:450,t0:0,dur:1.0,gain:.022}]); };
+    if(kind==="tone") beep([{f:659.25,t0:0,dur:.3,gain:.05},{f:880,t0:.35,dur:.3,gain:.05},{f:659.25,t0:.7,dur:.3,gain:.05},{f:880,t0:1.05,dur:.45,gain:.05}], "call");
+    else beep([{f:425,t0:0,dur:1.0,gain:.028},{f:450,t0:0,dur:1.0,gain:.022}], "call"); };
   play(); _ringI=setInterval(play, kind==="tone"?2600:3200); }
 function stopRing(){ clearInterval(_ringI); _ringI=null; }
-function soundEnd(){ beep([{f:523.25,t0:0,dur:.14,gain:.04},{f:392,t0:.15,dur:.24,gain:.04}]); }
+function soundEnd(){ beep([{f:523.25,t0:0,dur:.14,gain:.04},{f:392,t0:.15,dur:.24,gain:.04}], "call"); }
 // ----- stage (remote participants) -----
 function peerEl(pid, name){
   const st=$("callStage"); let d=st.querySelector('[data-pid="'+CSS.escape(pid)+'"]');
@@ -1637,9 +1730,9 @@ async function previewTone(n){
   setTone(n); const p=initAudio();
   let as=null; try{ as=navigator.audioSession; if(as && as.type!=="playback"){ as.type="playback"; setTimeout(()=>{ try{ as.type="auto"; }catch(e){} },1500); } }catch(e){}
   try{ await Promise.race([p, new Promise(r=>setTimeout(r,250))]); }catch(e){}
-  beep(TONES[toneName()]);
+  const n2=toneName(); beep(TONES[n2], "preview", TONE_WET[n2]||0);
 }
-// Warm ascending arpeggio when a secure channel opens with a contact.
+// Warm ascending arpeggio when a call connects.
 function soundConnect(){ initAudio(); beep([
   {f:523.25,t0:0,   dur:0.22,gain:0.040},   // C5
   {f:659.25,t0:0.11,dur:0.24,gain:0.044},   // E5
@@ -1954,6 +2047,7 @@ function renderHistory(R, past){
   }
   if(R.reacts) R.reacts.forEach((_,m)=>rxRender(R,m));
   seedSeen(R, past);
+  if(R._newN && R.code===active) markNew(R, R._newN);
 }
 function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); d.textContent=t; logEl.appendChild(d); scrollEl(logEl); }
 // The header shows one dot and a short word (online / offline / connecting…); the full explanation is kept
@@ -1987,18 +2081,34 @@ function inviteParts(){
   const msg=t("Join me on Gizleme 🔒 encrypted chat — room code {room}\n{url}",{room,url});
   return {room,url,msg};
 }
+// Once the invite has gone out (the share sheet completed, or WhatsApp took over the screen), the new chat
+// opens by itself: coming back to Gizleme lands in the conversation, not on the link page.
+function openInviteChatIfStill(pi){
+  if(!pi || _pendingInvite!==pi || $("join").dataset.mode!=="newchat" || $("join").dataset.adv==="1") return;
+  connectRoom().catch(()=>{});
+}
 async function shareInvite(){
-  const {url,msg}=inviteParts();
+  const parts=inviteParts(), {url,msg}=parts, pi=parts.invite?_pendingInvite:null;
   // One combined text field is handled most consistently across targets (WhatsApp included).
-  if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
+  if(navigator.share){ try{ await navigator.share({text:msg}); openInviteChatIfStill(pi); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
   try{ await navigator.clipboard.writeText(url); toast(t("Link copied")); }catch(e){ prompt(t("Copy this link:"),url); }
 }
+const IS_PHONE=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
 function shareWhatsApp(){
-  const {msg}=inviteParts();
-  // wa.me opens WhatsApp directly (foregrounds it) with the message ready; the person
-  // still taps Send inside WhatsApp — no app can send on your behalf.
-  const wa="https://wa.me/?text="+encodeURIComponent(msg);
-  window.open(wa,"_blank","noopener");
+  const parts=inviteParts(), pi=parts.invite?_pendingInvite:null, text=encodeURIComponent(parts.msg);
+  // The message is ready in WhatsApp; the person still taps Send there — no app can send on your behalf.
+  // On a computer, wa.me opens WhatsApp (desktop or web) in a new tab, and the chat opens here meanwhile.
+  if(!IS_PHONE){ window.open("https://wa.me/?text="+text,"_blank","noopener"); openInviteChatIfStill(pi); return; }
+  // On a phone, WhatsApp's own link scheme hands the message straight to the app. wa.me goes through a web
+  // page first, and on iPhone that page stays behind — blank, with an ✕ to close — when you come back. The
+  // chat opens as soon as WhatsApp has taken over the screen; if it never does (not installed), a hint.
+  let gone=false, stopT=null;
+  const done=()=>{ document.removeEventListener("visibilitychange",onHide); clearTimeout(stopT); };
+  const onHide=()=>{ if(document.visibilityState==="hidden" && !gone){ gone=true; done(); openInviteChatIfStill(pi); } };
+  document.addEventListener("visibilitychange",onHide);
+  stopT=setTimeout(done, 120000);
+  setTimeout(()=>{ if(!gone && !document.hidden) toast(t("WhatsApp didn't open? Use “Share link” instead.")); }, 3000);
+  location.href="whatsapp://send?text="+text;
 }
 function enableComposer(on){ $("msgInput").disabled=!on; $("sendBtn").disabled=!on; setAttach(!on); }
 function setAttach(dis){ $("attachBtn").disabled=dis; const m=$("micBtn"); if(m) m.disabled=dis || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.AudioContext); if(dis && rec) stopRec(false); }
@@ -2313,7 +2423,7 @@ let _installChecked=false, _showInstallInvite=null;
 function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
-function goHome(){ cancelReply(); closePicker(); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
+function goHome(){ cancelReply(); closePicker(); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 function showAuth(mode){
@@ -2376,6 +2486,7 @@ function switchTo(code){
   if(!_reply || _reply.code!==code) cancelReply(); closePicker();
   active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
+  { const hk=histKeyOf(R), n=(_meta.unread&&+_meta.unread[hk])||0; markNew(R, n); }
   clearUnread(R);
   $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar;
   applyStatus(R);
@@ -2549,7 +2660,8 @@ function mergeContacts(remote){ let _chainChanged=false;
     if(rc.prev && byCk[rc.prev] && !byCk[rc.ck]){ const o=byCk[rc.prev]; delete byCk[rc.prev]; byCk[rc.ck]=Object.assign({},rc,{v:(o.v||rc.v)?1:undefined, name:realName(o.name)&&!realName(rc.name)?o.name:rc.name}); if(!byCk[rc.ck].v) delete byCk[rc.ck].v; return; }
     // we rotated already and the other device still has the old record: ours wins, its flags are kept
     const rotLocal=Object.values(byCk).find(c=>c.prev===rc.ck);
-    if(rotLocal){ if(rc.v) rotLocal.v=1; if(realName(rc.name) && !realName(rotLocal.name)) rotLocal.name=rc.name; return; }
+    if(rotLocal){ if(rc.v) rotLocal.v=1; if(realName(rc.name) && !realName(rotLocal.name)) rotLocal.name=rc.name;
+      if(rc.mts&&(rc.mts>(rotLocal.mts||0))){ rotLocal.mu=rc.mu; rotLocal.mts=rc.mts; if(!rotLocal.mu) delete rotLocal.mu; } return; }
     const e=byCk[rc.ck];
     if(!e){ byCk[rc.ck]=Object.assign({},rc); }
     else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1;
@@ -2562,12 +2674,14 @@ function mergeContacts(remote){ let _chainChanged=false;
            // recon (the reconciliation window) is per-device state — what THIS device has confirmed with the
            // peer — so it is never carried across a user's devices via the vault.
            if(rc.ats&&(rc.ats>(e.ats||0))){ e.alias=rc.alias; e.ats=rc.ats; if(!e.alias) delete e.alias; }
+           if(rc.mts&&(rc.mts>(e.mts||0))){ e.mu=rc.mu; e.mts=rc.mts; if(!e.mu) delete e.mu; }
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
   (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];
     if(!e){ byRid[rg.rid]=Object.assign({},rg); }
     else { if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk) e.gk=rg.gk; }
            if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; }
+           if(rg.mts&&(rg.mts>(e.mts||0))){ e.mu=rg.mu; e.mts=rg.mts; if(!e.mu) delete e.mu; }
            if(rg.mem){ const mem=Object.assign({},e.mem||{}); for(const pk in rg.mem){ if(!mem[pk] || (rg.mem[pk].ts||0)<(mem[pk].ts||0)) mem[pk]=rg.mem[pk]; } e.mem=mem; } } });
   if(_chainChanged) _chainCache.clear();   // keys derived from a root this merge replaced must not be reused
   return { contacts:Object.values(byCk), groups:Object.values(byRid) };
@@ -2925,7 +3039,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("peerMeta").addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); showStatusDetail(); } });
   // iOS only lets audio start inside a user gesture: unlock at the first tap so the connection / message sounds
   // that follow (which are not user-initiated) can be heard.
-  document.addEventListener("pointerdown",()=>{ if(soundOn) initAudio(); },{passive:true});
+  document.addEventListener("pointerdown",()=>{ if(soundMode()!=="none") initAudio(); },{passive:true});
   $("sendBtn").addEventListener("mousedown",e=>e.preventDefault());        // keep the keyboard open while sending
   $("attachBtn").addEventListener("mousedown",e=>e.preventDefault());
   $("msgInput").addEventListener("focus",()=>{ [120,350,700].forEach(ms=>setTimeout(()=>{ fitViewport(); stickLog(); },ms)); });
@@ -2947,19 +3061,18 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   function currentDark(){ const c=document.documentElement.getAttribute("data-theme"); return c?c==="dark":matchMedia("(prefers-color-scheme:dark)").matches; }
   function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")) $("themeToggle").textContent=d?t("Light ☀"):t("Dark ☾"); }
   function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); }
-  function refreshSoundUI(){ if($("soundState")) $("soundState").textContent=soundOn?t("On"):t("Off"); const b=$("soundToggle"); if(b){ b.textContent=soundOn?t("On"):t("Off"); b.classList.toggle("off",!soundOn); }
+  function refreshSoundUI(){ const sel=$("soundSel"); if(sel) sel.value=soundMode();
     const cur=toneName(); document.querySelectorAll("#toneSel .tone").forEach(x=>x.setAttribute("aria-checked", x.dataset.tone===cur ? "true":"false")); }
   document.querySelectorAll("#toneSel .tone").forEach(btn=>btn.addEventListener("click",()=>{
-    if(!soundOn){ soundOn=true; try{ localStorage.setItem("vesper-sound","on"); }catch(x){} }
+    if(soundMode()!=="all") setSoundMode("all");      // picking a message sound means wanting to hear it
     btn.classList.remove("playing"); void btn.offsetWidth; btn.classList.add("playing");
     previewTone(btn.dataset.tone); refreshSoundUI(); }));
   function refreshLangUI(){ const s=$("langSel"); if(s) s.value=LANG; }
   $("langSel").addEventListener("change",e=>{ const v=e.target.value; if(LANGS.includes(v)) setLang(v); });
   refreshLangUI();   // the selector shows the language in use from the start (detected or saved)
   _refreshSettingsUI=()=>{ refreshThemeUI(); refreshSoundUI(); refreshLangUI(); refreshPrevUI(); updateNotifyUI(); };
-  function toggleSound(){ soundOn=!soundOn; try{ localStorage.setItem("vesper-sound",soundOn?"on":"off"); }catch(e){} if(soundOn){ initAudio(); soundRecv(); } refreshSoundUI(); }
+  $("soundSel").addEventListener("change",e=>{ setSoundMode(e.target.value); if(soundMode()==="all"){ initAudio(); soundRecv(); } refreshSoundUI(); });
   $("themeToggle").addEventListener("click",toggleTheme);
-  $("soundToggle").addEventListener("click",toggleSound);
 
   // ----- Settings modal -----
   function openSettings(){
@@ -3157,12 +3270,17 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       $("mi-rename").hidden=!(R&&(R.fromContact||grp));
       $("mi-loc").hidden=!(R&&(grp||R.fromContact||R.paired));
       $("mi-togroup").hidden=!(R&&R.fromContact&&!grp);
+      { const rec=muteRecOf(R), mu=mutedUntil(rec);
+        $("mi-mute").hidden=!rec || !!mu; $("mi-unmute").hidden=!mu; $("mi-mute-opts").hidden=true;
+        $("mi-mute-until").textContent = mu && mu<MUTE_ALWAYS ? t("until {time}",{time:fmtUntil(mu)}) : ""; }
       m.hidden=false;
     } else m.hidden=true;
   }
   $("menuBtn").addEventListener("click",e=>{ e.stopPropagation(); toggleMenu(); });
   document.addEventListener("click",e=>{ if(!$("barMenu").hidden && !$("barMenu").contains(e.target) && e.target!==$("menuBtn")) closeMenu(); });
-  $("barMenu").addEventListener("click",e=>{ const b=e.target.closest(".menu-item"); if(!b) return; closeMenu();
+  $("barMenu").addEventListener("click",e=>{ const b=e.target.closest(".menu-item"); if(!b) return;
+    if(b.dataset.act==="mute"){ $("mi-mute-opts").hidden=!$("mi-mute-opts").hidden; return; }   // pick how long: the menu stays open
+    closeMenu();
     const act=b.dataset.act;
     if(act==="invite") inviteToGroup();
     else if(act==="members") openMembers();
@@ -3175,6 +3293,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     else if(act==="wire") $("wire").classList.toggle("show");
     else if(act==="settings") openSettings();
     else if(act==="lock") lockApp();
+    else if(act==="mute1h") setMute(A(), 3600000);
+    else if(act==="mute8h") setMute(A(), 28800000);
+    else if(act==="muteall") setMute(A(), MUTE_ALWAYS);
+    else if(act==="unmute") setMute(A(), 0);
   });
 
   // ----- contacts / navigation -----

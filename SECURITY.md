@@ -141,8 +141,12 @@ rate-limit counters.
   endpoint to the per-contact notification keys and the account marker. Presence fields other than the
   signed public key (name, marker, call announcements) are not authenticated by the contact key.
 - **Invite links travel through whatever you share them with.** "Share on WhatsApp" hands the link to
-  wa.me; the v3 design is what limits what a copied link gives (see above), but the link itself is seen by
-  that channel like any message you send there.
+  WhatsApp (its own `whatsapp://` link on a phone, wa.me on a computer); the v3 design is what limits what a
+  copied link gives (see above), but the link itself is seen by that channel like any message you send there.
+- **Muted chats and the unread count.** Whether a chat is muted (and until when) is stored with the contact or
+  group in the encrypted vault. For notifications, the service worker's cache holds — next to the names it
+  already kept — the end time of each muted chat, keyed by a hash of its notification key, and the unread
+  count. Numbers and times only; the count shown in the tab title and on the app icon is a number, never a name.
 - **Reactions and replies** add nothing for the relay to see: a reaction is an encrypted envelope
   `{t:"react", m, e}` and a reply an encrypted text carrying the quoted message id and a snippet of at most
   160 characters, both sent like any message (signed in groups; a group reaction with a broken signature is

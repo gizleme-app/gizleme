@@ -560,7 +560,22 @@ window.GZ_I18N = {
     "You": "Toi",
     "Original message no longer available": "Le message d'origine n'est plus disponible",
     "Tap to remove your reaction": "Touche pour retirer ta réaction",
-    "Reaction not sent — check your connection": "Réaction non envoyée — vérifie ta connexion"
+    "Reaction not sent — check your connection": "Réaction non envoyée — vérifie ta connexion",
+    "Play sounds for": "Sons pour",
+    "Messages and calls": "Messages et appels",
+    "Calls only": "Appels seulement",
+    "No sound": "Aucun son",
+    "Mute notifications": "Mettre en sourdine",
+    "For 1 hour": "Pendant 1 heure",
+    "For 8 hours": "Pendant 8 heures",
+    "Until I turn it back on": "Jusqu'à ce que je la réactive",
+    "Turn sound back on": "Réactiver le son",
+    "until {time}": "jusqu'à {time}",
+    "Sound back on for this chat": "Son réactivé pour cette conversation",
+    "Chat muted": "Conversation en sourdine",
+    "Muted until {time}": "En sourdine jusqu'à {time}",
+    "Muted chat": "Conversation en sourdine",
+    "WhatsApp didn't open? Use “Share link” instead.": "WhatsApp ne s'est pas ouvert ? Utilise plutôt « Partager le lien »."
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1110,6 +1125,21 @@ window.GZ_I18N = {
     "You": "Sen",
     "Original message no longer available": "Asıl mesaj artık mevcut değil",
     "Tap to remove your reaction": "Tepkini kaldırmak için dokun",
-    "Reaction not sent — check your connection": "Tepki gönderilemedi — bağlantını kontrol et"
+    "Reaction not sent — check your connection": "Tepki gönderilemedi — bağlantını kontrol et",
+    "Play sounds for": "Sesli uyarı",
+    "Messages and calls": "Mesajlar ve aramalar",
+    "Calls only": "Yalnızca aramalar",
+    "No sound": "Sessiz",
+    "Mute notifications": "Sessize al",
+    "For 1 hour": "1 saat",
+    "For 8 hours": "8 saat",
+    "Until I turn it back on": "Ben tekrar açana kadar",
+    "Turn sound back on": "Sesi yeniden aç",
+    "until {time}": "bitiş: {time}",
+    "Sound back on for this chat": "Bu sohbetin sesi yeniden açık",
+    "Chat muted": "Sohbet sessize alındı",
+    "Muted until {time}": "Sessizde — bitiş: {time}",
+    "Muted chat": "Sessize alınmış sohbet",
+    "WhatsApp didn't open? Use “Share link” instead.": "WhatsApp açılmadı mı? Bunun yerine “Bağlantıyı paylaş” düğmesini kullan."
   }
 };

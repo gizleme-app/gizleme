@@ -1,5 +1,6 @@
-# Quiet sounds and the glowing row: no sound when sending, when a contact comes online or for a reaction, none in
-# the chat you are looking at; one tone (rate-limited) for a message elsewhere, and that chat's row glows.
+# Quiet sounds and the glowing row: no sound when sending, when a contact comes online or for a reaction; a small
+# echo of the chime in the chat you are looking at; the chime (rate-limited) for a message elsewhere, and that
+# chat's row glows.
 from playwright.sync_api import sync_playwright
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
@@ -165,12 +166,14 @@ try:
     r["paired"]= wait_for(A,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000) and wait_for(B,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000)
     A.wait_for_timeout(800)
     r["no_sound_on_connect"]= osc(A)==a0
-    # both looking at the chat: sending is silent, receiving in the open chat is silent
+    # both looking at the chat: sending is silent, receiving in the open chat gives the small echo only
     a1,b1=osc(A),osc(B)
     A.fill("#msgInput","coucou"); A.press("#msgInput","Enter")
     wait_for(B,"()=>[...document.querySelectorAll('.bubble.recv .txt')].some(e=>e.textContent==='coucou')",8000); B.wait_for_timeout(300)
     r["no_sound_on_send"]= osc(A)==a1
-    r["no_sound_in_open_chat"]= osc(B)==b1
+    d1=osc(B)-b1
+    r["small_echo_in_open_chat"]= 0<d1<15     # the echo (2 bell notes = 10 oscillators), not the whole chime (15)
+    r["echo_v"]=d1
     # a reaction makes no sound either
     b2=osc(B)
     A.evaluate("()=>{ const b=[...document.querySelectorAll('.bubble.sent')].pop(); b.querySelector('.txt').dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); }"); A.wait_for_timeout(200); A.click("#rxQuick button[data-e='👍']")
@@ -188,7 +191,7 @@ try:
     for m in ["1","2","3"]: A.fill("#msgInput",m); A.press("#msgInput","Enter"); A.wait_for_timeout(250)
     B.wait_for_timeout(1500)
     tones=(osc(B)-b4)
-    r["burst_rings_once_or_less"]= tones<=3   # one tone = 3 oscillators for the default "classic"
+    r["burst_rings_once_or_less"]= tones<=15  # one chime = 3 bell notes x 5 partials for the default "gizleme"
     r["burst_v"]=tones
     # the glow settles: after a few seconds the class is gone at the next render
     B.wait_for_timeout(3200); B.evaluate("()=>window.dispatchEvent(new Event('focus'))")
