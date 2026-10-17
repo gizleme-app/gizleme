@@ -143,6 +143,10 @@ rate-limit counters.
 - **Invite links travel through whatever you share them with.** "Share on WhatsApp" hands the link to
   WhatsApp (its own `whatsapp://` link on a phone, wa.me on a computer); the v3 design is what limits what a
   copied link gives (see above), but the link itself is seen by that channel like any message you send there.
+- **Merging two chats** is a local, user-confirmed step: the earlier chat's history is re-filed under this
+  chat's history id on your devices, and its key stays (hidden) only so that what still arrives on it is read.
+  No keys are combined, nothing is sent, the other side is not told, and verification marks are not carried
+  over as proof of anything — Gizleme never merges on its own, because a matching name proves nothing.
 - **Muted chats and the unread count.** Whether a chat is muted (and until when) is stored with the contact or
   group in the encrypted vault. For notifications, the service worker's cache holds — next to the names it
   already kept — the end time of each muted chat, keyed by a hash of its notification key, and the unread

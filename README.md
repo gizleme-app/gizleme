@@ -49,6 +49,10 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   1 hour, 8 hours or until you turn it back on (it follows your account; its notifications arrive silently).
 - Unread count in the tab title and on the app icon (a number, never a name), and a "New messages" line
   where you left off when you open a chat.
+- Two chats with the same person (say, a new invite after the old chat broke) can be merged from the chat
+  menu (⋮ → Merge with another chat…): the earlier chat's messages show in this one in time order, it leaves
+  the list, and anything still sent on its key lands here. Never automatic — a name proves nothing — and only
+  on your devices.
 - An app left open for days notices a new release when it comes back to the foreground: a small pill,
   "New version available — tap to update" (on the lock screen it simply reloads).
 - Web Push: the wire carries only "New message" / "Incoming call" / "A contact wants to chat"; the

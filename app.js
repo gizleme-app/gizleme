@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 26;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 27;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -117,6 +117,11 @@ function scheduleHistKeys(){ if(_hkT || !gHistKey) return; _hkT=setTimeout(()=>{
 async function ensureHistKeys(){
   const l=contactsLoad(); let changed=false;
   for(const c of l){ try{
+    if(c.into){   // merged into another chat (here or on another device): this device's copy of its history goes there too
+      const own=await hidFor(c.prev||c.ck); _hid[c.ck]=c.into; if(c.prev) _hid[c.prev]=c.into;
+      for(const room of [own, "c:"+c.ck]) if(room!==c.into){ await histMove(room, c.into);
+        if(_meta.unread && _meta.unread[room]!==undefined){ _meta.unread[c.into]=(_meta.unread[c.into]||0)+_meta.unread[room]; delete _meta.unread[room]; } }
+      if(c.hk!==c.into){ c.hk=c.into; changed=true; } continue; }
     const nh=await hidFor(c.prev||c.ck); _hid[c.ck]=nh; if(c.prev) _hid[c.prev]=nh;
     const old=c.hk||("c:"+c.ck); if(c.hk===nh) continue;
     if(old!==nh){ await histRename(old, nh);
@@ -239,8 +244,10 @@ function contactUpsert(name, ckB64){
 // recon is per-device; never let it travel through the vault (a stale copy could resurrect a window we closed)
 function contactsForVault(){ return contactsLoad().map(c=>{ if(c.recon){ const d=Object.assign({},c); delete d.recon; return d; } return c; }); }
 function contactRemove(ckB64){
-  [...rooms.values()].filter(R=>R.fromContact===ckB64).forEach(R=>leaveRoom(R.code));   // or the next presence sync re-saves them
-  contactsSave(contactsLoad().filter(c=>c.ck!==ckB64)); }
+  const T=contactFind(ckB64); const gone=c=>c.ck===ckB64 || !!(T && T.hk && c.into && c.into===T.hk);   // with the chats merged into it
+  const l=contactsLoad(); const drop=new Set(l.filter(gone).map(c=>c.ck));
+  [...rooms.values()].filter(R=>drop.has(R.fromContact)).forEach(R=>leaveRoom(R.code));   // or the next presence sync re-saves them
+  contactsSave(l.filter(c=>!drop.has(c.ck))); }
 async function ckFromSecret(secret){ return b64(await hkdf(secret,"gz-contact/v1")); }  // ECDH secret -> stable contact key
 async function rvCodeFromCK(ckB64){         // secret room code for today's window
   const day=Math.floor(Date.now()/86400000);
@@ -248,6 +255,7 @@ async function rvCodeFromCK(ckB64){         // secret room code for today's wind
   let s=""; for(let i=0;i<7;i++) s+=B32[u[i]%B32.length]; return s;
 }
 async function openContact(ckB64, name){
+  { const tg=mergedTarget(contactFind(ckB64)); if(tg) return openContact(tg.ck, tg.alias||tg.name); }
   closeSidebar();
   const rvck=rendezvousCKOf(contactFind(ckB64))||ckB64;    // while reconciling, meet on the pre-rotation room
   const code=await rvCodeFromCK(rvck);
@@ -278,6 +286,42 @@ function inviteOpts(){ const sel=$("invExp"), pin=$("invPinOn"); return { x: Dat
 function newPin(){ const a=crypto.getRandomValues(new Uint16Array(1))[0] % 10000; return String(a).padStart(4,"0"); }
 async function pinTag(secret, pin){ return b64(await hkdf(secret, "gz-pin/v1|"+String(pin||""), 16)); }   // proves the code to the inviter; not guessable offline (needs the ECDH secret)
 function contactFind(ck){ return contactsLoad().find(c=>c.ck===ck)||null; }
+// ----- two chats with the same person, merged -----
+// Each conversation has its own key and a name proves nothing, so Gizleme never merges chats by itself. You can
+// fold an older chat into the one you are in: its messages (already on this device) are filed under this chat's
+// history id, it leaves the chats list, and whatever still arrives on its key lands here too. Its record stays,
+// hidden and marked into: <this chat's history id>, so its mailbox keeps being read and the merge follows the
+// account to its other devices (each moves its own copy at unlock). Nothing is sent; the other side's app is
+// not changed.
+function mergedTarget(c){ return c && c.into ? (_contacts.find(x=>x.hk===c.into && !x.into)||null) : null; }
+async function histMove(fromRoom, toRoom){ if(!fromRoom || !toRoom || fromRoom===toRoom) return;
+  try{ const db=await idb(); await new Promise((res,rej)=>{ const tx=db.transaction(["msgs","media"],"readwrite");
+    for(const st of ["msgs","media"]){ const rq=tx.objectStore(st).index("room").openCursor(IDBKeyRange.only(fromRoom));
+      rq.onsuccess=e=>{ const c=e.target.result; if(!c) return; const v=c.value; v.room=toRoom; c.update(v); c.continue(); }; }
+    tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }catch(e){} }
+function mergeCandidates(R){ if(!R || R.group || !R.fromContact) return [];
+  return contactsLoad().filter(c=>c.ck!==R.fromContact && !c.into && !c.pk && c.name!==INV_PLACEHOLDER); }
+async function mergeChatInto(R, oldCk){
+  if(!R || R.group || !R.fromContact || !gHistKey) return false;
+  await ensureHistKeys();
+  const T=contactFind(R.fromContact), S=contactFind(oldCk); if(!T || !S || T.ck===S.ck || S.into || T.into) return false;
+  const tHk=await hidFor(T.prev||T.ck), sOwn=await hidFor(S.prev||S.ck);
+  for(const room of new Set([sOwn, S.hk, "c:"+S.ck])) if(room && room!==tHk){ await histMove(room, tHk);
+    if(_meta.unread[room]!==undefined){ _meta.unread[tHk]=(_meta.unread[tHk]||0)+_meta.unread[room]; delete _meta.unread[room]; }
+    delete _prev[room]; }
+  const l=contactsLoad(); const s2=l.find(x=>x.ck===S.ck), t2=l.find(x=>x.ck===T.ck); if(!s2 || !t2) return false;
+  t2.hk=tHk; s2.into=tHk; s2.hk=tHk; s2.its=Date.now(); _hid[S.ck]=tHk; if(S.prev) _hid[S.prev]=tHk;
+  if((!realName(t2.name) || t2.name===INV_PLACEHOLDER || t2.name==="Friend") && realName(S.name)){ t2.name=S.name; t2.ts=Date.now(); }
+  if(!t2.alias && S.alias){ t2.alias=S.alias; t2.ats=Date.now(); }
+  if(S.v && !t2.v) t2.v=1;
+  contactsSave(l);
+  [...rooms.values()].filter(x=>x.fromContact===S.ck).forEach(x=>leaveRoom(x.code));   // the old chat's tab, if open
+  // this chat, shown again with both histories in time order
+  if(R.logEl){ R.logEl.innerHTML=""; delete R.logEl.dataset.lastDay; R.reacts=null; renderHistory(R, await histLoad(tHk));
+    sysline(R.logEl, t("🔗 Your earlier chat with {name} is now part of this one.",{name:S.alias||dn(S.name)})); scrollEl(R.logEl); }
+  renderTabs(); renderContacts(); refreshPreviews(); updateBadge(true);
+  return true;
+}
 function contactPatch(ck, fields){ const l=contactsLoad(); const c=l.find(x=>x.ck===ck); if(c){ Object.assign(c,fields); contactsSave(l); } }
 // v3: the link carries a one-time public key (pre-key) whose private half stays with the inviter. Whoever opens
 // the link agrees a contact key with it by ECDH — a key nobody can compute from the link alone. The link key
@@ -435,7 +479,7 @@ function renderContacts(fromPreview){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
   const lastTs=it=>Math.max(it.ts||0, (_prev[previewKeyOf(it)]||{}).ts||0);
   const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,alias:g.alias,ts:g.ts||0}))
-    .concat(contactsLoad().map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,alias:c.alias,v:c.v,ts:c.ts||0})))
+    .concat(contactsLoad().filter(c=>!c.into).map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,alias:c.alias,v:c.v,ts:c.ts||0})))
     .sort((a,b)=>lastTs(b)-lastTs(a));                 // most recent activity first, like any chats list
   if(!fromPreview) refreshPreviews();
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
@@ -836,25 +880,31 @@ async function fetchMailboxId(R, id, key, ck){
 // always save, count as unread when not being looked at, and tell the sender it arrived.
 function onInbound(R, env, who, ts, mid, own, animate){
   if(env && env.t==="react"){ onReactEnv(R, env, who, ts, mid, own); return; }
-  const hk=histKeyOf(R); const open=!!R.logEl;
+  if(R.shadow && !R.group && R.fromContact){ const tg=mergedTarget(contactFind(R.fromContact));   // merged away: show it where it now lives
+    if(tg){ let V=null; rooms.forEach(x=>{ if(x.fromContact===tg.ck && x.logEl) V=x; }); if(V) return onInboundView(R, V, env, who, ts, mid, own, animate); } }
+  return onInboundView(R, R, env, who, ts, mid, own, animate);
+}
+// R: the chat whose key carried the message (receipts go back on it); V: the chat it is shown in
+function onInboundView(R, V, env, who, ts, mid, own, animate){
+  const hk=histKeyOf(R); const open=!!V.logEl;
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
     if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name, env.adm);
-    if(open){ if(env.t==="img") addText(R.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)});
-      else if(env.t==="aud"){ if(validAud(env)) addVoice(R.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
-      else if(validLoc(env)) addCard(R.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
-      else if(validGinv(env)) addCard(R.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
-      else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid),quote:validQuote(env.q)?quoteEl(R,cleanQuote(env.q),"sent",""):null}); }
+    if(open){ if(env.t==="img") addText(V.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)});
+      else if(env.t==="aud"){ if(validAud(env)) addVoice(V.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
+      else if(validLoc(env)) addCard(V.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
+      else if(validGinv(env)) addCard(V.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
+      else addText(V.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid),quote:validQuote(env.q)?quoteEl(V,cleanQuote(env.q),"sent",""):null}); }
     histSave(hk,{dir:"sent",env,ts,mid}); return;
   }
   const tag=R.group?(who||""):""; const vf=R.group?env.vf:undefined;
-  if(env.t==="img"){ if(open) addImageRecvOnce(R.logEl,env,tag,ts,mid,vf); }
-  else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(R.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
-  else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(R.logEl,"recv",locCard(env,false),tag,ts,{mid,vf}); }
-  else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(R.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid,vf}); }
-  else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf,quote:validQuote(env.q)?quoteEl(R,cleanQuote(env.q),"recv",who):null});
+  if(env.t==="img"){ if(open) addImageRecvOnce(V.logEl,env,tag,ts,mid,vf); }
+  else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(V.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
+  else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(V.logEl,"recv",locCard(env,false),tag,ts,{mid,vf}); }
+  else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(V.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid,vf}); }
+  else if(open) addText(V.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf,quote:validQuote(env.q)?quoteEl(V,cleanQuote(env.q),"recv",who):null});
   histSave(hk,{dir:"recv",env,ts,who,mid,vf});
   healLinkUsed(R);
-  if(!open || R.code!==active) bumpUnread(R);
+  if(!open || V.code!==active) bumpUnread(V);
   if(!R.group && R.fromContact && mid) queueRcpt(R.fromContact, mid);
 }
 // A chat we opened from a link and were told "already used by someone else" — yet the inviter writes to us (or
@@ -883,7 +933,8 @@ function offerUpdate(){
 // silently (a push must always show something). Kept with the contact / group in the encrypted vault, so it
 // follows the account to its other devices (last change wins); "always" is simply the far future.
 const MUTE_ALWAYS=8.64e15;
-function muteRecOf(R){ if(!R) return null; if(R.group) return _groups.find(g=>g.rid===R.rid)||null; if(R.fromContact) return _contacts.find(c=>c.ck===R.fromContact)||null; return null; }
+function muteRecOf(R){ if(!R) return null; if(R.group) return _groups.find(g=>g.rid===R.rid)||null;
+  if(R.fromContact){ const c=_contacts.find(x=>x.ck===R.fromContact)||null; return mergedTarget(c)||c; } return null; }
 function mutedUntil(rec){ const u=rec ? +rec.mu||0 : 0; return u>Date.now() ? u : 0; }
 function isMutedRoom(R){ return !!mutedUntil(muteRecOf(R)); }
 function isMutedItem(it){ return !!mutedUntil(it.t==="g" ? _groups.find(g=>g.rid===it.rid) : _contacts.find(c=>c.ck===it.ck)); }
@@ -1278,7 +1329,8 @@ async function histLoad(room){
     const recs=await new Promise((res,rej)=>{ const out=[]; const idx=db.transaction("msgs").objectStore("msgs").index("room");
       const rq=idx.openCursor(IDBKeyRange.only(room)); rq.onsuccess=e=>{ const c=e.target.result; if(c){ out.push(c.value); c.continue(); } else res(out); }; rq.onerror=()=>rej(rq.error); });
     const out=[];
-    for(const r of recs){ try{ const pt=await aesDec(gHistKey,r.iv,r.ct); out.push(JSON.parse(dec.decode(pt))); }catch(e){} }
+    for(const r of recs){ try{ const pt=await aesDec(gHistKey,r.iv,r.ct); const o=JSON.parse(dec.decode(pt)); if(!o.ts) o.ts=r.ts||0; out.push(o); }catch(e){} }
+    out.sort((a,b)=>(a.ts||0)-(b.ts||0));      // stable: same-moment records keep their order
     return out;
   }catch(e){ return []; }
 }
@@ -2690,7 +2742,8 @@ function mergeContacts(remote){ let _chainChanged=false;
     // we rotated already and the other device still has the old record: ours wins, its flags are kept
     const rotLocal=Object.values(byCk).find(c=>c.prev===rc.ck);
     if(rotLocal){ if(rc.v) rotLocal.v=1; if(realName(rc.name) && !realName(rotLocal.name)) rotLocal.name=rc.name;
-      if(rc.mts&&(rc.mts>(rotLocal.mts||0))){ rotLocal.mu=rc.mu; rotLocal.mts=rc.mts; if(!rotLocal.mu) delete rotLocal.mu; } return; }
+      if(rc.mts&&(rc.mts>(rotLocal.mts||0))){ rotLocal.mu=rc.mu; rotLocal.mts=rc.mts; if(!rotLocal.mu) delete rotLocal.mu; }
+      if(rc.into && !rotLocal.into){ rotLocal.into=rc.into; rotLocal.hk=rc.into; } return; }
     const e=byCk[rc.ck];
     if(!e){ byCk[rc.ck]=Object.assign({},rc); }
     else { if((rc.ts||0)>(e.ts||0)){ e.name=rc.name||e.name; e.ts=rc.ts; } if(e.v||rc.v) e.v=1;
@@ -2704,6 +2757,7 @@ function mergeContacts(remote){ let _chainChanged=false;
            // peer — so it is never carried across a user's devices via the vault.
            if(rc.ats&&(rc.ats>(e.ats||0))){ e.alias=rc.alias; e.ats=rc.ats; if(!e.alias) delete e.alias; }
            if(rc.mts&&(rc.mts>(e.mts||0))){ e.mu=rc.mu; e.mts=rc.mts; if(!e.mu) delete e.mu; }
+           if(rc.into && !e.into){ e.into=rc.into; e.hk=rc.into; if(rc.its) e.its=rc.its; }   // merged on another device: one-way, never undone
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
   (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];
@@ -2919,6 +2973,24 @@ async function join(){ const m=($("join").dataset.mode)||"register";
 }
 // Rename a contact or a group for yourself only: the nickname lives in your own (encrypted, account-synced)
 // list; the other side never sees it. An empty name restores the name they chose.
+// "Merge with another chat…": pick the earlier chat with the same person (same name first, then most recent)
+function openMerge(){
+  const R=A(), list=$("mergeList"); if(!R || !list) return; list.innerHTML="";
+  const cur=contactFind(R.fromContact), curName=(cur && realName(cur.name)) || "";
+  const last=c=>((_prev[ckHistKey(c.ck)]||{}).ts || c.ts || 0);
+  mergeCandidates(R).sort((a,b)=>((b.name===curName)-(a.name===curName)) || (last(b)-last(a))).forEach(c=>{
+    const nm=c.alias||dn(c.name)||t("Contact"), pv=_prev[ckHistKey(c.ck)];
+    const b=document.createElement("button"); b.type="button"; b.className="merge-row";
+    const av=document.createElement("span"); av.className="ava"; av.textContent=up((nm||"?")[0]);
+    const tx=document.createElement("span"); tx.className="mr-t"; const n=document.createElement("b"); n.textContent=nm;
+    const sub=document.createElement("small"); sub.textContent=pv ? (fmtListTime(pv.ts)+" · "+pv.text) : t("No messages on this device");
+    tx.appendChild(n); tx.appendChild(sub); b.appendChild(av); b.appendChild(tx);
+    b.addEventListener("click",async()=>{
+      if(!confirm(t("Merge your chat with “{old}” into this one?\n\nIts messages will show here, in order, and it leaves your chats list. If they still write in that chat, it arrives here too. Only on your devices — nothing is sent.",{old:nm}))) return;
+      $("mergeModal").classList.remove("show"); const ok=await mergeChatInto(A(), c.ck); toast(ok ? t("Chats merged") : t("Couldn't merge these chats")); });
+    list.appendChild(b); });
+  $("mergeModal").classList.add("show");
+}
 function renameChat(){
   const R=A(); if(!R) return;
   if(R.group){ const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return;
@@ -3308,6 +3380,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       $("mi-rename").hidden=!(R&&(R.fromContact||grp));
       $("mi-loc").hidden=!(R&&(grp||R.fromContact||R.paired));
       $("mi-togroup").hidden=!(R&&R.fromContact&&!grp);
+      $("mi-merge").hidden=!(R&&R.fromContact&&!grp&&mergeCandidates(R).length);
       { const rec=muteRecOf(R), mu=mutedUntil(rec);
         $("mi-mute").hidden=!rec || !!mu; $("mi-unmute").hidden=!mu; $("mi-mute-opts").hidden=true;
         $("mi-mute-until").textContent = mu && mu<MUTE_ALWAYS ? t("until {time}",{time:fmtUntil(mu)}) : ""; }
@@ -3326,6 +3399,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     else if(act==="notify") nudgeContact();
     else if(act==="rekey") rekey();
     else if(act==="rename") renameChat();
+    else if(act==="merge") openMerge();
     else if(act==="loc") sendLocation();
     else if(act==="togroup") convertToGroup();
     else if(act==="wire") $("wire").classList.toggle("show");
@@ -3337,6 +3411,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     else if(act==="unmute") setMute(A(), 0);
   });
 
+  $("mergeCancel").addEventListener("click",()=>$("mergeModal").classList.remove("show"));
+  $("mergeModal").addEventListener("click",e=>{ if(e.target.id==="mergeModal") $("mergeModal").classList.remove("show"); });
   // ----- contacts / navigation -----
   renderContacts();
   $("sbNew").addEventListener("click",()=>{ closeSidebar(); showAddRoom(); });

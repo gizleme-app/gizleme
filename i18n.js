@@ -578,7 +578,16 @@ window.GZ_I18N = {
     "WhatsApp didn't open? Use “Share link” instead.": "WhatsApp ne s'est pas ouvert ? Utilise plutôt « Partager le lien ».",
     "✨ New version available — tap to update": "✨ Nouvelle version disponible — touche pour mettre à jour",
     "Updating will end the call. Update now?": "La mise à jour va couper l'appel. Mettre à jour maintenant ?",
-    "✅ You are connected with {name} after all — ignore the warning above.": "✅ Tu es bien connecté·e avec {name} — ignore l'avertissement ci-dessus."
+    "✅ You are connected with {name} after all — ignore the warning above.": "✅ Tu es bien connecté·e avec {name} — ignore l'avertissement ci-dessus.",
+    "Merge with another chat…": "Fusionner avec une autre conversation…",
+    "Merge with another chat": "Fusionner avec une autre conversation",
+    "Pick your earlier chat with the same person. Its messages will show here.": "Choisis ton ancienne conversation avec la même personne. Ses messages apparaîtront ici.",
+    "Only on your devices — nothing is sent, and the other person's app is not changed.": "Seulement sur tes appareils — rien n'est envoyé, et l'app de l'autre personne ne change pas.",
+    "No messages on this device": "Aucun message sur cet appareil",
+    "Merge your chat with “{old}” into this one?\n\nIts messages will show here, in order, and it leaves your chats list. If they still write in that chat, it arrives here too. Only on your devices — nothing is sent.": "Fusionner ta conversation avec « {old} » dans celle-ci ?\n\nSes messages apparaîtront ici, dans l'ordre, et elle quittera ta liste. Si la personne écrit encore dans l'ancienne, ça arrivera ici aussi. Seulement sur tes appareils — rien n'est envoyé.",
+    "Chats merged": "Conversations fusionnées",
+    "Couldn't merge these chats": "Impossible de fusionner ces conversations",
+    "🔗 Your earlier chat with {name} is now part of this one.": "🔗 Ton ancienne conversation avec {name} fait maintenant partie de celle-ci."
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1146,6 +1155,15 @@ window.GZ_I18N = {
     "WhatsApp didn't open? Use “Share link” instead.": "WhatsApp açılmadı mı? Bunun yerine “Bağlantıyı paylaş” düğmesini kullan.",
     "✨ New version available — tap to update": "✨ Yeni sürüm hazır — güncellemek için dokun",
     "Updating will end the call. Update now?": "Güncelleme aramayı sonlandıracak. Şimdi güncellensin mi?",
-    "✅ You are connected with {name} after all — ignore the warning above.": "✅ {name} ile aslında bağlısın — yukarıdaki uyarıyı dikkate alma."
+    "✅ You are connected with {name} after all — ignore the warning above.": "✅ {name} ile aslında bağlısın — yukarıdaki uyarıyı dikkate alma.",
+    "Merge with another chat…": "Başka bir sohbetle birleştir…",
+    "Merge with another chat": "Başka bir sohbetle birleştir",
+    "Pick your earlier chat with the same person. Its messages will show here.": "Aynı kişiyle olan eski sohbetini seç. Mesajları burada görünecek.",
+    "Only on your devices — nothing is sent, and the other person's app is not changed.": "Yalnızca senin cihazlarında — hiçbir şey gönderilmez, karşı tarafın uygulaması değişmez.",
+    "No messages on this device": "Bu cihazda mesaj yok",
+    "Merge your chat with “{old}” into this one?\n\nIts messages will show here, in order, and it leaves your chats list. If they still write in that chat, it arrives here too. Only on your devices — nothing is sent.": "“{old}” ile olan sohbetin bununla birleştirilsin mi?\n\nMesajları sırayla burada görünecek ve listenden çıkacak. Kişi eski sohbete yazmaya devam ederse o da buraya gelir. Yalnızca senin cihazlarında — hiçbir şey gönderilmez.",
+    "Chats merged": "Sohbetler birleştirildi",
+    "Couldn't merge these chats": "Bu sohbetler birleştirilemedi",
+    "🔗 Your earlier chat with {name} is now part of this one.": "🔗 {name} ile olan eski sohbetin artık bunun bir parçası."
   }
 };
