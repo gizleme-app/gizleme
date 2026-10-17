@@ -438,6 +438,7 @@ function renderContacts(fromPreview){
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
   items.forEach(it=>{
     const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":"");
+    { const pk=previewKeyOf(it), age=pulseAge(_pulse.get(pk)); if(age>=0 && it.id!==activeId){ row.classList.add("pulse"); row.style.setProperty("--pd","-"+age+"ms"); } else if(age<0) _pulse.delete(pk); }
     const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":(up((it.alias||it.name)&&(it.alias||it.name)[0]||"?"));
     const ci=document.createElement("div"); ci.className="ci";
     // line 1: name (+ verified) ……… time of the last message
@@ -679,8 +680,7 @@ async function onMsgGroup(R,{payload:p}){
     if(env.t==="gk2"){ await onGk2(R, env, vf, who); return; }
     if(env.t==="call"){ if(vf!=="bad") callSignal(R, env, who).catch(()=>{}); return; }
     onInbound(R, env, who, now, p.mid, false, true);
-    if(R.code===active) blinkEyes();
-    soundRecv();
+    if(env.t!=="react"){ if(R.code===active) blinkEyes(); messageTone(R); }
   }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail",t("⚠ could not decrypt this message"),""); }
 }
 function groupInviteLink(R){ const g=groupsLoad().find(x=>x.rid===R.rid); const o={rid:R.rid,gk:b64(R.gk),name:(g&&g.name)||R.title}; if(g&&g.adm) o.adm=g.adm; if(g&&g.rot) o.rot=1; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); }
@@ -807,14 +807,14 @@ async function fetchMailboxId(R, id, key, ck){
         if(R.group && own && (env.t==="hi" || env.t==="gk2")) continue;
         if(!own) adoptNameFromMessage(R, env.n);
         onInbound(R, env, who, ts, it.mid, own, false);
-        if(!own) delivered++;
+        if(!own && env.t!=="react") delivered++;
       }catch(e){ if(it.mid) R.seen.delete(it.mid);
         if(it.data && typeof it.data.ep==="number" && Date.now()-ts<48*3600*1000){ if(!hold || ts<hold) hold=ts; } }   // wrong chain on this device for now: keep it for a later pass
     }
     mbtsSet(id, hold ? Math.min(maxTs, hold-1) : maxTs);
     // tell the relay these are delivered: it keeps them 48 h more for our other devices, then drops them
     if(got.length) mboxFn("ack",{mbox:id, mids:got}).catch(()=>{});
-    if(delivered && !R.shadow){ soundRecv(); if(R.code===active) blinkEyes(); }
+    if(delivered && !R.shadow){ messageTone(R); if(R.code===active) blinkEyes(); }
   }catch(e){}
   return delivered;
 }
@@ -842,7 +842,7 @@ function onInbound(R, env, who, ts, mid, own, animate){
   if(!open || R.code!==active) bumpUnread(R);
   if(!R.group && R.fromContact && mid) queueRcpt(R.fromContact, mid);
 }
-function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; localSaveSoon(); renderTabs(); renderContacts(); }
+function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; pulseChat(R); localSaveSoon(); renderTabs(); renderContacts(); }
 function clearUnread(R){ const k=histKeyOf(R); if(_meta.unread[k]){ delete _meta.unread[k]; localSaveSoon(); } R.unread=0; }
 function stateFor(mid){ if(mid && outqHas(mid)) return "pending"; return mid && _meta.rcpt[mid] ? "rcvd" : "sent"; }
 // Messages written to a v3 invite before it is opened wait on this device (nothing is ever deposited under
@@ -916,7 +916,7 @@ async function inboxPull(force){
       if(R){ await fetchMailbox(R); continue; }
       try{ const S=await shadowRoom(it); bg+=(await fetchMailbox(S))||0; }catch(e){}
     }
-    if(bg){ soundRecv(); renderContacts(); }
+    if(bg){ messageTone(null); renderContacts(); }
   } finally { _inboxBusy=false; }
 }
 function seedSeen(R, past){ R.seen=new Set(); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.add(r.mid); }); }
@@ -1398,12 +1398,6 @@ function beep(seq, force){ if((!soundOn&&!force)||!audioCtx) return; const now=a
     g.gain.setValueAtTime(0, now+n.t0); g.gain.linearRampToValueAtTime(n.gain||0.06, now+n.t0+0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, now+n.t0+n.dur); o.connect(g).connect(audioCtx.destination);
     o.start(now+n.t0); o.stop(now+n.t0+n.dur+0.03); }); }
-// Refined notification tones: soft sine intervals with gentle, overlapping envelopes.
-function soundSend(){ beep([
-  {f:587.33,t0:0,   dur:0.16,gain:0.045},   // D5
-  {f:880.00,t0:0.05,dur:0.20,gain:0.038},   // A5 (fifth)
-  {f:1174.66,t0:0.05,dur:0.22,gain:0.015}   // D6 shimmer
-]); }
 // Message tones, all synthesized (no audio files, works offline). "classic" is the original.
 const LS_TONE="gz-tone";
 const TONES={
@@ -1416,6 +1410,19 @@ const TONES={
 function toneName(){ try{ const v=localStorage.getItem(LS_TONE); return TONES[v]?v:"classic"; }catch(e){ return "classic"; } }
 function setTone(n){ if(!TONES[n]) return; try{ localStorage.setItem(LS_TONE,n); }catch(e){} }
 function soundRecv(){ beep(TONES[toneName()]); }
+// Sound policy, deliberately quiet: one tone for a message in a chat you are not looking at, at most once
+// every few seconds (a mailbox catch-up after a while away rings once). Nothing when you send, nothing when
+// someone comes online, nothing for a reaction, nothing in the chat you have open (you see it arrive).
+// Calls keep their ringtone.
+let _toneAt=0;
+function messageTone(R){
+  if(R && !R.shadow && R.code===active && !document.hidden) return;
+  const now=Date.now(); if(now-_toneAt<4000) return; _toneAt=now; soundRecv();
+}
+// A message for a chat you are not looking at: its row in the list (and its tab) glows twice, gently.
+const PULSE_MS=2600; const _pulse=new Map();   // history key -> when it started
+function pulseChat(R){ try{ const k=histKeyOf(R); if(k) _pulse.set(k, Date.now()); R._pulseAt=Date.now(); }catch(e){} }
+function pulseAge(at){ const a=at ? Date.now()-at : PULSE_MS; return a<PULSE_MS ? a : -1; }
 // Preview from Settings. Must run inside a tap (iOS only unlocks audio in a user gesture) and waits for the
 // context to actually be running. On iPhone, Web Audio follows the silent switch; for the preview alone we
 // ask for the "playback" session so the chosen tone can be heard even then, and hand the session back after.
@@ -2031,7 +2038,6 @@ async function establish(R, other, authed){
     if(!R.connLineShown || !authed){ R.connLineShown=true;
       sysline(R.logEl, bearer ? t("🔒 secure channel with {name} — authenticated with your invite link; the key only your two devices know takes over now.",{name:alias||dn(nm)})
         : authed ? t("✅ {name} verified automatically — same shared key as when you first connected.",{name:alias||dn(nm)}) : t("🔒 secure channel established with {name}",{name:alias||dn(nm)})); }
-    soundConnect();
     // Derive a stable per-contact key from the first shared secret (relay never sees it),
     // then save/refresh the contact — identical on both sides, no extra round-trip.
     if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){}
@@ -2169,8 +2175,7 @@ async function onMsg(R, {payload:p}){
     const now=Date.now();
     if(env.t==="call"){ callSignal(R, env, R.peerName).catch(()=>{}); return; }
     onInbound(R, env, "", now, p.mid, false, true);
-    if(R.code===active) blinkEyes();
-    soundRecv();
+    if(env.t!=="react"){ if(R.code===active) blinkEyes(); messageTone(R); }
   }catch(e){
     if(p.mid && R.seen) R.seen.delete(p.mid);            // not decrypted here: let the encrypted mailbox copy deliver it
     if(R.fromContact){ setTimeout(()=>fetchMailbox(R),1500); }   // e.g. we're paired with their other device — the mailbox has it
@@ -2209,7 +2214,7 @@ async function deliverOut(R, env, mid, el, now, quiet){   // quiet: a reaction �
     else { ok=await depositMailbox(R,mid,env); }
   }catch(e){ ok=false; }
   if(ok){
-    if(el) setMsgState(el, stateFor(mid)); if(!quiet) soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
+    if(el) setMsgState(el, stateFor(mid)); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
     if(!quiet && !R.group && R.fromContact && !R.paired) notifyPeer(R.fromContact, "msg");     // they're not here: wake their device
   } else if(el){
     setMsgState(el,"failed"); el._retry=()=>{ el._retry=null; setMsgState(el,"pending"); deliverOut(R,env,mid,el,now,quiet); };
@@ -2411,6 +2416,7 @@ function renderTabs(){
   tabsEl.style.display = rooms.size>1 ? "flex" : "none";   // only show the switcher with multiple open chats
   rooms.forEach(R=>{
     const chip=document.createElement("div"); chip.className="tab"+(R.code===active?" active":"");
+    { const age=pulseAge(R._pulseAt); if(age>=0 && R.code!==active){ chip.classList.add("pulse"); chip.style.setProperty("--pd","-"+age+"ms"); } }
     const nm=document.createElement("span"); nm.className="tname"; nm.textContent=R.title?dn(R.title):("#"+R.code); chip.appendChild(nm);
     if(R.unread){ const b=document.createElement("span"); b.className="badge"; b.textContent=R.unread>9?"9+":R.unread; chip.appendChild(b); }
     const x=document.createElement("button"); x.className="tx"; x.textContent="×"; x.title=t("Leave room"); x.setAttribute("aria-label",t("Leave room"));

@@ -42,6 +42,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   key — the new key reaches each remaining member under their own key, the removed one is locked out.
 - Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
   phone's own maps app — Gizleme never fetches anything from a map provider.
+- Quiet by design: one tone for a message in a chat you are not looking at (at most once every few
+  seconds), nothing when you send, when someone comes online or for a reaction; that chat's row glows
+  briefly in the list. Calls keep their ringtone.
 - Web Push: the wire carries only "New message" / "Incoming call" / "A contact wants to chat"; the
   receiving device adds the contact's name ("New message from X"). Never message content.
 - Audio and video calls (WebRTC): media goes peer-to-peer and is end-to-end encrypted by construction

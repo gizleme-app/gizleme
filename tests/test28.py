@@ -74,7 +74,7 @@ with sync_playwright() as pw:
     r["online_class"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-online')")
     r["online_short"]= p.eval_on_selector("#statusText","e=>e.textContent")
     r["online_fullKept"]= "same key as your first connection" in p.eval_on_selector("#peerMeta","e=>e.title")
-    r["connectSoundPlayed"]= p.evaluate("()=>window.__beeps.length>0")
+    r["connectIsSilent"]= p.evaluate("()=>window.__beeps.length===0")   # a contact coming online is shown by the green dot, not a chime
     r["connLineOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('verified automatically')).length")==1
     # Florian drops and comes back with a new session: dot red then green again, no second connection line
     p.evaluate("()=>window.__sync({})"); p.wait_for_timeout(500)

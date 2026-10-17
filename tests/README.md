@@ -39,3 +39,4 @@ files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose
 | test40 | vault merge rules for the key chain |
 | test41 | Turkish: detection, every string translated (placeholders intact), switching, dates, initials, privacy page |
 | test42 | reactions (double tap / double click, toggle, replace, counts) and replies (swipe, ↩, quote jump), persistence |
+| test43 | quiet sounds (none on send, connect, reaction or in the open chat; one rate-limited tone elsewhere) and the glowing row |
