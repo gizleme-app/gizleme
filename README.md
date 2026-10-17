@@ -29,6 +29,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
 - View-once photos, disappearing messages (24 h by default), auto-lock, privacy screen, hidden previews.
+- Reactions (double tap / double click on a message → emoji picker; one reaction per person, tap it again to
+  take it back) and replies (swipe a message to the right, or ↩ in the picker; the quote jumps to the
+  original). Both are ordinary encrypted messages — signed in groups — so the relay learns nothing new.
 - Voice messages (up to 2 min): recorded on the device with one small built-in codec (IMA ADPCM, 16 kHz —
   the same bytes decode in every browser, no container or codec negotiation), encrypted exactly like a
   photo under a key that only travels inside the message; the ciphertext is deleted from the relay once

@@ -550,7 +550,17 @@ window.GZ_I18N = {
     "Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.": "Rejoindre le groupe « {name} » ?\n\nSes membres verront ton nom affiché. Ne rejoins que des groupes de personnes que tu connais.",
     "Close": "Fermer",
     "🙂 Unlock with Face ID": "🙂 Déverrouiller avec Face ID",
-    "Replay": "Rejouer"
+    "Replay": "Rejouer",
+    "React": "Réagir",
+    "More reactions": "Plus de réactions",
+    "Reply": "Répondre",
+    "Cancel reply": "Annuler la réponse",
+    "Replying to {name}": "Réponse à {name}",
+    "Replying to your message": "Réponse à ton message",
+    "You": "Toi",
+    "Original message no longer available": "Le message d'origine n'est plus disponible",
+    "Tap to remove your reaction": "Touche pour retirer ta réaction",
+    "Reaction not sent — check your connection": "Réaction non envoyée — vérifie ta connexion"
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1090,6 +1100,16 @@ window.GZ_I18N = {
     "Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.": "“{name}” grubuna katılınsın mı?\n\nÜyeleri görünen adını görecek. Yalnızca tanıdığın kişilerin gruplarına katıl.",
     "Close": "Kapat",
     "🙂 Unlock with Face ID": "🙂 Face ID ile kilidi aç",
-    "Replay": "Tekrar oynat"
+    "Replay": "Tekrar oynat",
+    "React": "Tepki ver",
+    "More reactions": "Diğer tepkiler",
+    "Reply": "Yanıtla",
+    "Cancel reply": "Yanıtı iptal et",
+    "Replying to {name}": "Yanıt: {name}",
+    "Replying to your message": "Kendi mesajına yanıt",
+    "You": "Sen",
+    "Original message no longer available": "Asıl mesaj artık mevcut değil",
+    "Tap to remove your reaction": "Tepkini kaldırmak için dokun",
+    "Reaction not sent — check your connection": "Tepki gönderilemedi — bağlantını kontrol et"
   }
 };

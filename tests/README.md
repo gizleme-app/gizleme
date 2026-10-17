@@ -33,8 +33,9 @@ files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose
 | test34 | rejoining a room after failed joins |
 | test35 | invite links: expiry, 4-digit code, QR |
 | test36 | mailbox forward secrecy: weekly key chain, advancing, holding, convergence |
-| test37 | groups: signed messages, spoofing and tampering flagged, identity key in the vault |
+| test37 | groups: signed messages, spoofing and tampering flagged, identity key in the vault; group reactions and replies |
 | test38 | groups: key rotation, removing a member |
 | test39 | key chain for existing contacts, seeded at a live meeting |
 | test40 | vault merge rules for the key chain |
 | test41 | Turkish: detection, every string translated (placeholders intact), switching, dates, initials, privacy page |
+| test42 | reactions (double tap / double click, toggle, replace, counts) and replies (swipe, ↩, quote jump), persistence |

@@ -148,6 +148,18 @@ try:
     r["signed_badgeOk"]= any(x["txt"]=="salut la bande" and "vf-ok" in x["cls"] and x["who"].startswith("florian") and "✓" in x["who"] for x in bb)
     idB=B.evaluate("()=>window.__gz.ident()"); r["ident_created"]= bool(idB and idB.get("pk") and idB.get("sk"))
     gA=A.evaluate("()=>window.__gz.groups()[0]"); r["memberKeyRecorded"]= bool(gA.get("mem")) and any(v.get("n")=="florian" for v in gA["mem"].values()) and idB["pk"] in gA["mem"]
+    # ---- reactions and replies in the group: signed like messages, counted per member ----
+    DBL="()=>{ const b=[...document.querySelectorAll('.log .bubble.recv')].filter(x=>x.querySelector('.txt') && x.querySelector('.txt').textContent==='salut la bande').pop(); b.querySelector('.txt').dispatchEvent(new MouseEvent('dblclick',{bubbles:true})); }"
+    A.evaluate(DBL); A.wait_for_timeout(200); A.click("#rxQuick button[data-e='👍']")
+    C.wait_for_timeout(300); C.evaluate(DBL); C.wait_for_timeout(200); C.click("#rxQuick button[data-e='👍']")
+    r["grp_react_count"]= wait_for(B,"()=>{ const b=[...document.querySelectorAll('.log .bubble.sent')].filter(x=>x.querySelector('.txt') && x.querySelector('.txt').textContent==='salut la bande').pop(); const c=b&&b.querySelector('.reacts .rx'); return !!c && c.textContent==='👍 2' && /oguz/.test(c.title) && /claire|camille|C|eve/i.test(c.title); }",8000)
+    r["grp_react_titles"]= B.evaluate("()=>{ const b=[...document.querySelectorAll('.log .bubble.sent')].filter(x=>x.querySelector('.txt') && x.querySelector('.txt').textContent==='salut la bande').pop(); const c=b&&b.querySelector('.reacts .rx'); return c?c.title:null; }")
+    r["grp_react_seenByOther"]= wait_for(C,"()=>{ const b=[...document.querySelectorAll('.log .bubble.recv')].filter(x=>x.querySelector('.txt') && x.querySelector('.txt').textContent==='salut la bande').pop(); const c=b&&b.querySelector('.reacts .rx'); return !!c && c.textContent==='👍 2' && c.classList.contains('mine'); }",8000)
+    A.evaluate(DBL); A.wait_for_timeout(200); A.click("#rxReply"); A.wait_for_timeout(150)
+    r["grp_reply_bar"]= A.evaluate("()=>document.getElementById('rbName').textContent")=="Replying to florian"
+    A.fill("#msgInput","bien dit"); A.press("#msgInput","Enter")
+    r["grp_reply_quote_B"]= wait_for(B,"()=>{ const b=[...document.querySelectorAll('.log .bubble.recv')].pop(); const q=b&&b.querySelector('.quote'); return !!q && q.querySelector('.qn').textContent==='You' && q.querySelector('.qs').textContent==='salut la bande'; }",8000)
+    r["grp_reply_quote_C"]= wait_for(C,"()=>{ const b=[...document.querySelectorAll('.log .bubble.recv')].pop(); const q=b&&b.querySelector('.quote'); return !!q && q.querySelector('.qn').textContent==='florian' && q.querySelector('.qs').textContent==='salut la bande'; }",8000)
     # ---- C signs with its own key but claims florian's name → "different key" ----
     C.evaluate("()=>window.__gz.forge('florian',false)"); C.wait_for_timeout(1500)
     bb=bubbles(A)

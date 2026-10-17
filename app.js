@@ -107,6 +107,11 @@ const _hid={};
 async function hidFor(ck){ return "h:"+b64url(new Uint8Array(await hkdf(unb64(ck),"gz-hist/v1",16))); }
 function ckHistKey(ck){ const c=contactFind(ck); if(c && c.hk && c.hk.startsWith("h:")) return c.hk; return _hid[ck] || ("c:"+ck); }
 async function histKeyAsync(room){ if(typeof room==="string" && room.startsWith("c:")){ const ck=room.slice(2); if(!_hid[ck]) _hid[ck]=await hidFor((contactFind(ck)||{}).prev||ck); return _hid[ck]; } return room; }
+// A contact created during the session (an invite opened, a hello received) starts without its opaque id:
+// file it right away, not only at the next unlock — otherwise the chats list looks for its preview and
+// unread count under a different key than the one its messages were saved under.
+let _hkT=null;
+function scheduleHistKeys(){ if(_hkT || !gHistKey) return; _hkT=setTimeout(()=>{ _hkT=null; ensureHistKeys().catch(()=>{}); },30); }
 // at unlock: every contact gets its opaque id; anything still filed under a raw key is re-filed
 async function ensureHistKeys(){
   const l=contactsLoad(); let changed=false;
@@ -180,7 +185,8 @@ const LS_LOCAL="gz-local";
 let _contacts=[], _groups=[], _localT=null;
 let _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{}};   // per-chat unread counts, receipts by message id, viewed view-once photos, queued sends, mailbox cursors, push-nudge times
 function contactsLoad(){ return _contacts.map(c=>Object.assign({},c)); }
-function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); try{ _chainCache.clear(); }catch(e){} localSaveSoon(); renderContacts(); syncPushSoon(); }   // mailbox keys are derived from what is saved here: never reuse one across a change
+function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); try{ _chainCache.clear(); }catch(e){} localSaveSoon(); renderContacts(); syncPushSoon();
+  if(_contacts.some(c=>!(c.hk && c.hk.startsWith("h:")))) scheduleHistKeys(); }   // mailbox keys are derived from what is saved here: never reuse one across a change
 function localSaveSoon(){ clearTimeout(_localT); _localT=setTimeout(()=>{ localSave().catch(()=>{}); swNamesSoon(); },250); }
 // The service worker composes notification text itself ("New message from Baba"), so it needs the names
 // you use for your contacts — nickname first — and the sentence templates in your language. Only names
@@ -815,6 +821,7 @@ async function fetchMailboxId(R, id, key, ck){
 // One place where every inbound message lands (live, mailbox, background): render if the chat is open,
 // always save, count as unread when not being looked at, and tell the sender it arrived.
 function onInbound(R, env, who, ts, mid, own, animate){
+  if(env && env.t==="react"){ onReactEnv(R, env, who, ts, mid, own); return; }
   const hk=histKeyOf(R); const open=!!R.logEl;
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
     if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name, env.adm);
@@ -822,7 +829,7 @@ function onInbound(R, env, who, ts, mid, own, animate){
       else if(env.t==="aud"){ if(validAud(env)) addVoice(R.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
       else if(validLoc(env)) addCard(R.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
       else if(validGinv(env)) addCard(R.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
-      else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid)}); }
+      else addText(R.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid),quote:validQuote(env.q)?quoteEl(R,cleanQuote(env.q),"sent",""):null}); }
     histSave(hk,{dir:"sent",env,ts,mid}); return;
   }
   const tag=R.group?(who||""):""; const vf=R.group?env.vf:undefined;
@@ -830,7 +837,7 @@ function onInbound(R, env, who, ts, mid, own, animate){
   else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(R.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
   else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(R.logEl,"recv",locCard(env,false),tag,ts,{mid,vf}); }
   else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(R.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid,vf}); }
-  else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf});
+  else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf,quote:validQuote(env.q)?quoteEl(R,cleanQuote(env.q),"recv",who):null});
   histSave(hk,{dir:"recv",env,ts,who,mid,vf});
   if(!open || R.code!==active) bumpUnread(R);
   if(!R.group && R.fromContact && mid) queueRcpt(R.fromContact, mid);
@@ -1140,16 +1147,17 @@ function histSweep(room, cutoff){ // delete saved records older than cutoff (ms 
 // Last saved message of a chat (one reverse cursor step + one decrypt) — for the conversation list preview.
 async function histLast(room){
   if(!gHistKey||!room) return null;
-  try{ const db=await idb();
-    const rec=await new Promise((res,rej)=>{ const idx=db.transaction("msgs").objectStore("msgs").index("room");
-      const rq=idx.openCursor(IDBKeyRange.only(room),"prev"); rq.onsuccess=e=>{ const c=e.target.result; res(c?c.value:null); }; rq.onerror=()=>rej(rq.error); });
-    if(!rec) return null;
-    const r=JSON.parse(dec.decode(await aesDec(gHistKey,rec.iv,rec.ct))); r.ts=r.ts||rec.ts||0; return r;
+  try{ room=await histKeyAsync(room); const db=await idb();
+    // the last records, newest first (a few, since reactions are skipped: they are not what the list should show)
+    const recs=await new Promise((res,rej)=>{ const out=[]; const idx=db.transaction("msgs").objectStore("msgs").index("room");
+      const rq=idx.openCursor(IDBKeyRange.only(room),"prev"); rq.onsuccess=e=>{ const c=e.target.result; if(!c || out.length>=25){ res(out); return; } out.push(c.value); c.continue(); }; rq.onerror=()=>rej(rq.error); });
+    for(const rec of recs){ const r=JSON.parse(dec.decode(await aesDec(gHistKey,rec.iv,rec.ct))); if(r && r.env && r.env.t==="react") continue; r.ts=r.ts||rec.ts||0; return r; }
+    return null;
   }catch(e){ return null; }
 }
 // Preview cache for the chats list: key -> {text, ts, dir}. Refreshed in the background after each render.
 const _prev={}; let _prevT=null;
-function previewKeyOf(it){ return it.t==="g" ? it.rid : (it.hk||("c:"+it.ck)); }
+function previewKeyOf(it){ return it.t==="g" ? it.rid : ckHistKey(it.ck); }   // the same key history and unread counts use
 function previewText(r, isGroup){
   if(!r) return "";
   const body = r.env && r.env.t==="img" ? t("📷 Photo") : r.env && r.env.t==="aud" ? t("🎤 Voice message") : r.env && r.env.t==="loc" ? t("📍 Location") : r.env && r.env.t==="ginv" ? t("👥 Group invitation") : (r.env && r.env.body) || "";
@@ -1714,6 +1722,7 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
   if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
+  if(opts.quote) d.appendChild(opts.quote);
   const t=document.createElement("span"); t.className="txt"; d.appendChild(t);
   if(cls==="sent"||cls==="recv") metaRow(d, ts, cls==="sent" ? (opts.st||"sent") : null);
   if(cls==="sent"){ d.addEventListener("click",()=>{ if(d.classList.contains("failed") && d._retry) d._retry(); }); }
@@ -1721,6 +1730,118 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
   return d;
 }
+// ---------- reactions and replies ----------
+// Both are ordinary end-to-end encrypted messages (same live channel, same mailbox, signed in groups): the
+// relay learns nothing new. A reaction is {t:"react", m:<message id>, e:<emoji or "" to remove>}; a reply is
+// a text message carrying q:{m, s, o, w} — the quoted id, a short snippet, whether the replier wrote the
+// quoted message (o), and its author's name in a group (w). Both also carry a plain body so an older app
+// shows something sensible.
+const RX_QUICK=["❤️","😂","👍","😮","😢","🙏"];
+const RX_MORE=["😍","🥰","😘","😊","😁","🤣","😅","😉","😎","🤔","🙄","😴","😡","🤯","🥳","😭","🤗","🤩","👏","🙌","💪","👌","🤝","✌️","🔥","💯","🎉","✨","💔","👀","🌹","☕"];
+const MID_RE=/^[A-Za-z0-9_-]{1,64}$/;
+function validRx(e){ return e==="" || (typeof e==="string" && e.length<=16 && /\p{Extended_Pictographic}/u.test(e) && !/[<>&"'A-Za-z0-9\s]/.test(e)); }
+function validQuote(q){ return !!(q && typeof q==="object" && typeof q.m==="string" && MID_RE.test(q.m) && typeof q.s==="string"); }
+function cleanQuote(q){ return { m:q.m, s:String(q.s).slice(0,160), o:q.o===1?1:0, w:typeof q.w==="string"?q.w.slice(0,40):"" }; }
+function bubbleOf(R, m){ if(!R||!R.logEl||!m) return null; try{ return R.logEl.querySelector('.bubble[data-mid="'+CSS.escape(m)+'"]'); }catch(e){ return null; } }
+function whoName(b){ const w=b && b.querySelector(".who"); return w && w.firstChild && w.firstChild.nodeType===3 ? w.firstChild.nodeValue.trim() : ""; }
+function bubbleSnippet(b){ if(!b) return "";
+  const tx=b.querySelector(".txt"); if(tx && tx.textContent.trim()) return tx.textContent.trim().replace(/\s+/g," ").slice(0,120);
+  if(b.querySelector(".vc")) return t("🎤 Voice message");
+  if(b.querySelector(".tapview,.imgph,img")) return t("📷 Photo");
+  const ct=b.querySelector(".cl-t"); if(ct) return ct.textContent.slice(0,120);
+  return "…"; }
+// who wrote the quoted message, as seen by this device
+function quoteAuthor(R, q, dir, who){
+  const peer=R.peerName||dn(R.title)||t("Contact");
+  if(dir==="sent") return q.o ? t("You") : (R.group ? (q.w||t("Member")) : peer);
+  if(q.o) return R.group ? (who||t("Member")) : peer;                    // they quoted themselves
+  const b=bubbleOf(R, q.m); if(b && b.classList.contains("sent")) return t("You");
+  if(!R.group) return t("You");                                          // 1:1: the only other author is me
+  return (q.w && q.w===myName) ? t("You") : (q.w||t("Member"));
+}
+function quoteEl(R, q, dir, who){
+  const d=document.createElement("div"); d.className="quote"; d.dataset.ref=q.m;
+  const n=document.createElement("span"); n.className="qn"; n.textContent=quoteAuthor(R, q, dir, who);
+  const s=document.createElement("span"); s.className="qs"; s.textContent=q.s;
+  d.appendChild(n); d.appendChild(s); return d;
+}
+function jumpToQuoted(R, m){
+  const b=bubbleOf(R, m); if(!b){ toast(t("Original message no longer available")); return; }
+  try{ b.scrollIntoView({block:"center", behavior:"smooth"}); }catch(e){ b.scrollIntoView(); }
+  b.classList.remove("flash"); void b.offsetWidth; b.classList.add("flash"); setTimeout(()=>b.classList.remove("flash"),1500);
+}
+// reactions: per chat, message id -> actor -> {e, n, ts}; one reaction per person per message
+function rxActor(R, own, env, who){
+  if(own) return {k:"me", n:t("You")};
+  if(!R.group) return {k:"peer", n:R.peerName||dn(R.title)||t("Contact")};
+  return {k: env && env.pk ? "k:"+env.pk : "n:"+(who||""), n: who||t("Member")};
+}
+function rxApply(R, m, actor, e, ts){
+  if(!R.reacts) R.reacts=new Map(); let mm=R.reacts.get(m); if(!mm){ mm=new Map(); R.reacts.set(m,mm); }
+  const cur=mm.get(actor.k); if(cur && (cur.ts||0)>(ts||0)) return false;          // an older change arriving late
+  if(e) mm.set(actor.k,{e, n:actor.n, ts:ts||Date.now()}); else if(cur) mm.set(actor.k,{e:"", n:actor.n, ts:ts||Date.now()});
+  return true;
+}
+function rxRender(R, m){
+  const b=bubbleOf(R, m); if(!b) return; let box=b.querySelector(":scope > .reacts");
+  const mm=R.reacts && R.reacts.get(m); const by=new Map();
+  if(mm) mm.forEach((v,k)=>{ if(!v.e) return; const g=by.get(v.e)||{n:0,names:[],mine:false}; g.n++; g.names.push(k==="me"?t("You"):v.n); if(k==="me") g.mine=true; by.set(v.e,g); });
+  if(!by.size){ if(box) box.remove(); return; }
+  if(!box){ box=document.createElement("div"); box.className="reacts"; b.appendChild(box); }
+  box.textContent="";
+  by.forEach((g,e)=>{ const c=document.createElement("button"); c.type="button"; c.className="rx"+(g.mine?" mine":""); c.dataset.e=e;
+    c.textContent=e+(g.n>1?" "+g.n:""); c.title=g.names.join(", ")+(g.mine?" · "+t("Tap to remove your reaction"):""); box.appendChild(c); });
+}
+function onReactEnv(R, env, who, ts, mid, own){
+  if(!env || typeof env.m!=="string" || !MID_RE.test(env.m) || !validRx(env.e)) return;
+  if(R.group && !own && env.vf==="bad") return;                                    // a forged group reaction counts for nothing
+  if(rxApply(R, env.m, rxActor(R, own, env, who), env.e, ts)) rxRender(R, env.m);
+  histSave(histKeyOf(R),{dir:own?"sent":"recv",env,ts,who,mid,vf:env.vf});
+}
+async function sendReaction(R, m, e){
+  if(!R || !m || !MID_RE.test(m)) return; if(!R.group && !R.fromContact && !R.paired) return;
+  const mm=R.reacts && R.reacts.get(m); const cur=mm && mm.get("me"); const prev=cur ? cur.e : "";
+  if(prev===e) e="";                                              // the same emoji again takes it back
+  if(!prev && !e) return; if(!validRx(e)) return;
+  const env={t:"react", m, e, body:e}; const mid=rid(); const now=Date.now(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  rxApply(R, m, {k:"me", n:t("You")}, e, now); rxRender(R, m); initAudio();
+  const ok=await deliverOut(R, env, mid, null, now, true);
+  if(!ok){ rxApply(R, m, {k:"me", n:t("You")}, prev, now+1); rxRender(R, m); toast(t("Reaction not sent — check your connection")); }
+}
+// picker
+let _rxFor=null, _rxAt=0;   // {code, m}
+function rxTargetOk(b){ return !!(b && b.dataset.mid && (b.classList.contains("sent")||b.classList.contains("recv")) && !b.classList.contains("fail")); }
+function openPicker(b){
+  const R=A(); if(!R || !rxTargetOk(b) || !R.logEl || !R.logEl.contains(b)) return;
+  if($("msgInput").disabled) return;
+  if(_rxFor && _rxFor.m===b.dataset.mid && Date.now()-_rxAt<600) return;   // touch double tap + the browser's own dblclick
+  _rxFor={code:R.code, m:b.dataset.mid}; _rxAt=Date.now();
+  const pk=$("rxPick"), q=$("rxQuick"), g=$("rxGrid");
+  if(!q.childElementCount){ RX_QUICK.forEach(e=>{ const x=document.createElement("button"); x.type="button"; x.textContent=e; x.dataset.e=e; x.setAttribute("aria-label",e); q.appendChild(x); });
+    RX_MORE.forEach(e=>{ const x=document.createElement("button"); x.type="button"; x.textContent=e; x.dataset.e=e; x.setAttribute("aria-label",e); g.appendChild(x); }); }
+  const mine=R.reacts && R.reacts.get(b.dataset.mid) && R.reacts.get(b.dataset.mid).get("me");
+  pk.querySelectorAll("button[data-e]").forEach(x=>x.classList.toggle("on", !!(mine && mine.e===x.dataset.e)));
+  g.hidden=true; pk.classList.remove("open-grid"); pk.hidden=false; placePicker(b);
+}
+function placePicker(b){
+  const pk=$("rxPick"); if(pk.hidden || !b) return; const r=b.getBoundingClientRect(); const w=pk.offsetWidth, h=pk.offsetHeight;
+  const bar=$("bar"); const minTop=(bar ? bar.getBoundingClientRect().bottom : 0)+6;
+  let top=r.top-h-8; if(top<minTop) top=Math.min(r.bottom+8, window.innerHeight-h-8);
+  let left=b.classList.contains("sent") ? r.right-w : r.left; left=Math.max(8, Math.min(left, window.innerWidth-w-8));
+  pk.style.top=Math.round(top)+"px"; pk.style.left=Math.round(left)+"px";
+}
+function closePicker(){ const pk=$("rxPick"); if(pk && !pk.hidden){ pk.hidden=true; } _rxFor=null; }
+// replying
+let _reply=null;   // {code, m, s, o, w}
+function startReply(b){
+  const R=A(); if(!R || !rxTargetOk(b) || $("msgInput").disabled) return;
+  const own=b.classList.contains("sent"); const w=own ? "" : (R.group ? whoName(b) : "");
+  _reply={code:R.code, m:b.dataset.mid, s:bubbleSnippet(b), o:own?1:0, w};
+  $("rbName").textContent= own ? t("Replying to your message") : t("Replying to {name}",{name: R.group ? (w||t("Member")) : (R.peerName||dn(R.title)||t("Contact"))});
+  $("rbText").textContent=_reply.s; $("replyBar").hidden=false; closePicker();
+  try{ $("msgInput").focus(); }catch(e){}
+}
+function cancelReply(){ _reply=null; const rb=$("replyBar"); if(rb) rb.hidden=true; }
 // Card bubbles (a location, a group invitation): icon, title, a mono sub-line and one action.
 function addCard(logEl, cls, card, tag, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
@@ -1808,6 +1929,8 @@ function addImageRecvOnce(logEl, meta, tag, ts, mid, vf){
 function renderHistory(R, past){
   const hk=histKeyOf(R); const dur=expFor(hk); const cut=dur?Date.now()-dur:0; if(dur) histSweep(hk,cut);
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
+    if(r.env.t==="react"){ if(typeof r.env.m==="string" && MID_RE.test(r.env.m) && validRx(r.env.e) && !(R.group && r.dir!=="sent" && r.vf==="bad"))
+        rxApply(R, r.env.m, r.dir==="sent" ? {k:"me",n:t("You")} : rxActor(R,false,r.env,r.who), r.env.e, r.ts); continue; }
     if(r.env.t==="img"){
       if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid,r.vf); }
       else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
@@ -1818,9 +1941,11 @@ function renderHistory(R, past){
       if(r.dir==="sent") addCard(R.logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid,vf:r.vf}); continue; }
     if(r.env.t==="ginv"){ if(!validGinv(r.env)) continue;
       if(r.dir==="sent") addCard(R.logEl,"sent",ginvCard(r.env,"","sent"),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",ginvCard(r.env,r.who||R.title,"recv"),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
-    if(r.dir==="sent") addText(R.logEl,"sent",r.env.body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
-    else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf});
+    const qq=validQuote(r.env.q) ? cleanQuote(r.env.q) : null;
+    if(r.dir==="sent") addText(R.logEl,"sent",r.env.body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),quote:qq?quoteEl(R,qq,"sent",""):null});
+    else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf,quote:qq?quoteEl(R,qq,"recv",r.who):null});
   }
+  if(R.reacts) R.reacts.forEach((_,m)=>rxRender(R,m));
   seedSeen(R, past);
 }
 function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); d.textContent=t; logEl.appendChild(d); scrollEl(logEl); }
@@ -2064,29 +2189,32 @@ async function sendText(){
   const text=$("msgInput").value.trim(); if(!text) return;
   if(!R.group && !R.fromContact && !R.paired) return;       // manual room with no one here yet: nothing to send to
   const env={t:"txt",body:text}; const mid=rid(); const now=Date.now();
+  if(_reply && _reply.code===R.code) env.q={m:_reply.m, s:_reply.s, o:_reply.o, w:_reply.w};
+  cancelReply();
   if(!R.seen) R.seen=new Set(); R.seen.add(mid);
   $("msgInput").value=""; $("msgInput").style.height="auto"; initAudio();
-  const el=addText(R.logEl,"sent",text,"",false,now,{mid,st:"pending"});
+  const el=addText(R.logEl,"sent",text,"",false,now,{mid,st:"pending",quote:env.q?quoteEl(R,cleanQuote(env.q),"sent",""):null});
   await deliverOut(R, env, mid, el, now);
 }
 // Delivery: live broadcast when paired, and/or the encrypted mailbox (always for contacts and groups, so
 // offline devices get it). The bubble shows pending → sent, or failed with tap-to-retry; nothing is saved
 // to history until it has actually left the device.
-async function deliverOut(R, env, mid, el, now){
+async function deliverOut(R, env, mid, el, now, quiet){   // quiet: a reaction — no sound, no push; el may be null
   let ok=false;
   // a v3 invite nobody has opened yet: hold the message here rather than depositing it under the link key
-  if(!R.group && R.fromContact && !R.paired){ const c=contactFind(R.fromContact); if(c && c.v3 && c.pk){ queueOut(R, env, mid, now, el); return; } }
+  if(!R.group && R.fromContact && !R.paired){ const c=contactFind(R.fromContact); if(c && c.v3 && c.pk){ queueOut(R, env, mid, now, el); return true; } }
   try{
     if(R.group){ const signed=await signGroupEnv(R, env, mid); const a=await broadcastGroup(R,signed,mid); const b=await depositMailbox(R,mid,signed); ok=a||b; }
     else if(R.paired){ const a=await broadcast(R,env,mid); const b=R.fromContact ? await depositMailbox(R,mid,env) : false; ok=a||b; }
     else { ok=await depositMailbox(R,mid,env); }
   }catch(e){ ok=false; }
   if(ok){
-    setMsgState(el, stateFor(mid)); soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
-    if(!R.group && R.fromContact && !R.paired) notifyPeer(R.fromContact, "msg");     // they're not here: wake their device
-  } else {
-    setMsgState(el,"failed"); el._retry=()=>{ el._retry=null; setMsgState(el,"pending"); deliverOut(R,env,mid,el,now); };
+    if(el) setMsgState(el, stateFor(mid)); if(!quiet) soundSend(); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
+    if(!quiet && !R.group && R.fromContact && !R.paired) notifyPeer(R.fromContact, "msg");     // they're not here: wake their device
+  } else if(el){
+    setMsgState(el,"failed"); el._retry=()=>{ el._retry=null; setMsgState(el,"pending"); deliverOut(R,env,mid,el,now,quiet); };
   }
+  return ok;
 }
 async function sendLocation(){
   const R=A(); if(!R) return; if(!R.group && !R.fromContact && !R.paired) return;
@@ -2180,7 +2308,7 @@ let _installChecked=false, _showInstallInvite=null;
 function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
-function goHome(){ active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
+function goHome(){ cancelReply(); closePicker(); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 function showAuth(mode){
@@ -2240,6 +2368,7 @@ function ncSet(nc){
 }
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
+  if(!_reply || _reply.code!==code) cancelReply(); closePicker();
   active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   clearUnread(R);
@@ -2590,7 +2719,7 @@ function privateDefaults(){ try{ if(localStorage.getItem(EXP_G)===null) localSto
 function setAutoLock(ms){ try{ localStorage.setItem(LS_AUTOLOCK,String(ms||0)); }catch(e){} armAutoLock(); }
 let _lockT=null, _hiddenAt=0;
 function armAutoLock(){ clearTimeout(_lockT); const ms=autoLockMs(); if(!ms||!gHistKey) return; _lockT=setTimeout(lockApp, ms); }
-function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop(); stopScan();
+function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop(); stopScan(); cancelReply(); closePicker();
   const s=sessLoad(); if(!s||!gHistKey) return;                 // not signed in, or already locked
   clearTimeout(_lockT); clearTimeout(_syncT);
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
@@ -2738,6 +2867,42 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
+  // Reactions: double tap (phone) or double click (computer) on a message opens the emoji picker.
+  // Replies: swipe a message to the right (phone), or ↩ in the picker. Taps on a quote jump to the original.
+  (function(){
+    const logs=$("logs"); let lastTap=null, sw=null;
+    const interactive=el=>!!(el && el.closest && el.closest("button,a,input,textarea,select,.tapview,.vbar,.quote,.reacts,img,video"));
+    logs.addEventListener("dblclick",e=>{ const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b) || interactive(e.target)) return;
+      try{ window.getSelection().removeAllRanges(); }catch(_){} openPicker(b); });
+    logs.addEventListener("touchstart",e=>{ if(e.touches.length!==1){ sw=null; return; } const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b)){ sw=null; return; }
+      const p=e.touches[0]; sw={b, x:p.clientX, y:p.clientY, t:Date.now(), on:false, ready:false, moved:false, inter:interactive(e.target), lock:!!(e.target.closest && e.target.closest(".vbar"))}; },{passive:true});
+    logs.addEventListener("touchmove",e=>{ if(!sw || sw.lock) return; const p=e.touches[0]; const dx=p.clientX-sw.x, dy=p.clientY-sw.y;
+      if(Math.abs(dx)>10 || Math.abs(dy)>10) sw.moved=true;
+      if(!sw.on){ if(Math.abs(dy)>12 && Math.abs(dy)>=Math.abs(dx)){ sw.lock=true; return; }          // a vertical scroll: leave it alone
+        if(dx>14 && dx>Math.abs(dy)*1.4){ sw.on=true; sw.b.classList.add("swiping"); closePicker(); } else return; }
+      const x=Math.max(0, Math.min(dx-14, 84)); sw.b.style.transform="translateX("+x+"px)";
+      const ready=x>=56; if(ready!==sw.ready){ sw.ready=ready; sw.b.classList.toggle("swipe-ready",ready); if(ready){ try{ navigator.vibrate && navigator.vibrate(8); }catch(_){} } } },{passive:true});
+    const endSwipe=s=>{ const b=s.b; b.style.transition="transform .18s ease"; b.style.transform="";
+      setTimeout(()=>{ b.style.transition=""; b.classList.remove("swiping","swipe-ready"); },200); if(s.ready) startReply(b); };
+    logs.addEventListener("touchend",e=>{ const s=sw; sw=null; if(!s) return;
+      if(s.on){ endSwipe(s); lastTap=null; return; }
+      if(s.moved || s.inter || Date.now()-s.t>350){ lastTap=null; return; }
+      const now=Date.now(); if(lastTap && lastTap.b===s.b && now-lastTap.t<330){ lastTap=null; e.preventDefault(); openPicker(s.b); return; }
+      lastTap={b:s.b, t:now}; },{passive:false});
+    logs.addEventListener("touchcancel",()=>{ const s=sw; sw=null; if(s && s.on){ s.ready=false; endSwipe(s); } },{passive:true});
+    logs.addEventListener("click",e=>{ const q=e.target.closest && e.target.closest(".quote"); if(q){ const R=A(); if(R) jumpToQuoted(R, q.dataset.ref); return; }
+      const c=e.target.closest && e.target.closest(".rx"); if(c){ const b=c.closest(".bubble"); const R=A(); if(R && b && b.dataset.mid) sendReaction(R, b.dataset.mid, c.dataset.e); } });
+    logs.addEventListener("scroll",()=>closePicker(),{capture:true,passive:true});
+    $("rxPick").addEventListener("click",e=>{ const x=e.target.closest && e.target.closest("button"); if(!x) return; const R=A(); const f=_rxFor;
+      if(x.id==="rxMore"){ const g=$("rxGrid"); g.hidden=!g.hidden; $("rxPick").classList.toggle("open-grid",!g.hidden); const b=(f&&R)?bubbleOf(R,f.m):null; if(b) placePicker(b); return; }
+      if(x.id==="rxReply"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) startReply(b); return; }
+      if(x.dataset.e && f && R && R.code===f.code){ closePicker(); sendReaction(R, f.m, x.dataset.e); } });
+    document.addEventListener("pointerdown",e=>{ const pk=$("rxPick"); if(pk && !pk.hidden && !pk.contains(e.target)) closePicker(); },true);
+    document.addEventListener("keydown",e=>{ if(e.key==="Escape") closePicker(); });
+    window.addEventListener("resize",()=>closePicker());
+    $("rbCancel").addEventListener("mousedown",e=>e.preventDefault());
+    $("rbCancel").addEventListener("click",()=>{ cancelReply(); try{ $("msgInput").focus(); }catch(_){} });
+  })();
   $("callBtn").addEventListener("click",()=>startCall(false)); $("videoBtn").addEventListener("click",()=>startCall(true));
   $("callEnd").addEventListener("click",hangup); $("callAccept").addEventListener("click",acceptCall); $("callDecline").addEventListener("click",declineCall);
   $("callMute").addEventListener("click",toggleMute); $("callCam").addEventListener("click",toggleCam); $("callFlip").addEventListener("click",flipCam);

@@ -143,6 +143,10 @@ rate-limit counters.
 - **Invite links travel through whatever you share them with.** "Share on WhatsApp" hands the link to
   wa.me; the v3 design is what limits what a copied link gives (see above), but the link itself is seen by
   that channel like any message you send there.
+- **Reactions and replies** add nothing for the relay to see: a reaction is an encrypted envelope
+  `{t:"react", m, e}` and a reply an encrypted text carrying the quoted message id and a snippet of at most
+  160 characters, both sent like any message (signed in groups; a group reaction with a broken signature is
+  ignored). The snippet is a copy of text the recipient already has; it disappears with the reply.
 - **View-once and disappearing messages are best effort.** They are enforced by the recipient's device;
   nothing stops a screenshot or a modified client. Voice messages follow the photo path (random key inside
   the message, ciphertext blob deleted from the relay after the first fetch) and are then kept encrypted
