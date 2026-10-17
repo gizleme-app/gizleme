@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 25;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 26;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -323,7 +323,7 @@ async function v3Agree(secret, ckLink){ return { ck:b64(await hkdf(secret,"gz-co
 // The inviter: a hello arrived (mailbox or presence) for a link we created → bind the contact to that opener.
 async function processHello(ckLink, e, n, m, fs){
   const c=contactFind(ckLink); if(!c) return false;
-  if(!c.pk){ const bound=contactByPrev(ckLink); if(bound && bound.v3 && bound.he!==e) noteLinkReuse(bound, ckLink, e); return false; }
+  if(!c.pk){ const bound=contactByPrev(ckLink); if(isForeignHello(bound, e)) noteLinkReuse(bound, ckLink, e); return false; }
   if(c.dead) return false;                                   // cancelled (three wrong codes): nothing binds any more
   if(inviteExpired(c.x)){ if(!c.expired){ contactPatch(ckLink,{expired:1}); noteLinkEvent(ckLink, t("⏳ Someone opened this invite link after it expired — nothing happened. Make a new link if that was your friend."), "expired"); } return false; }
   let secret; try{ const priv=await crypto.subtle.importKey("pkcs8", unb64(c.pk), {name:"ECDH",namedCurve:"P-256"}, false, ["deriveBits"]);
@@ -359,9 +359,16 @@ function noteLinkEvent(ckLink, msg, kind){
   if(R&&R.logEl) sysline(R.logEl, msg, kind!=="expired"); else toast(msg);
   if(R && R.code===active) setIdle(R); renderContacts();
 }
-// A hello for a link that is already bound: a copy of the link in other hands. Warn once, tell the opener.
+// A hello for a link that is already bound: a copy of the link in other hands. Only the INVITER can tell — its
+// bound record remembers the opener it bound to (he). The opener reads the same link mailbox (for "used" /
+// "nopin" notices) and finds its own hello there; that one is never someone else's, even when it was left
+// before the account marker was ready (a link opened while logging in or signing up) and so isn't flagged
+// as our own. Mistaking it once told the opener "this link was already used by someone else".
+function isForeignHello(bound, e){
+  return !!(bound && bound.v3 && !bound.pk && bound.he && e && bound.he!==e && !(bound.hello && bound.hello.e===e) && !(bound.reuseSeen||[]).includes(e));
+}
 function noteLinkReuse(c, ckLink, e){
-  const n=(c.reuse||0)+1; contactPatch(c.ck,{reuse:n}); if(n>3) return;
+  const n=(c.reuse||0)+1; contactPatch(c.ck,{reuse:n, reuseSeen:(c.reuseSeen||[]).concat([e]).slice(-5)}); if(n>3) return;
   const msg=t("⚠ Someone else just opened the invite link you sent to {name}. They were not added — this chat's key was never in the link. If you only shared that link once, it has leaked.",{name:c.alias||dn(c.name)});
   let R=null; rooms.forEach(r=>{ if(r.fromContact===c.ck) R=r; }); if(R&&R.logEl) sysline(R.logEl,msg,true); else toast(msg);
   mboxKeyForSecret(ckLink).then(async key=>{ await depositOne(await mboxIdForSecret(ckLink), key, "u"+rid(), {t:"used", e:e||""}); }).catch(()=>{});
@@ -370,10 +377,10 @@ async function onHelloEnv(R, ck, env){
   if(!env || typeof env.e!=="string" || env.e.length<80 || env.e.length>100) return;
   const c=contactFind(ck);
   if(c && c.pk) { await processHello(ck, env.e, env.n, env.m, env.fs===1); return; }
-  const bound=contactByPrev(ck); if(bound && bound.v3 && !bound.pk && bound.he!==env.e) noteLinkReuse(bound, ck, env.e);
+  const bound=contactByPrev(ck); if(isForeignHello(bound, env.e)) noteLinkReuse(bound, ck, env.e);
 }
 function onUsedEnv(R, ck, env){
-  const c=R.fromContact?contactFind(R.fromContact):null; if(!c || !c.v3 || c.prev!==ck || !c.hello || !env || env.e!==c.hello.e) return;
+  const c=R.fromContact?contactFind(R.fromContact):null; if(!c || !c.v3 || c.he || c.prev!==ck || !c.hello || !env || env.e!==c.hello.e) return;
   if(env.t==="nopin"){   // our code was wrong: this attempt is void; opening the link again asks for the code afresh
     contactPatch(c.ck,{dead:1, nopin:1}); const l=contactsLoad(); const x=l.find(y=>y.ck===c.ck); if(x){ delete x.hello; contactsSave(l); }
     if(R.logEl) sysline(R.logEl, t("⚠ The code you entered was wrong — you are not connected to {name}. Open their link again and enter the code they gave you.",{name:c.alias||dn(c.name)}), true);
@@ -846,9 +853,17 @@ function onInbound(R, env, who, ts, mid, own, animate){
   else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(R.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid,vf}); }
   else if(open) addText(R.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf,quote:validQuote(env.q)?quoteEl(R,cleanQuote(env.q),"recv",who):null});
   histSave(hk,{dir:"recv",env,ts,who,mid,vf});
+  healLinkUsed(R);
   if(!open || R.code!==active) bumpUnread(R);
   if(!R.group && R.fromContact && mid) queueRcpt(R.fromContact, mid);
 }
+// A chat we opened from a link and were told "already used by someone else" — yet the inviter writes to us (or
+// proves the key live) under the key we agreed with its link: it bound to US, the warning was wrong. Lift it.
+function healLinkUsed(R){
+  try{ if(!R || R.group || !R.fromContact) return; const c=contactFind(R.fromContact); if(!c || !c.dead || c.pk || !c.v3 || c.nopin || c.he) return;
+    const l=contactsLoad(); const x=l.find(y=>y.ck===c.ck); if(!x) return; delete x.dead; contactsSave(l);
+    if(R.logEl) sysline(R.logEl, t("✅ You are connected with {name} after all — ignore the warning above.",{name:c.alias||dn(c.name)}));
+    if(R.code===active && !R.paired) setIdle(R); }catch(e){} }
 function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; pulseChat(R); localSaveSoon(); renderTabs(); renderContacts(); }
 function clearUnread(R){ const k=histKeyOf(R); if(_meta.unread[k]){ delete _meta.unread[k]; localSaveSoon(); } R.unread=0; }
 // ----- newer version on the server -----
@@ -2161,6 +2176,7 @@ async function establish(R, other, authed){
     if(!R.connLineShown || !authed){ R.connLineShown=true;
       sysline(R.logEl, bearer ? t("🔒 secure channel with {name} — authenticated with your invite link; the key only your two devices know takes over now.",{name:alias||dn(nm)})
         : authed ? t("✅ {name} verified automatically — same shared key as when you first connected.",{name:alias||dn(nm)}) : t("🔒 secure channel established with {name}",{name:alias||dn(nm)})); }
+    if(authed) healLinkUsed(R);
     // Derive a stable per-contact key from the first shared secret (relay never sees it),
     // then save/refresh the contact — identical on both sides, no extra round-trip.
     if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){}
@@ -2240,7 +2256,7 @@ async function onSync(R){
   // someone who just opened our invite link announces the key agreement in presence: bind first, verify after
   for(const m of others){ if(m.hello && m.hello.e && R.fromContact){ const c=contactFind(R.fromContact);
     if(c && c.pk) await processHello(R.fromContact, m.hello.e, m.hello.n||m.name, m.hello.m, m.hello.fs===1);
-    else if(c && c.v3 && !c.pk && c.he && c.he!==m.hello.e && c.prev && !(c.reuseSeen||[]).includes(m.hello.e)){ contactPatch(c.ck,{reuseSeen:(c.reuseSeen||[]).concat([m.hello.e]).slice(-5)}); noteLinkReuse(c, c.prev, m.hello.e); } } }
+    else if(c && c.prev && isForeignHello(c, m.hello.e)) noteLinkReuse(c, c.prev, m.hello.e); } }
   if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setIdle(R); return; }
   // Authenticate every candidate with the shared contact key. Only someone holding the key we established
   // together can sign their public key, so an unverified entry is never paired with — whatever it calls itself.

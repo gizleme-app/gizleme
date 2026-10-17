@@ -577,7 +577,8 @@ window.GZ_I18N = {
     "Muted chat": "Conversation en sourdine",
     "WhatsApp didn't open? Use “Share link” instead.": "WhatsApp ne s'est pas ouvert ? Utilise plutôt « Partager le lien ».",
     "✨ New version available — tap to update": "✨ Nouvelle version disponible — touche pour mettre à jour",
-    "Updating will end the call. Update now?": "La mise à jour va couper l'appel. Mettre à jour maintenant ?"
+    "Updating will end the call. Update now?": "La mise à jour va couper l'appel. Mettre à jour maintenant ?",
+    "✅ You are connected with {name} after all — ignore the warning above.": "✅ Tu es bien connecté·e avec {name} — ignore l'avertissement ci-dessus."
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1144,6 +1145,7 @@ window.GZ_I18N = {
     "Muted chat": "Sessize alınmış sohbet",
     "WhatsApp didn't open? Use “Share link” instead.": "WhatsApp açılmadı mı? Bunun yerine “Bağlantıyı paylaş” düğmesini kullan.",
     "✨ New version available — tap to update": "✨ Yeni sürüm hazır — güncellemek için dokun",
-    "Updating will end the call. Update now?": "Güncelleme aramayı sonlandıracak. Şimdi güncellensin mi?"
+    "Updating will end the call. Update now?": "Güncelleme aramayı sonlandıracak. Şimdi güncellensin mi?",
+    "✅ You are connected with {name} after all — ignore the warning above.": "✅ {name} ile aslında bağlısın — yukarıdaki uyarıyı dikkate alma."
   }
 };
