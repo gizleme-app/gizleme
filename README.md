@@ -34,8 +34,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   original). Both are ordinary encrypted messages — signed in groups — so the relay learns nothing new.
 - Voice messages (up to 2 min): recorded on the device with one small built-in codec (IMA ADPCM, 16 kHz —
   the same bytes decode in every browser, no container or codec negotiation), encrypted exactly like a
-  photo under a key that only travels inside the message; the ciphertext is deleted from the relay once
-  the recipient fetched it and kept, encrypted, on their device for replay.
+  photo under a key that only travels inside the message; the relay keeps the ciphertext for 14 days (so
+  every member of a group, and each of your devices, can fetch it) and each device keeps its own copy,
+  encrypted, for replay.
 - Groups with a shared key in the link fragment; a two-person chat can be turned into a group (the
   contact is invited inside the encrypted chat, the link for the others is offered right away). Group
   messages are signed by their author (✓ / ⚠ on each bubble); the creator can remove members or renew the

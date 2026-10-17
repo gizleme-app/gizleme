@@ -8,7 +8,7 @@ Method: three independent reviews, each by a reviewer who had not written the co
 other reviews, working from the source and from the live project (functions, policies and bucket
 settings were verified live, not from documentation). Findings were then fixed in one pass and the
 regression suite (Playwright, 15 end-to-end scenarios against an emulated relay and mailbox) was extended
-to cover each fix. This is an internal audit: it is not an independent one, and it does not replace one.
+to cover each fix (a second pass on 17 October is recorded below). This is an internal audit: it is not an independent one, and it does not replace one.
 
 Severity: **Critical** = a stranger or the relay can read or impersonate a contact; **High** = key
 material or sender identity at risk under a realistic assumption; **Medium** = metadata, abuse or
@@ -86,6 +86,26 @@ consent issues; **Low** = hardening.
 | 16 | Low | Silent group insertion via `ginv`; spoofable group-call names. | **Fixed** (consent) / documented (names). |
 | 17 | Low | Plaintext identifiers in `localStorage` while locked. | **Fixed** for mailbox cursors and nudge times (moved into the encrypted store); the session username and settings remain (they are not secrets). |
 | 18–22 | Info | CSP/headers, service worker, lock-screen name disclosure, accessibility, deployment hygiene. | Noted; the lock screen shows the display name by design (so you know whose account is locked). |
+
+## Second pass — 17 October 2026
+
+Six parallel reviews of the code as deployed that morning (invites and key chain; mailbox and history; UI,
+media and calls; sessions, vault and lock; service worker and page; server functions), each by a reviewer
+who had not written the code. Everything below was fixed the same day and is covered by test47 (and
+updated test20/test33); the suite is now 30 scenarios.
+
+| # | Sev. | Finding | Status |
+|---|------|---------|--------|
+| R1 | High | The mailbox key chain's starting week (`kce`) was chosen by each side at its own time: an inviter reading the hello in a later week than the opener held the same root one week behind, so every chain-encrypted offline message between the two failed to decrypt (silently dropped after 48 h). | **Fixed.** The hello carries the opener's week (`ke`); the inviter counts the chain from it. |
+| R2 | High | The group creator's key renewal was never wrapped for the creator's own identity: the creator's other devices were told "removed from this group" (live) or stayed on the old key (mailbox), and the vault did not carry the new key. | **Fixed.** Self-wrap; own `gk2` applied from the mailbox; `ts` bumped so the vault carries `gk/rot/rotFp/prevGk`. |
+| R3 | High | A contact removed (or a group left) on one device came back from the other device at the next vault merge, and its mailbox was read again. | **Fixed.** Tombstones (`gone`, in the vault blob): a record saved before its removal stays removed; one saved after wins. |
+| R4 | High | The service worker stored any navigated page as the offline shell (a visit to the privacy page replaced the app); a tapped notification did not open the chat when a window was already open (hash-only navigate). | **Fixed.** Only `/` is the shell; the worker tells the open window which chat to open. |
+| R5 | High | Voice-message (and group photo) blobs were deleted from the relay by the first fetch: other group members and the recipient's or sender's other devices got "expired". | **Fixed.** The relay's 14-day sweep is the only deletion for voice and group photos; 1:1 view-once photos are still deleted by the viewer. |
+| R6 | Medium | Password change was two requests (verifier, then the re-wrapped backup key) and the second's result was ignored: a new device could log in but never open the backup. | **Fixed.** One request, one SQL transaction (`gz_change_password`). |
+| R7 | Medium | Vault `pushContacts` was check-then-write: two devices pushing from the same base both "won", last writer silently overwrote. Same for the set-once backup key. | **Fixed.** Conditional update on the version (and on `abk is null`). |
+| R8 | Medium | TURN credentials (paid relay minutes) were minted for anyone; per-account login limit counted every attempt (a stranger could lock the owner out of new-device logins); push registrations for removed contacts were never pruned; VAPID/auth-secret first-run race; mailbox ids unvalidated; non-base64 input gave 500s; retention sweep ran unindexed on every request; `Access-Control-Allow-Origin: *`. | **Fixed.** Session required for TURN; only wrong passwords count; the registration list is authoritative per device; insert-if-absent then re-read; id shapes enforced; guarded decoding; `(ts)` index + sampled background sweep; origin pinned to gizleme.com. |
+| R9 | Medium | Client: a fresh group link after a removal was ignored ("rotated key beats an old link"); a failed hello deposit was never retried; a copied invite link was not persisted; `used`/`nopin` notices read while the chat was closed were silent; removing a chat left its unread count on the icon; two readers of one mailbox could deliver a message twice; own messages read before the account marker was restored; queued invite messages never retried; lock dropped the pending save and vault push; receipts accepted from a link mailbox; auto-lock cut calls; the update check reloaded the New-chat screen; a rejoin timer outlived its room; a recording followed you to another chat; a second call start leaked a mic stream; early ICE candidates dropped; voice playback on a muted iPhone went silent after 1.5 s; peer names unbounded. | **Fixed.** |
+| R10 | Low | Merge inherited the ✓ verified mark onto an unverified key; `identAdopt` left two devices with different group ECDH keys; a re-invited member stayed on the removed list; any link could name an admin on a legacy group; image envelopes unvalidated; call buttons shown in audio calls; toast under modals; duplicate SVG id; `_chainCache` survived lock. | **Fixed.** |
 
 ## What is deliberately not fixed yet (roadmap)
 

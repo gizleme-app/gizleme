@@ -7,7 +7,7 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v27";
+const CACHE = "gizleme-v28";
 const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
                "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
 
@@ -30,8 +30,10 @@ self.addEventListener("fetch", e => {
   e.respondWith((async () => {
     try {
       const res = await fetch(req);
-      if (res && res.ok && (req.mode === "navigate" || SHELL.includes(url.pathname))) {
-        try { const c = await caches.open(CACHE); c.put(req.mode === "navigate" ? "/index.html" : req, res.clone()); } catch (_) {}
+      // only the app itself may become the offline shell (a visit to /privacy.html must not replace it)
+      const shellNav = req.mode === "navigate" && (url.pathname === "/" || url.pathname === "/index.html");
+      if (res && res.ok && (shellNav || SHELL.includes(url.pathname))) {
+        try { const c = await caches.open(CACHE); c.put(shellNav ? "/index.html" : req, res.clone()); } catch (_) {}
       }
       return res;
     } catch (_) {
@@ -98,7 +100,8 @@ self.addEventListener("push", e => {
   e.waitUntil((async () => {
     const meta = await loadNames();
     const quiet = await mutedPush(d, meta);
-    if (!quiet && d.kind !== "call" && d.kind !== "chat") {          // one more unread message on the app icon
+    let seen = false; try { seen = (await self.clients.matchAll({ type: "window", includeUncontrolled: true })).some(c => c.visibilityState === "visible"); } catch (_) {}
+    if (!quiet && !seen && d.kind !== "call" && d.kind !== "chat") {   // one more unread message on the app icon (an open window counts for itself)
       const n = (await badgeLoad()) + 1; await badgeStore(n);
       try { if (self.navigator.setAppBadge) await self.navigator.setAppBadge(n); } catch (_) {}
     }
@@ -120,8 +123,11 @@ self.addEventListener("notificationclick", e => {
   const url = safeTarget(e.notification.data && e.notification.data.url);
   e.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    all.sort((a, b) => { try { return (new URL(b.url).pathname === "/") - (new URL(a.url).pathname === "/"); } catch (_) { return 0; } });   // the app, not the privacy page
     for (const c of all) {
-      if ("focus" in c) { try { await c.focus(); if ("navigate" in c) { try { await c.navigate(url); } catch (_) {} } return; } catch (_) {} }
+      // an open window is told which chat to open (a hash-only navigate() would not reload the page, and a
+      // full one would throw away a call in progress)
+      if ("focus" in c) { try { await c.focus(); c.postMessage({ type: "open", url }); return; } catch (_) {} }
     }
     if (self.clients.openWindow) return self.clients.openWindow(url);
   })());

@@ -43,3 +43,4 @@ files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose
 | test44 | Settings → Sounds, per-chat mute (menu, list, merge, silent pushes), unread count in the title / on the icon, the "New messages" line, invites through WhatsApp / the share sheet opening the new chat, the "new version" pill |
 | test45 | signing up / logging in from an invite link: no false "link already used", messages both ways, a wrongly flagged chat heals |
 | test46 | merging two chats with the same person: order, hidden record, old key lands here, lock/unlock, removal |
+| test47 | review fixes: chain week carried in the hello, tombstones, unread cleared on removal, admin self-wrap, update pill on New chat, service-worker shell and notification tap |

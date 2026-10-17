@@ -189,7 +189,7 @@ try:
     r["recv_bubble"]= wait_for(B,"()=>!!document.querySelector('.bubble.recv.voice .vbtn')",8000)
     B.click(".bubble.recv.voice .vbtn")
     r["recv_plays"]= wait_for(B,"()=>{ const d=document.querySelector('.bubble.recv.voice'); return d.querySelector('.vbtn').textContent==='⏸' && parseFloat(d.querySelector('.vfill').style.width)>0; }",8000)
-    r["blob_deletedAfterFetch"]= wait_for(A,"()=>true",10) and (time.sleep(0.8) or len(blobs())==0)
+    r["blob_keptForOthers"]= wait_for(A,"()=>true",10) and (time.sleep(0.8) or len(blobs())==1)   # the relay keeps it (14 days) for the other members / devices
     r["recv_ends"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').textContent==='▶'",8000)
     # replay works from the local encrypted store even though the relay no longer has the blob
     B.click(".bubble.recv.voice .vbtn")

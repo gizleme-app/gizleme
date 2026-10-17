@@ -4,12 +4,16 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const TABLE = "gizleme_vault";
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
+// Only the app's own origins may call these functions from a browser (the Supabase gateway adds nothing).
+const ORIGINS = ["https://gizleme.com", "https://www.gizleme.com"];
+const cors = {   // the base; each request gets its own copy with its (allowed) origin — see corsFor
+  "Access-Control-Allow-Origin": "https://gizleme.com",
+  "Vary": "Origin",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
+function corsFor(req: Request){ const o = req.headers.get("origin") || ""; return { ...cors, "Access-Control-Allow-Origin": ORIGINS.includes(o) ? o : ORIGINS[0] }; }
 function b64(bytes: ArrayBuffer | Uint8Array){ return btoa(String.fromCharCode(...new Uint8Array(bytes))); }
 function unb64(s: string){ return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
 async function sha256b64(bytes: Uint8Array){ return b64(await crypto.subtle.digest("SHA-256", bytes)); }
@@ -35,6 +39,8 @@ async function userFromToken(token: string){
 }
 
 Deno.serve(async (req) => {
+  const cors = corsFor(req);
+  const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method === "GET") return json({ ok: true, service: "gizleme-vault" });
   let body: any; try { body = await req.json(); } catch { return json({ error: "bad json" }, 400); }
@@ -52,10 +58,12 @@ Deno.serve(async (req) => {
       const abk = body.abk;
       if (!abk || typeof abk !== "object") return json({ error: "missing" }, 400);
       if (!sizeOk(abk, 4000)) return json({ error: "too_big" }, 413);
-      const { data } = await db.from(TABLE).select("abk").eq("username_lc", u).maybeSingle();
-      if (data && data.abk) return json({ ok: true, already: true });   // set-once
-      const up = await db.from(TABLE).upsert({ username_lc: u, abk, updated_at: new Date().toISOString() }, { onConflict: "username_lc" });
+      // set-once, atomically: the row is created if missing, then the key is written only where none is yet
+      const ins = await db.from(TABLE).upsert({ username_lc: u, updated_at: new Date().toISOString() }, { onConflict: "username_lc", ignoreDuplicates: true });
+      if (ins.error) return json({ error: ins.error.message }, 500);
+      const up = await db.from(TABLE).update({ abk, updated_at: new Date().toISOString() }).eq("username_lc", u).is("abk", null).select("username_lc");
       if (up.error) return json({ error: up.error.message }, 500);
+      if (!up.data || !up.data.length) return json({ ok: true, already: true });
       return json({ ok: true });
     }
     if (action === "rewrapAbk") {
@@ -78,9 +86,14 @@ Deno.serve(async (req) => {
       const cur = data?.cver ?? 0;
       // optimistic concurrency returned as a 200 body so the client can read the current version and retry
       if (data && base !== cur) return json({ ok: false, conflict: true, cver: cur });
-      const next = cur + 1;
-      const up = await db.from(TABLE).upsert({ username_lc: u, contacts, cver: next, updated_at: new Date().toISOString() }, { onConflict: "username_lc" });
-      if (up.error) return json({ error: up.error.message }, 500);
+      const next = cur + 1; const now = new Date().toISOString();
+      // the write itself is conditional on the version it was based on: two devices pushing from the same
+      // base at the same moment cannot both win — the second gets a conflict and merges
+      const up = data
+        ? await db.from(TABLE).update({ contacts, cver: next, updated_at: now }).eq("username_lc", u).eq("cver", cur).select("cver")
+        : await db.from(TABLE).insert({ username_lc: u, contacts, cver: next, updated_at: now }).select("cver");
+      if (up.error) { if ((up.error.code || "") === "23505") return json({ ok: false, conflict: true, cver: cur + 1 }); return json({ error: up.error.message }, 500); }
+      if (!up.data || !up.data.length) { const { data: n } = await db.from(TABLE).select("cver").eq("username_lc", u).maybeSingle(); return json({ ok: false, conflict: true, cver: n?.cver ?? 0 }); }
       return json({ ok: true, cver: next });
     }
     return json({ error: "unknown_action" }, 400);

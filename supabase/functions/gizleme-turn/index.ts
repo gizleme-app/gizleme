@@ -6,23 +6,44 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // function secrets (CF_TURN_KEY_ID / CF_TURN_KEY_TOKEN): short-lived per-request credentials, nothing stored
 // on the client. A TURN relay only ever forwards DTLS-SRTP ciphertext; it cannot hear or see the call.
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
-const cors = {
-  "Access-Control-Allow-Origin": "*",
+// Only the app's own origins may call these functions from a browser (the Supabase gateway adds nothing).
+const ORIGINS = ["https://gizleme.com", "https://www.gizleme.com"];
+const cors = {   // the base; each request gets its own copy with its (allowed) origin — see corsFor
+  "Access-Control-Allow-Origin": "https://gizleme.com",
+  "Vary": "Origin",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...cors, "Content-Type": "application/json" } });
+function corsFor(req: Request){ const o = req.headers.get("origin") || ""; return { ...cors, "Access-Control-Allow-Origin": ORIGINS.includes(o) ? o : ORIGINS[0] }; }
 function ipOf(req: Request) { const h = req.headers; return h.get("cf-connecting-ip") || h.get("x-real-ip") || (h.get("x-forwarded-for") || "").split(",")[0].trim() || ""; }
 async function rl(key: string, limit: number, windowS: number) {
   try { const { data, error } = await db.rpc("gz_rl_hit", { p_key: key, p_limit: limit, p_window_s: windowS }); if (error) return true; return data !== false; } catch { return true; }
+}
+function b64(bytes: ArrayBuffer | Uint8Array){ return btoa(String.fromCharCode(...new Uint8Array(bytes))); }
+function unb64(s: string){ try { return Uint8Array.from(atob(s), c => c.charCodeAt(0)); } catch { return new Uint8Array(0); } }
+async function sha256b64(bytes: Uint8Array){ return b64(await crypto.subtle.digest("SHA-256", bytes)); }
+// Relay minutes are paid for: only a logged-in account gets credentials (the function URL is public).
+async function userFromToken(token: string){
+  if (!token) return null;
+  const th = await sha256b64(unb64(token));
+  const { data } = await db.from("gizleme_sessions").select("username_lc, expires_at").eq("token_hash", th).maybeSingle();
+  if (!data || new Date(data.expires_at).getTime() < Date.now()) return null;
+  return data.username_lc as string;
 }
 const STUN = [{ urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }];
 let credCache: { servers: unknown[]; exp: number } | null = null;
 
 Deno.serve(async (req) => {
+  const cors = corsFor(req);
+  const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const ip = ipOf(req);
   if (ip && !(await rl("turn:" + ip, 40, 600))) return json({ error: "rate_limited" }, 429);
+  let body: any = {}; try { body = await req.json(); } catch { body = {}; }
+  const u = await userFromToken((body?.token || "").toString());
+  if (!u) return json({ error: "unauthorized" }, 401);
+  if (!(await rl("turn:u:" + u, 20, 600))) return json({ error: "rate_limited" }, 429);
   let id = Deno.env.get("CF_TURN_KEY_ID") || "", tok = Deno.env.get("CF_TURN_KEY_TOKEN") || "";
   if (!id || !tok) {   // same place as the VAPID keys: service-role-only config row, never in source
     try { const { data } = await db.from("gizleme_config").select("value").eq("key", "turn").maybeSingle();

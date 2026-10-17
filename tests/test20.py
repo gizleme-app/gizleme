@@ -23,7 +23,7 @@ window.supabase={createClient:()=>({
     if(n==="gizleme-auth"&&(b.action==="changepw"||b.action==="delete")){
       const calc=btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest("SHA-256",Uint8Array.from(atob(b.av),c=>c.charCodeAt(0))))));
       if(calc!==window.__verifier) return {data:null,error:{context:{status:401}}};
-      if(b.action==="changepw"){ window.__verifier=b.verifier; window.__salt=b.salt; }
+      if(b.action==="changepw"){ window.__verifier=b.verifier; window.__salt=b.salt; if(b.abk){ window.__rewrap=b; window.__abk=b.abk; } }   // one request, one transaction server-side
       return {data:{ok:true}}; }
     if(n==="gizleme-vault"&&b.action==="pull") return {data:{ok:true,abk:window.__abk||null,contacts:null,cver:0}};
     if(n==="gizleme-vault"&&b.action==="pushAbk"){ window.__abk=b.abk; return {data:{ok:true}}; }
@@ -80,7 +80,7 @@ with sync_playwright() as pw:
     p.fill("#pwCur","password123"); p.click("#pwSave"); p.wait_for_timeout(2500)
     r["chpw_modalClosed"]= not p.is_visible("#pwModal")
     r["chpw_serverCalled"]= p.evaluate("()=>window.__calls.some(c=>c[0]==='gizleme-auth'&&c[1].action==='changepw'&&c[1].salt&&c[1].verifier)")
-    r["chpw_abkRewrapped"]= p.evaluate("()=>!!(window.__rewrap&&window.__rewrap.abk&&window.__rewrap.av)")
+    r["chpw_abkRewrapped"]= p.evaluate("()=>!!(window.__rewrap&&window.__rewrap.abk&&window.__rewrap.abk.iv&&window.__rewrap.abk.ct&&window.__rewrap.action==='changepw')")
     # lock → old password fails, new password unlocks and contacts are still there
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
     p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(800); r["chpw_oldPwFails"]= p.eval_on_selector("#authMsg","e=>e.textContent")=="Wrong password"

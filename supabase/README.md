@@ -1,12 +1,13 @@
 # Server side
 
-Gizleme's server is a Supabase project: Postgres (seven small tables), five Edge Functions, Realtime for
+Gizleme's server is a Supabase project: Postgres (seven small tables, three small functions), five Edge Functions, Realtime for
 live presence/broadcast, and one storage bucket. It holds ciphertext, opaque identifiers and timestamps —
 see [SECURITY.md](../SECURITY.md) for what it can and cannot see.
 
 ```
 supabase/
   migrations/20261015000000_gizleme_schema.sql   tables, RLS, rate-limit functions, Realtime policies, bucket
+  migrations/20261017120000_…sql                  password change in one transaction, mailbox (ts) index
   functions/gizleme-auth/     accounts: register, salt, login, change password, delete, rename, validate, logout
   functions/gizleme-vault/    encrypted account backup (ABK + contacts/groups/identity blob, versioned)
   functions/gizleme-mbox/     encrypted store-and-forward mailbox, media blob upload/delete, delivery acks, sweeps
@@ -16,7 +17,7 @@ supabase/
 
 ## Deploying your own
 
-1. Create a Supabase project and apply the migration (`supabase db push`, or paste the SQL in the SQL editor).
+1. Create a Supabase project and apply the migrations (`supabase db push`, or paste the SQL in the SQL editor).
 2. Deploy the functions with JWT verification **off** (the app has its own session tokens; nothing in the
    project uses Supabase Auth):
    ```
@@ -34,7 +35,8 @@ supabase/
 4. Calls behind strict NATs (optional): create a TURN key in Cloudflare (Realtime → TURN), then either set
    the function secrets `CF_TURN_KEY_ID` / `CF_TURN_KEY_TOKEN`, or insert
    `{"id": "...", "token": "..."}` as `gizleme_config` key `turn`. Without it, calls use STUN only.
-5. Point the client at your project: `SB_URL` / `SB_KEY` (the project URL and its public anon/publishable
+5. The functions answer browser calls from `https://gizleme.com` only (`ORIGINS` at the top of each one): add your own origin there.
+6. Point the client at your project: `SB_URL` / `SB_KEY` (the project URL and its public anon/publishable
    key) at the top of `app.js`, and the `connect-src` entries in `_headers`.
 
 The storage bucket is public-read **by URL only** (random 48-hex names that travel inside encrypted

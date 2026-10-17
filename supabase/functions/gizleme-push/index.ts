@@ -21,9 +21,12 @@ async function getVapid() {
   if (data?.value?.publicKey && data?.value?.privateKey) {
     vapidCache = data.value; return vapidCache;
   }
+  // first run: whoever inserts first wins, and every instance then uses the stored pair — two cold instances
+  // each keeping their own would sign pushes with a key the subscriptions were not made for
   const keys = webpush.generateVAPIDKeys();
-  await db.from(CONF).upsert({ key: "vapid", value: keys, updated_at: new Date().toISOString() }, { onConflict: "key" });
-  vapidCache = keys; return vapidCache;
+  await db.from(CONF).upsert({ key: "vapid", value: keys, updated_at: new Date().toISOString() }, { onConflict: "key", ignoreDuplicates: true });
+  const { data: again } = await db.from(CONF).select("value").eq("key", "vapid").maybeSingle();
+  vapidCache = (again?.value?.publicKey && again?.value?.privateKey) ? again.value : keys; return vapidCache!;
 }
 async function configured() {
   const v = await getVapid();
@@ -31,13 +34,17 @@ async function configured() {
   return v.publicKey;
 }
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
+// Only the app's own origins may call these functions from a browser (the Supabase gateway adds nothing).
+const ORIGINS = ["https://gizleme.com", "https://www.gizleme.com"];
+const cors = {   // the base; each request gets its own copy with its (allowed) origin — see corsFor
+  "Access-Control-Allow-Origin": "https://gizleme.com",
+  "Vary": "Origin",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { ...cors, "Content-Type": "application/json" } });
+function corsFor(req: Request){ const o = req.headers.get("origin") || ""; return { ...cors, "Access-Control-Allow-Origin": ORIGINS.includes(o) ? o : ORIGINS[0] }; }
 function clean(s: unknown, n = 512): string { return (s ?? "").toString().slice(0, n); }
 
 // ---- abuse controls ----
@@ -61,6 +68,8 @@ function endpointOk(ep: unknown) {
 function safeUrl(u: unknown) { const s = clean(u, 2048); return s.startsWith(ORIGIN + "/") ? s : ORIGIN + "/"; }
 
 Deno.serve(async (req) => {
+  const cors = corsFor(req);
+  const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const pub = await configured();
   if (req.method === "GET") return json({ ok: true, publicKey: pub, hasIp: !!ipOf(req) });
@@ -84,9 +93,13 @@ Deno.serve(async (req) => {
       const slim = { endpoint: String(sub.endpoint), expirationTime: sub.expirationTime ?? null, keys: sub.keys };
       if (typeof sub.endpoint !== "string" || sub.endpoint.length > 1024 || !sub.keys || typeof sub.keys.p256dh !== "string" || typeof sub.keys.auth !== "string" || sub.keys.p256dh.length > 200 || sub.keys.auth.length > 64) return json({ error: "bad_sub" }, 400);
       const slimKeys = { p256dh: sub.keys.p256dh, auth: sub.keys.auth }; slim.keys = slimKeys;
-      const rows = keys.slice(0, 200).map((nk) => ({ notify_key: nk, owner, acct, sub: slim, name: null, updated_at: new Date().toISOString() }));
+      // the list is this device's complete set of contacts: keys it no longer lists (a removed contact) are
+      // dropped, so a former contact cannot keep waking the device
+      const rows = [...new Set(keys)].slice(0, 200).map((nk) => ({ notify_key: nk, owner, acct, sub: slim, name: null, updated_at: new Date().toISOString() }));
       const { error } = await db.from(SUBS).upsert(rows, { onConflict: "notify_key,owner" });
       if (error) return json({ error: error.message }, 500);
+      const keep = rows.map(r => r.notify_key).filter(k => /^[A-Za-z0-9_-]+$/.test(k));
+      if (keep.length) await db.from(SUBS).delete().eq("owner", owner).not("notify_key", "in", "(" + keep.join(",") + ")");
       return json({ ok: true, registered: rows.length });
     }
 

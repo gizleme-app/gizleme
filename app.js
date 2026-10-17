@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 27;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 28;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -130,7 +130,7 @@ async function ensureHistKeys(){
       if(_meta.unread && _meta.unread[old]!==undefined){ _meta.unread[nh]=(_meta.unread[nh]||0)+_meta.unread[old]; delete _meta.unread[old]; } }
     c.hk=nh; changed=true;
   }catch(e){} }
-  if(changed) contactsSave(l);
+  if(changed){ const cur=contactsLoad(); l.forEach(c=>{ const x=cur.find(y=>y.ck===c.ck); if(x) x.hk=c.hk; }); contactsSave(cur); }   // re-read: a patch may have landed meanwhile
 }
 async function histRename(oldRoom, newRoom){
   if(!oldRoom || oldRoom===newRoom) return;
@@ -201,11 +201,11 @@ let _swNamesT=null;
 function swNamesSoon(){ clearTimeout(_swNamesT); _swNamesT=setTimeout(()=>{ swNames().catch(()=>{}); },400); }
 async function nkHash(nk){ return b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(nk)))); }
 async function swNames(clear){
-  if(!("serviceWorker" in navigator)) return;
+  if(!("serviceWorker" in navigator)) return; if(!clear && !gHistKey) return;   // locked: the worker keeps what it has
   const names={}, muted={};
   // keyed by a hash of the notify key: the worker's cache (readable at rest) holds names but no capability;
   // for a muted chat, until when its notifications arrive silently
-  if(!clear) for(const c of contactsLoad()){ try{ const nm=c.alias||(DN_KEYS[c.name]?"":realName(c.name)); const mu=mutedUntil(c); if(!nm && !mu) continue;
+  if(!clear) for(const c of contactsLoad()){ try{ const tg=mergedTarget(c)||c; const nm=tg.alias||(DN_KEYS[tg.name]?"":realName(tg.name)); const mu=mutedUntil(tg); if(!nm && !mu) continue;   // a merged-away key: its chat's name and mute
     const h=await nkHash(await notifyKeyFor(c.ck)); if(nm) names[h]=nm; if(mu) muted[h]=mu; }catch(e){} }
   const msg={type:"names", names, muted, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), call:t("{name} is calling you"), anyMsg:t("New message"), anyChat:t("A contact wants to chat"), anyCall:t("Incoming call") }};
   try{ const reg=await navigator.serviceWorker.ready; (reg.active||navigator.serviceWorker.controller)?.postMessage(msg); }catch(e){}
@@ -216,7 +216,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   let c=[], g=[];
   let meta=null;
   try{ const r=JSON.parse(localStorage.getItem(LS_LOCAL)||"null"); if(r&&r.ct&&gHistKey){ const o=JSON.parse(dec.decode(await aesDec(gHistKey,r.iv,r.ct))); c=o.contacts||[]; g=o.groups||[]; meta=o.meta||null; } }catch(e){}
-  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}, outq:(meta&&meta.outq)||{}, mbts:(meta&&meta.mbts)||{}, notified:(meta&&meta.notified)||{}, ident:(meta&&meta.ident)||null};
+  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}, outq:(meta&&meta.outq)||{}, mbts:(meta&&meta.mbts)||{}, notified:(meta&&meta.notified)||{}, ident:(meta&&meta.ident)||null, gone:(meta&&meta.gone)||{}};
   _identKeys=null;
   // older builds kept mailbox cursors and nudge times in localStorage: take them in, then remove them
   try{ const o=JSON.parse(localStorage.getItem(LS_MBTS)||"null"); if(o){ for(const k in o) if(!(k in _meta.mbts)) _meta.mbts[k]=o[k]; localStorage.removeItem(LS_MBTS); } }catch(e){}
@@ -230,12 +230,15 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   await ensureHistKeys();
   try{ await advanceChains(); }catch(e){}      // forget mailbox keys of weeks the relay no longer holds
   renderContacts(); if(pushOn()&&gPushSub) registerAllContacts(); swNamesSoon();
-  inboxPull(true);                                   // deliver what arrived while the app was closed, for every chat
+  // the account marker (what tells our own other devices' messages from the contact's) is restored from the
+  // cached backup key first — the inbox pass must not read our own messages as theirs
+  abkCacheLoad().catch(()=>false).then(()=>inboxPull(true));   // deliver what arrived while the app was closed, for every chat
 }
-function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{}}; _identKeys=null; for(const k in _hid) delete _hid[k]; }                       // lock: out of memory, ciphertext stays on disk
+function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{}}; _identKeys=null; for(const k in _hid) delete _hid[k]; for(const k in _seenByKey) delete _seenByKey[k]; try{ _chainCache.clear(); }catch(e){} }                       // lock: out of memory, ciphertext stays on disk
 function localWipe(){ localClear(); try{ updateBadge(true); }catch(e){} try{ localStorage.removeItem(LS_LOCAL); localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} }
 function realName(n){ return n && n!=="Peer" && n!=="Contact" && n!=="Anon" && n!=="Waiting for peer…" ? n : ""; }
 function contactUpsert(name, ckB64){
+  name=String(name||"").replace(/[\r\n\t]+/g," ").slice(0,40);
   const list=contactsLoad(); const i=list.findIndex(c=>c.ck===ckB64); const nm=realName(name);
   if(i>=0){ if(nm) list[i].name=nm; list[i].ts=Date.now(); }
   else list.push({name:nm||name||"Contact", ck:ckB64, ts:Date.now()});
@@ -243,11 +246,15 @@ function contactUpsert(name, ckB64){
 }
 // recon is per-device; never let it travel through the vault (a stale copy could resurrect a window we closed)
 function contactsForVault(){ return contactsLoad().map(c=>{ if(c.recon){ const d=Object.assign({},c); delete d.recon; return d; } return c; }); }
+// Removed contacts and left groups are remembered (tombstones, in the vault blob) so another device that still
+// holds the record does not bring it back at the next merge; a record saved after the removal wins again.
+function tombstone(key){ _meta.gone=_meta.gone||{}; _meta.gone[key]=Date.now(); const ks=Object.keys(_meta.gone); if(ks.length>300) ks.sort((a,b)=>_meta.gone[a]-_meta.gone[b]).slice(0,ks.length-300).forEach(k=>{ delete _meta.gone[k]; }); }
 function contactRemove(ckB64){
   const T=contactFind(ckB64); const gone=c=>c.ck===ckB64 || !!(T && T.hk && c.into && c.into===T.hk);   // with the chats merged into it
   const l=contactsLoad(); const drop=new Set(l.filter(gone).map(c=>c.ck));
   [...rooms.values()].filter(R=>drop.has(R.fromContact)).forEach(R=>leaveRoom(R.code));   // or the next presence sync re-saves them
-  contactsSave(l.filter(c=>!drop.has(c.ck))); }
+  for(const ck of drop){ try{ delete _meta.unread[ckHistKey(ck)]; }catch(e){} if(_meta.outq) delete _meta.outq[ck]; tombstone(ck); }   // nothing left to count or send
+  contactsSave(l.filter(c=>!drop.has(c.ck))); updateBadge(true); }
 async function ckFromSecret(secret){ return b64(await hkdf(secret,"gz-contact/v1")); }  // ECDH secret -> stable contact key
 async function rvCodeFromCK(ckB64){         // secret room code for today's window
   const day=Math.floor(Date.now()/86400000);
@@ -313,7 +320,6 @@ async function mergeChatInto(R, oldCk){
   t2.hk=tHk; s2.into=tHk; s2.hk=tHk; s2.its=Date.now(); _hid[S.ck]=tHk; if(S.prev) _hid[S.prev]=tHk;
   if((!realName(t2.name) || t2.name===INV_PLACEHOLDER || t2.name==="Friend") && realName(S.name)){ t2.name=S.name; t2.ts=Date.now(); }
   if(!t2.alias && S.alias){ t2.alias=S.alias; t2.ats=Date.now(); }
-  if(S.v && !t2.v) t2.v=1;
   contactsSave(l);
   [...rooms.values()].filter(x=>x.fromContact===S.ck).forEach(x=>leaveRoom(x.code));   // the old chat's tab, if open
   // this chat, shown again with both histories in time order
@@ -365,7 +371,7 @@ function askPin(name){ return new Promise(res=>{
 }); }
 async function v3Agree(secret, ckLink){ return { ck:b64(await hkdf(secret,"gz-contact/v3|"+ckLink)), sv:b64(await hkdf(secret,"gz-safety/v3",16)), kc:b64(await hkdf(secret,"gz-chain/v1")), kce:epochNow() }; }
 // The inviter: a hello arrived (mailbox or presence) for a link we created → bind the contact to that opener.
-async function processHello(ckLink, e, n, m, fs){
+async function processHello(ckLink, e, n, m, fs, ke){
   const c=contactFind(ckLink); if(!c) return false;
   if(!c.pk){ const bound=contactByPrev(ckLink); if(isForeignHello(bound, e)) noteLinkReuse(bound, ckLink, e); return false; }
   if(c.dead) return false;                                   // cancelled (three wrong codes): nothing binds any more
@@ -382,7 +388,7 @@ async function processHello(ckLink, e, n, m, fs){
   const ag=await v3Agree(secret, ckLink); const ck2=ag.ck;
   const l=contactsLoad(); const i=l.findIndex(x=>x.ck===ckLink); if(i<0 || l.some(x=>x.ck===ck2)) return false;
   const x=l[i]; x.prev=ckLink; x.hk=x.hk||("c:"+ckLink); x.ck=ck2; x.rot=Date.now(); x.recon=Date.now(); x.sv=ag.sv;
-  if(fs){ x.kc=ag.kc; x.kce=ag.kce; } else { delete x.kc; delete x.kce; }   // the opener's build keeps the chain too, or neither side does
+  if(fs){ x.kc=ag.kc; x.kce=(typeof ke==="number" && ke<=ag.kce && ag.kce-ke<=1000) ? ke : ag.kce; } else { delete x.kc; delete x.kce; }   // the opener's build keeps the chain too, or neither side does; the chain counts from the opener's week
   x.v3=1; x.he=e;
   if(realName(n)) x.name=n; delete x.is; delete x.pk; delete x.pp; x.ts=Date.now();
   contactsSave(l);
@@ -420,19 +426,20 @@ function noteLinkReuse(c, ckLink, e){
 async function onHelloEnv(R, ck, env){
   if(!env || typeof env.e!=="string" || env.e.length<80 || env.e.length>100) return;
   const c=contactFind(ck);
-  if(c && c.pk) { await processHello(ck, env.e, env.n, env.m, env.fs===1); return; }
+  if(c && c.pk) { await processHello(ck, env.e, env.n, env.m, env.fs===1, env.ke); return; }
   const bound=contactByPrev(ck); if(isForeignHello(bound, env.e)) noteLinkReuse(bound, ck, env.e);
 }
 function onUsedEnv(R, ck, env){
   const c=R.fromContact?contactFind(R.fromContact):null; if(!c || !c.v3 || c.he || c.prev!==ck || !c.hello || !env || env.e!==c.hello.e) return;
   if(env.t==="nopin"){   // our code was wrong: this attempt is void; opening the link again asks for the code afresh
     contactPatch(c.ck,{dead:1, nopin:1}); const l=contactsLoad(); const x=l.find(y=>y.ck===c.ck); if(x){ delete x.hello; contactsSave(l); }
-    if(R.logEl) sysline(R.logEl, t("⚠ The code you entered was wrong — you are not connected to {name}. Open their link again and enter the code they gave you.",{name:c.alias||dn(c.name)}), true);
+    { const msg=t("⚠ The code you entered was wrong — you are not connected to {name}. Open their link again and enter the code they gave you.",{name:c.alias||dn(c.name)}); if(R.logEl) sysline(R.logEl, msg, true); else toast(msg); }
     if(R.code===active) setStatus(R, t("wrong code — open the link again"), false, "warn", t("wrong code"));
-    return; }
+    renderContacts(); return; }
   contactPatch(c.ck,{dead:1}); const l=contactsLoad(); const x=l.find(y=>y.ck===c.ck); if(x){ delete x.hello; contactsSave(l); }
-  if(R.logEl) sysline(R.logEl, t("⚠ This invite link had already been used by someone else before you opened it — you are not connected to {name}. Ask them for a new link.",{name:c.alias||dn(c.name)}), true);
+  { const msg=t("⚠ This invite link had already been used by someone else before you opened it — you are not connected to {name}. Ask them for a new link.",{name:c.alias||dn(c.name)}); if(R.logEl) sysline(R.logEl, msg, true); else toast(msg); }
   if(R.code===active) setStatus(R, t("invite link already used — ask for a new one"), false, "warn", t("link used"));
+  renderContacts();
 }
 
 function isPendingInvite(c){ return !!(c && c.inv && c.is && c.name===INV_PLACEHOLDER); }
@@ -455,11 +462,15 @@ async function acceptInvite(inv){   // someone opened a link: become their conta
     let m=null; if(inv.c){ const pin=await askPin(dn(nm)); if(pin===null){ goHome(); return; } m=await pinTag(secret, pin); }
     if(secret){
       const ag=await v3Agree(secret, ck0); ck=ag.ck;
-      const l=contactsLoad(); const hello={e:ephPub,n:realName(myName)?myName:""}; if(m) hello.m=m; if(inv.f) hello.fs=1;
+      const l=contactsLoad(); const hello={e:ephPub,n:realName(myName)?myName:""}; if(m) hello.m=m; if(inv.f){ hello.fs=1; hello.ke=ag.kce; }
       const rec={name:nm, ck, inv:1, rot:Date.now(), prev:ck0, hk:"c:"+ck, recon:Date.now(), sv:ag.sv, v3:1, hello, ts:Date.now()};
       if(inv.f){ rec.kc=ag.kc; rec.kce=ag.kce; }   // both builds keep the chain, or neither does
       l.push(rec); contactsSave(l); mine=contactFind(ck);
-      try{ const env={t:"hello",v:3,e:ephPub}; if(m) env.m=m; if(inv.f) env.fs=1; await depositOne(await mboxIdForSecret(ck0), await mboxKeyForSecret(ck0), "h"+rid(), env); }catch(e){}
+      // the hello carries the week the chain starts in (ke): the inviter may only read it days later, in another
+      // week, and both sides must count the chain from the same week. If the deposit fails it is retried at the
+      // next mailbox pass (hp) — without it the inviter would never bind.
+      let okH=false; try{ const env={t:"hello",v:3,e:ephPub}; if(m) env.m=m; if(inv.f){ env.fs=1; env.ke=ag.kce; } okH=await depositOne(await mboxIdForSecret(ck0), await mboxKeyForSecret(ck0), "h"+rid(), env); }catch(e){}
+      if(!okH) contactPatch(ck,{hp:1});
       if(pushOn()) registerAllContacts(); notifyPeer(ck0,"chat").catch(()=>{});
     }
   }
@@ -536,10 +547,10 @@ const LS_GROUPS="gz-groups";              // legacy plaintext key (older builds)
 function groupsLoad(){ return _groups.map(g=>Object.assign({},g)); }
 function groupsSave(l){ _groups=(l||[]).filter(g=>g&&g.rid).map(g=>Object.assign({},g)); localSaveSoon(); renderContacts(); syncPushSoon(); }
 function groupUpsert(rid,gkB64,name,adm,rot){ const l=groupsLoad(); const i=l.findIndex(g=>g.rid===rid);
-  if(i>=0){ if(name) l[i].name=name; l[i].ts=Date.now(); if(adm && !l[i].adm) l[i].adm=adm; if(rot && !l[i].rot) l[i].rot=1; }
-  else { const g={rid,gk:gkB64,name:name||"Group",ts:Date.now()}; if(adm) g.adm=adm; if(rot) g.rot=1; l.push(g); } groupsSave(l); }
+  if(i>=0){ if(name) l[i].name=name; l[i].ts=Date.now(); if(rot && !l[i].rot) l[i].rot=1; }   // the admin is set once, when the group is first saved: a later link cannot name one
+  else { const g={rid,gk:gkB64,name:name||"Group",ts:Date.now()}; if(adm) g.adm=adm; if(rot) g.rot=1; l.push(g); if(_meta.gone) delete _meta.gone["g:"+rid]; } groupsSave(l); }
 function groupRemove(rid){ const R=rooms.get(rid); if(R){ try{ R.channel&&R.channel.unsubscribe(); }catch(e){} if(R.logEl) R.logEl.remove(); rooms.delete(rid); if(active===rid) goHome(); }
-  groupsSave(groupsLoad().filter(g=>g.rid!==rid)); }
+  delete _meta.unread[rid]; tombstone("g:"+rid); renderTabs(); groupsSave(groupsLoad().filter(g=>g.rid!==rid)); updateBadge(true); }
 function newRid(){ const A="0123456789abcdefghijklmnopqrstuvwxyz"; return [...crypto.getRandomValues(new Uint8Array(16))].map(b=>A[b%36]).join(""); }
 async function gkMsgKey(gkBytes){ return aesKey(await hkdf(gkBytes,"gz-group-msg/v1")); }
 // ---- group sender authentication ----
@@ -562,7 +573,9 @@ async function identEnsure(){
 }
 function identAdopt(remote){   // vault merge: all devices converge on the oldest identity
   if(!remote || !remote.pk || !remote.sk) return false; const loc=identLoad();
-  if(loc && loc.pk===remote.pk) return false; if(loc && (loc.ts||0) <= (remote.ts||0)) return false;
+  if(loc && loc.pk===remote.pk){   // same identity: the devices must also hold the same group ECDH key (the smaller one wins, on both)
+    if(remote.ek && remote.dk && (!loc.ek || remote.ek<loc.ek)){ loc.ek=remote.ek; loc.dk=remote.dk; _meta.ident=loc; _identKeys=null; localSaveSoon(); return true; } return false; }
+  if(loc && (loc.ts||0) <= (remote.ts||0)) return false;
   _meta.ident=remote; _identKeys=null; localSaveSoon(); return true;
 }
 const _pubCache=new Map();
@@ -602,8 +615,10 @@ async function rotateGroup(R, excludePk){
   const mem=g.mem||{}; const keep=Object.keys(mem).filter(pk=>pk!==excludePk && pk!==id.pk && mem[pk].ek);
   const newGk=crypto.getRandomValues(new Uint8Array(32)); const eph=await genKP(); const ephPub=b64(await pubRaw(eph));
   const w={};
-  for(const pk of keep){ try{ const sec=await sharedSecret(eph.privateKey, await importPub(unb64(mem[pk].ek))); const k=await aesKey(await hkdf(sec,"gz-gk2/v1"));
-    const iv=crypto.getRandomValues(new Uint8Array(12)); const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,newGk); w[pk]={iv:b64(iv),ct:b64(ct)}; }catch(e){} }
+  const wrapFor=async(pk, ek)=>{ try{ const sec=await sharedSecret(eph.privateKey, await importPub(unb64(ek))); const k=await aesKey(await hkdf(sec,"gz-gk2/v1"));
+    const iv=crypto.getRandomValues(new Uint8Array(12)); const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,newGk); w[pk]={iv:b64(iv),ct:b64(ct)}; }catch(e){} };
+  for(const pk of keep) await wrapFor(pk, mem[pk].ek);
+  if(id.ek) await wrapFor(id.pk, id.ek);   // the admin's own other devices (same identity) take the new key from the same message
   const env={t:"gk2", g:await groupFp(newGk), e:ephPub, w, x:excludePk?[excludePk]:[]};
   const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
   const signed=await signGroupEnv(R, env, mid);
@@ -614,7 +629,7 @@ async function rotateGroup(R, excludePk){
 }
 async function applyGroupKey(R, gkBytes, line){
   const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return;
-  g.prevGk=g.gk; g.rotAt=Date.now(); g.gk=b64(gkBytes); g.rot=(g.rot||0)+1; g.rotFp=await groupFp(gkBytes); groupsSave(l);
+  g.prevGk=g.gk; g.rotAt=Date.now(); g.gk=b64(gkBytes); g.rot=(g.rot||0)+1; g.rotFp=await groupFp(gkBytes); g.ts=Date.now(); delete g.left; groupsSave(l);   // ts: the vault carries the new key to the account's other devices
   R.gk=gkBytes; R.gkMsg=await gkMsgKey(gkBytes); R.gkFp=g.rotFp; R.gcall=null; R.hiSent=false;
   try{ if(R.channel) R.channel.unsubscribe(); }catch(e){}
   if(R.bind) R.bind();
@@ -659,6 +674,10 @@ async function openMembers(){
   $("memModal").classList.add("show");
 }
 function groupGone(R, env){ const g=groupsLoad().find(x=>x.rid===R.rid); return !!(g && g.gone && env.pk && g.gone.includes(env.pk)); }
+// a message that decrypts under the CURRENT key from someone on the removed list: they were invited back (only a
+// fresh link carries the current key) — welcome them again
+function groupUngone(R, env){ if(!env || !env.pk) return; const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g || !g.gone || !g.gone.includes(env.pk)) return;
+  g.gone=g.gone.filter(pk=>pk!==env.pk); groupsSave(l); }
 async function sendGroupHi(R){
   if(!R.group || R.hiSent) return; R.hiSent=true;
   const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
@@ -679,8 +698,15 @@ async function createGroup(name){ const rid=newRid(); const gk=crypto.getRandomV
   const R=A(); if(R&&R.logEl){ sysline(R.logEl,t("🔒 Group created. Tap the menu ⋮ → “Invite people” to add members.")); } }
 async function doJoinGroup(rid, gkBytes, name, adm, rot){
   const code=rid;
-  groupUpsert(rid, b64(gkBytes), name, adm, rot);
-  { const g=groupsLoad().find(x=>x.rid===rid); if(g && g.rot && g.gk && g.gk!==b64(gkBytes)) gkBytes=unb64(g.gk); }   // a rotated key beats an old link
+  // A link whose key differs from the one we hold: an OLD link reopened by a member who already has the renewed
+  // key (keep ours), or a NEW link sent to someone who was removed / away too long to get the renewed key (take
+  // the link's key, the one the group now uses). A record marked left, or holding no key, always takes the link.
+  const lk=b64(gkBytes), g0=groupsLoad().find(x=>x.rid===rid);
+  const keepOurs=!!(g0 && g0.rot && g0.gk && g0.gk!==lk && !g0.left);
+  groupUpsert(rid, lk, name, adm, rot);
+  if(keepOurs) gkBytes=unb64(g0.gk);
+  else if(g0 && g0.gk && g0.gk!==lk){ const l=groupsLoad(); const x=l.find(y=>y.rid===rid); if(x){ x.prevGk=x.gk; x.rotAt=Date.now(); x.gk=lk; x.rot=(x.rot||0)+1; x.rotFp=await groupFp(gkBytes); delete x.left; x.ts=Date.now(); groupsSave(l); }
+    const R0=rooms.get(code); if(R0){ await applyGroupKey(R0, gkBytes, t("🔑 Group key renewed.")); } }
   if(rooms.has(code)){ hideJoin(); switchTo(code); return; }
   if(_joining.has(code)) return; _joining.add(code);
   const R=newRoom(code);
@@ -690,8 +716,8 @@ async function doJoinGroup(rid, gkBytes, name, adm, rot){
   if(rooms.has(code)){ switchTo(code); return; }
   const logEl=document.createElement("div"); logEl.className="log"; logEl.style.display="none"; $("logs").appendChild(logEl); R.logEl=logEl; watchLog(logEl);
   rooms.set(code,R); hideJoin(); switchTo(code);
-  if(gHistKey){ renderHistory(R, await histLoad(code)); }
-  if(!R.seen) R.seen=new Set();
+  R.seen=seenSetFor(R);
+  if(gHistKey){ const past=await histLoad(code); renderHistory(R, past); seedSeen(R, past); }
   R.bind=()=>{ const ch=client.channel(groupChan(R),{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
     R.channel=ch;
     ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
@@ -733,7 +759,7 @@ async function onMsgGroup(R,{payload:p}){
     if(env.mid && p.mid && env.mid!==p.mid) throw new Error("id mismatch");
     const who=(realName(env.n)||realName(p.name)||t("Member"));          // the name the sender sealed inside, never the relay's
     const vf=await verifyGroupEnv(R, env, who); noteVerdict(R, who, vf, env.pk); env.vf=vf;
-    if(groupGone(R, env)) return;                                           // a removed member still holding the old key
+    if(groupGone(R, env)){ if(R.gkFp && (groupsLoad().find(x=>x.rid===R.rid)||{}).rot) groupUngone(R, env); else return; }   // live room = current key: invited back; else a removed member still holding the old key
     if(env.t==="hi") return;                                                 // a member announcing its key: recorded above
     if(env.t==="gk2"){ await onGk2(R, env, vf, who); return; }
     if(env.t==="call"){ if(vf!=="bad") callSignal(R, env, who).catch(()=>{}); return; }
@@ -779,8 +805,10 @@ async function mboxKeyForContact(c, ep){
 function advanceChains(){
   const E=epochNow(); const l=contactsLoad(); let changed=false; const todo=l.filter(c=>c.kc && typeof c.kce==="number" && E-CHAIN_KEEP>c.kce);
   if(!todo.length) return Promise.resolve(false);
-  return (async()=>{ for(const c of todo){ const root=await chainRootAt(c.kc, c.kce, E-CHAIN_KEEP); if(root){ c.kc=b64(root); c.kce=E-CHAIN_KEEP; changed=true; } }
-    if(changed){ contactsSave(l); _chainCache.clear(); } return changed; })();
+  return (async()=>{ const moved={}; for(const c of todo){ const root=await chainRootAt(c.kc, c.kce, E-CHAIN_KEEP); if(root) moved[c.ck]={kc:b64(root), kce:E-CHAIN_KEEP}; }
+    const cur=contactsLoad();   // re-read: a hello or a patch may have landed while the roots were being computed
+    for(const c of cur){ const m=moved[c.ck]; if(m && typeof c.kce==="number" && c.kce<m.kce){ c.kc=m.kc; c.kce=m.kce; changed=true; } }
+    if(changed){ contactsSave(cur); _chainCache.clear(); } return changed; })();
 }
 // deposit under every key this contact is reachable on; the chain key (with its epoch) when the contact has one
 async function depositToContact(ck, mid, env){
@@ -821,7 +849,12 @@ async function fetchMailbox(R){
       if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(id&&key) variants=[[id,key]];
         const g=groupsLoad().find(x=>x.rid===R.rid);   // the key before the last rotation stays readable for 14 days: late writers are not lost
         if(g && g.prevGk && g.rotAt && Date.now()-g.rotAt<RECON_MS){ try{ variants.push([await mboxIdForSecret(g.prevGk), await gkMsgKey(unb64(g.prevGk))]); }catch(e){} } }
-      else if(R.fromContact){ for(const ck of fetchCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck), ck]); }
+      else if(R.fromContact){
+        // a hello that could not be deposited when the link was opened: leave it now (the inviter binds from it)
+        const c=contactFind(R.fromContact);
+        if(c && c.v3 && c.hp && c.hello && c.prev && !c.he){ try{ const h={t:"hello",v:3,e:c.hello.e}; if(c.hello.m) h.m=c.hello.m; if(c.hello.fs){ h.fs=1; if(typeof c.kce==="number") h.ke=c.kce; }
+          if(await depositOne(await mboxIdForSecret(c.prev), await mboxKeyForSecret(c.prev), "h"+rid(), h)) contactPatch(c.ck,{hp:0}); }catch(e){} }
+        for(const ck of fetchCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck), ck]); }
       for(const [id,key,ck] of variants) delivered += await fetchMailboxId(R, id, key, ck);
     }catch(e){}
     return delivered;
@@ -851,7 +884,6 @@ async function fetchMailboxId(R, id, key, ck){
         // "our own account's other device wrote this": decided by the marker sealed inside the ciphertext only
         const own=!!(mine && env.a && env.a===mine);
         if(it.mid && !own) got.push(it.mid);                     // never ack what we sent ourselves (the recipient may not have it yet)
-        if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
         if(env.t==="hello"){ if(!own && ck) await onHelloEnv(R, ck, env); continue; }        // someone opened an invite link
         if(env.t==="used"||env.t==="nopin"){ if(!own && ck) onUsedEnv(R, ck, env); continue; }   // the link we opened was already taken / our code was wrong
         if(env.mid && it.mid && env.mid!==it.mid) throw new Error("id mismatch");
@@ -859,10 +891,11 @@ async function fetchMailboxId(R, id, key, ck){
         // nothing but hellos: anything else there was written by someone holding a copy of the link
         if(ck && !R.group){ const cc=contactFind(R.fromContact); const pend=contactFind(ck);
           if((cc && cc.v3 && ck!==R.fromContact) || (pend && pend.v3 && pend.pk)) continue; }
+        if(env.t==="rcpt"){ if(!own) markReceived(histKeyOf(R), env.mids||[]); continue; }   // the other side got our messages
         const who=realName(env.n)||(R.group?t("Member"):"");
-        if(R.group && !own){ const vf=await verifyGroupEnv(R, env, who); noteVerdict(R, who, vf, env.pk); env.vf=vf;
+        if(R.group && (!own || env.t==="gk2")){ const vf=await verifyGroupEnv(R, env, who); noteVerdict(R, who, vf, env.pk); env.vf=vf;
           if(groupGone(R, env)) continue; if(env.t==="hi") continue; if(env.t==="gk2"){ await onGk2(R, env, vf, who); continue; } if(env.t==="call" && vf==="bad") continue; }
-        if(R.group && own && (env.t==="hi" || env.t==="gk2")) continue;
+        if(R.group && own && env.t==="hi") continue;
         if(!own) adoptNameFromMessage(R, env.n);
         onInbound(R, env, who, ts, it.mid, own, false);
         if(!own && env.t!=="react") delivered++;
@@ -880,8 +913,10 @@ async function fetchMailboxId(R, id, key, ck){
 // always save, count as unread when not being looked at, and tell the sender it arrived.
 function onInbound(R, env, who, ts, mid, own, animate){
   if(env && env.t==="react"){ onReactEnv(R, env, who, ts, mid, own); return; }
-  if(R.shadow && !R.group && R.fromContact){ const tg=mergedTarget(contactFind(R.fromContact));   // merged away: show it where it now lives
-    if(tg){ let V=null; rooms.forEach(x=>{ if(x.fromContact===tg.ck && x.logEl) V=x; }); if(V) return onInboundView(R, V, env, who, ts, mid, own, animate); } }
+  if(R.shadow){   // the inbox read it: show it in the open chat of that conversation (or of the chat it was merged into)
+    let ck=R.fromContact; if(ck && !R.group){ const tg=mergedTarget(contactFind(ck)); if(tg) ck=tg.ck; }
+    let V=null; rooms.forEach(x=>{ if(x.logEl && (R.group ? x.rid===R.rid : x.fromContact===ck)) V=x; });
+    if(V) return onInboundView(R, V, env, who, ts, mid, own, animate); }
   return onInboundView(R, R, env, who, ts, mid, own, animate);
 }
 // R: the chat whose key carried the message (receipts go back on it); V: the chat it is shown in
@@ -904,7 +939,7 @@ function onInboundView(R, V, env, who, ts, mid, own, animate){
   else if(open) addText(V.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf,quote:validQuote(env.q)?quoteEl(V,cleanQuote(env.q),"recv",who):null});
   histSave(hk,{dir:"recv",env,ts,who,mid,vf});
   healLinkUsed(R);
-  if(!open || V.code!==active) bumpUnread(V);
+  if(!open || V.code!==active) bumpUnread(V); else updateBadge(true);
   if(!R.group && R.fromContact && mid) queueRcpt(R.fromContact, mid);
 }
 // A chat we opened from a link and were told "already used by someone else" — yet the inviter writes to us (or
@@ -917,15 +952,19 @@ function healLinkUsed(R){
 function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; pulseChat(R); localSaveSoon(); renderTabs(); renderContacts(); }
 function clearUnread(R){ const k=histKeyOf(R); if(_meta.unread[k]){ delete _meta.unread[k]; localSaveSoon(); } R.unread=0; }
 // ----- newer version on the server -----
-let _updChk=0, _updLater=false;
+let _updChk=0, _updLater=false, _updSeen=0;
 async function checkUpdate(force){
   const now=Date.now(); if(!force && now-_updChk<300000) return; _updChk=now;
   try{ const txt=await fetch("/sw.js?v="+now,{cache:"no-store"}).then(r=>r.ok?r.text():"");
-    const m=/const CACHE = "gizleme-v(\d+)"/.exec(txt); if(m && +m[1]>APP_VERSION) offerUpdate(); }catch(e){}
+    const m=/const CACHE = "gizleme-v(\d+)"/.exec(txt); if(m && +m[1]>APP_VERSION && +m[1]!==_updSeen){ _updSeen=+m[1]; offerUpdate(_updSeen); } }catch(e){}
 }
-function offerUpdate(){
-  const idle=document.body.classList.contains("in-auth") && !call && !(($("pwInput")||{}).value) && !(($("userInput")||{}).value) && !(($("pw2Input")||{}).value);
-  if(idle){ location.reload(); return; }
+function offerUpdate(ver){
+  // lock / login screen with nothing typed (not the "New chat" screen: it holds a link being shared): reload by
+  // itself — once per version, so a cache still serving the old code cannot start a reload loop
+  const mode=($("join")||{dataset:{}}).dataset.mode||"";
+  const idle=document.body.classList.contains("in-auth") && mode!=="newchat" && !call && !(($("pwInput")||{}).value) && !(($("userInput")||{}).value) && !(($("pw2Input")||{}).value);
+  let done=""; try{ done=sessionStorage.getItem("gz-upd")||""; }catch(e){}
+  if(idle && done!==String(ver)){ try{ sessionStorage.setItem("gz-upd",String(ver)); }catch(e){} location.reload(); return; }
   if(_updLater) return; $("updPill").hidden=false;
 }
 // ----- muted chats -----
@@ -962,7 +1001,7 @@ let _badgeN=-1;
 function unreadTotal(){ if(!gHistKey) return 0; const muted=new Set();
   _contacts.forEach(c=>{ if(mutedUntil(c)) muted.add(ckHistKey(c.ck)); }); _groups.forEach(g=>{ if(mutedUntil(g)) muted.add(g.rid); });
   let n=0; for(const k in (_meta.unread||{})) if(!muted.has(k)) n+=(+_meta.unread[k]||0); return n; }
-function updateBadge(force){ const n=unreadTotal(); if(n===_badgeN && !force) return; _badgeN=n;
+function updateBadge(force){ if(!gHistKey && !force) return; const n=unreadTotal(); if(n===_badgeN && !force) return; _badgeN=n;
   try{ document.title=(n ? "("+(n>99?"99+":n)+") " : "")+"Gizleme"; }catch(e){}
   try{ if(n && navigator.setAppBadge) navigator.setAppBadge(n).catch(()=>{}); else if(navigator.clearAppBadge) navigator.clearAppBadge().catch(()=>{}); }catch(e){}
   try{ if("serviceWorker" in navigator) navigator.serviceWorker.ready.then(reg=>{ (reg.active||navigator.serviceWorker.controller)?.postMessage({type:"badge", n}); }).catch(()=>{}); }catch(e){} }
@@ -1035,17 +1074,21 @@ function markReceived(hk, mids){
 function markViewed(mid){ if(!mid) return; _meta.viewed[mid]=1; const keys=Object.keys(_meta.viewed); if(keys.length>800) keys.slice(0,keys.length-800).forEach(k=>{ delete _meta.viewed[k]; }); localSaveSoon(); }
 // ----- the inbox: every saved chat is collected, not only the ones open on screen -----
 async function shadowRoom(it){   // a room-shaped object for a chat that isn't open: enough for the mailbox + history
-  const R=newRoom(it.t==="g"?it.rid:""); R.shadow=true; R.logEl=null; R.seen=new Set();
+  const R=newRoom(it.t==="g"?it.rid:""); R.shadow=true; R.logEl=null;
   if(it.t==="g"){ R.group=true; R.rid=it.rid; R.gk=unb64(it.gk); R.gkMsg=await gkMsgKey(R.gk); R.title=it.name||"Group"; }
   else { R.fromContact=it.ck; R.title=it.name||""; }
   // what this device already holds (our own deposits included) must not be saved a second time
-  try{ if(gHistKey) seedSeen(R, await histLoad(histKeyOf(R))); }catch(e){}
+  R.seen=seenSetFor(R); try{ if(gHistKey) seedSeen(R, await histLoad(histKeyOf(R))); }catch(e){}
   return R;
 }
 let _inboxBusy=false, _inboxLast=0;
 async function inboxPull(force){
   if(!gHistKey||_inboxBusy) return; if(!force && Date.now()-_inboxLast<15000) return;
   _inboxBusy=true; _inboxLast=Date.now();
+  // messages written to an invite before it was opened: sent now if the link has since been bound (here or on
+  // another device — then under the agreed key), or retried if a deposit failed
+  for(const k of Object.keys(_meta.outq||{})){ try{ const c=contactFind(k); const r=c?null:contactByPrev(k);
+    if(r) flushOutq(k, r.ck).catch(()=>{}); else if(c && !(c.v3 && c.pk)) flushOutq(k, k).catch(()=>{}); }catch(e){} }
   try{
     const items=groupsLoad().map(g=>({t:"g",rid:g.rid,gk:g.gk,name:g.name})).concat(contactsLoad().map(c=>({t:"c",ck:c.ck,name:c.name})));
     let bg=0;
@@ -1057,7 +1100,11 @@ async function inboxPull(force){
     if(bg){ messageTone(null); renderContacts(); }
   } finally { _inboxBusy=false; }
 }
-function seedSeen(R, past){ R.seen=new Set(); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.add(r.mid); }); }
+// One set of already-seen message ids per conversation, shared by every room object that reads its mailbox (the
+// open chat, the inbox's shadow, a chat reopened later): two readers of one mailbox can't both deliver a message.
+const _seenByKey={};
+function seenSetFor(R){ const k=histKeyOf(R)||R.code||""; return _seenByKey[k]||(_seenByKey[k]=new Set()); }
+function seedSeen(R, past){ R.seen=seenSetFor(R); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.add(r.mid); }); }
 
 // ---------- identity verification (safety code from the first shared secret) ----------
 const SAFE_EMOJI=["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🐦","🦆","🦉","🦋","🐝","🐞","🐢","🐍","🐙","🦀","🐠","🐬","🐳","🌵","🌲","🌴","🌸","🌻","🌹","🍁","🍄","🔥","💧","⭐","🌙","🍎","🍊","🍋","🍉","🍇","🍓","🍒","🍑","🥝","🍍","🥥","🥕","🌽","🍞","🧀","🍔","🍕","🌮","🍰","🚀","⛵","🎸"];
@@ -1397,7 +1444,9 @@ async function fetchBytes(meta){ // meta={path,k,iv} -> decrypted bytes
   const ck = await aesKey(unb64(meta.k));
   return new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(meta.iv)}, ck, ctBuf));
 }
+function validImg(m){ return !!(m && typeof m.path==="string" && (/^[a-f0-9]{48}\.bin$/.test(m.path) || /^[A-Za-z0-9]{1,40}\/[a-f0-9]{16}\.bin$/.test(m.path)) && typeof m.k==="string" && m.k.length===44 && typeof m.iv==="string" && m.iv.length===16); }
 async function fetchImage(meta){ // meta={path,k,iv,mime}
+  if(!validImg(meta)) throw new Error("bad");
   const plain = await fetchBytes(meta);
   return URL.createObjectURL(new Blob([plain], {type:meta.mime||"image/jpeg"}));
 }
@@ -1477,20 +1526,24 @@ async function sendVoice(bytes, dur){
   await go();
 }
 let _vplay=null;   // {src, el, raf}
-function voiceStop(){ const v=_vplay; _vplay=null; if(!v) return; try{ v.src.onended=null; v.src.stop(); }catch(e){} cancelAnimationFrame(v.raf); v.btn.textContent="▶"; v.fill.style.width="0%"; v.dur.textContent=fmtSec(v.total); }
+function voiceStop(){ const v=_vplay; _vplay=null; if(!v) return; try{ v.src.onended=null; v.src.stop(); }catch(e){} cancelAnimationFrame(v.raf); v.btn.textContent="▶"; v.fill.style.width="0%"; v.dur.textContent=fmtSec(v.total);
+  try{ const as=navigator.audioSession; if(as && as.type==="playback") as.type="auto"; }catch(e){} }
 async function voicePlay(st){
   if(_vplay && _vplay.el===st.el){ voiceStop(); return; }
   voiceStop(); await initAudio(); if(!audioCtx) return;
-  let as=null; try{ as=navigator.audioSession; if(as && as.type!=="playback"){ as.type="playback"; setTimeout(()=>{ try{ as.type="auto"; }catch(e){} },1500); } }catch(e){}
+  // on iPhone the "playback" session keeps the message audible with the silent switch on; handed back when it stops
+  try{ const as=navigator.audioSession; if(as && as.type!=="playback") as.type="playback"; }catch(e){}
   const buf=audioCtx.createBuffer(1, st.pcm.samples.length, st.pcm.rate); buf.getChannelData(0).set(st.pcm.samples);
   const src=audioCtx.createBufferSource(); src.buffer=buf; src.connect(audioCtx.destination);
-  const total=buf.duration, t0=audioCtx.currentTime; const v={src, el:st.el, btn:st.btn, fill:st.fill, dur:st.durEl, total, raf:0}; _vplay=v;
+  const total=buf.duration, full=st.full||total, off=st.off||0, t0=audioCtx.currentTime;   // after a seek: what plays is the tail, the bar and the length show the whole
+  const v={src, el:st.el, btn:st.btn, fill:st.fill, dur:st.durEl, total:full, raf:0}; _vplay=v;
   st.btn.textContent="⏸";
-  const tick=()=>{ if(_vplay!==v) return; const p=Math.min(1,(audioCtx.currentTime-t0)/total); v.fill.style.width=(p*100).toFixed(1)+"%"; v.dur.textContent=fmtSec(total-(p*total)); v.raf=requestAnimationFrame(tick); };
+  const tick=()=>{ if(_vplay!==v) return; const p=off+(1-off)*Math.min(1,(audioCtx.currentTime-t0)/total); v.fill.style.width=(p*100).toFixed(1)+"%"; v.dur.textContent=fmtSec(full*(1-p)); v.raf=requestAnimationFrame(tick); };
   src.onended=()=>{ if(_vplay===v) voiceStop(); }; src.start(); v.raf=requestAnimationFrame(tick);
 }
 // Bubble: ▶ + progress + length. The bytes come from memory (just recorded), from the local media store
-// (played before), or — the first time — from the relay, after which the blob is deleted there.
+// (played before), or — the first time — from the relay (which deletes the blob after 14 days; the key only
+// ever travels inside the message).
 function addVoice(logEl, cls, env, tag, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls+" voice"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
@@ -1503,17 +1556,17 @@ function addVoice(logEl, cls, env, tag, ts, opts){
   metaRow(d, ts, cls==="sent"?(opts.st||"pending"):null);
   const st={el:d, btn, fill, durEl, pcm:null, bytes:opts.bytes||null, busy:false};
   btn.addEventListener("click", async()=>{
-    if(st.busy) return;
+    if(st.busy) return; initAudio();   // inside the tap: iOS only unlocks audio in a user gesture
     if(!st.pcm){ st.busy=true; btn.disabled=true; durEl.textContent="…";
       try{ let bytes=st.bytes || await mediaGet(opts.mid);
-        if(!bytes){ if(!validAud(env)) throw new Error("bad"); bytes=await fetchBytes(env); await mediaPut(opts.room||"", opts.mid, bytes, ts); deleteBlob(env.path); }
+        if(!bytes){ if(!validAud(env)) throw new Error("bad"); bytes=await fetchBytes(env); await mediaPut(opts.room||"", opts.mid, bytes, ts); }   // the relay keeps the blob for its 14 days: the other members / your other devices fetch it too
         const pcm=voiceUnpack(bytes); if(!pcm) throw new Error("bad"); st.pcm=pcm; st.bytes=null; durEl.textContent=fmtSec(pcm.samples.length/pcm.rate);
       }catch(e){ st.busy=false; btn.disabled=false; durEl.textContent=fmtSec(env.dur||0); toast(e&&e.message==="gone"?t("This voice message has expired"):t("Couldn't play this voice message")); return; }
       st.busy=false; btn.disabled=false; }
     voicePlay(st);
   });
   bar.addEventListener("click", e=>{ if(!_vplay || _vplay.el!==d || !st.pcm) return; const r=bar.getBoundingClientRect(); const p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
-    voiceStop(); const n=Math.floor(p*st.pcm.samples.length); const cut={rate:st.pcm.rate, samples:st.pcm.samples.subarray(n)}; voicePlay({el:d,btn,fill,durEl,pcm:cut}); });
+    voiceStop(); const n=Math.floor(p*st.pcm.samples.length); const cut={rate:st.pcm.rate, samples:st.pcm.samples.subarray(n)}; voicePlay({el:d,btn,fill,durEl,pcm:cut, off:p, full:st.pcm.samples.length/st.pcm.rate}); });
   d.addEventListener("click",e=>{ if(e.target===btn||e.target===bar||e.target===fill) return; if(d.classList.contains("failed") && d._retry) d._retry(); });
   logEl.appendChild(d); scrollEl(logEl);
   return d;
@@ -1612,7 +1665,7 @@ let _iceCache=null;
 async function iceServers(){
   const dflt=[{urls:["stun:stun.cloudflare.com:3478","stun:stun.l.google.com:19302"]}];
   if(_iceCache && _iceCache.exp>Date.now()) return _iceCache.servers;
-  try{ const {data}=await client.functions.invoke(TURN_FN,{body:{}});
+  try{ const {data}=await client.functions.invoke(TURN_FN,{body:{token:(sessLoad()||{}).token||""}});
     if(data && data.ok && Array.isArray(data.iceServers) && data.iceServers.length){ _iceCache={servers:data.iceServers, exp:Date.now()+Math.max(60,(data.ttl||600)-60)*1000}; return data.iceServers; } }catch(e){}
   return dflt;
 }
@@ -1627,6 +1680,7 @@ function mediaErr(e){ const n=e&&e.name||"";
   if(n==="NotReadableError") return t("The microphone or camera is in use by another app");
   return t("Couldn't start the microphone / camera"); }
 async function callMedia(video, facing){
+  if(rec) stopRec(false);   // the microphone goes to the call
   const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
   const v= video ? {facingMode:facing||"user", width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:24}} : false;
   try{ return await navigator.mediaDevices.getUserMedia({audio, video:v}); }
@@ -1657,7 +1711,7 @@ async function newPeer(pid, name, initiator){
   const pc=new RTCPeerConnection({iceServers:await iceServers(), bundlePolicy:"max-bundle"});
   if(!call) { try{ pc.close(); }catch(e){} return null; }
   const P={pid, name, pc, cands:[], remoteSet:false, el:peerEl(pid,name), stream:new MediaStream(), connected:false};
-  call.peers.set(pid,P);
+  call.peers.set(pid,P); if(call.early && call.early.has(pid)){ P.cands.push(...call.early.get(pid)); call.early.delete(pid); }
   if(call.local) call.local.getTracks().forEach(tr=>pc.addTrack(tr, call.local));
   pc.onicecandidate=e=>{ if(e.candidate && call) callSend({a:"ice",cid:call.cid,to:pid,from:call.me,cand:e.candidate.toJSON()}); };
   pc.ontrack=e=>{ P.stream.addTrack(e.track); const v=P.el.querySelector("video"); if(v.srcObject!==P.stream) v.srcObject=P.stream; v.play().catch(()=>{});
@@ -1701,6 +1755,7 @@ async function startCall(video){
   if(!R.fromContact && !R.paired) return;
   initAudio();
   let local; try{ local=await callMedia(video); }catch(e){ toast(mediaErr(e)); return; }
+  if(call){ local.getTracks().forEach(tr=>tr.stop()); return; }   // a call began meanwhile (a second tap, an incoming one)
   video = video && local.getVideoTracks().length>0;
   call={R, cid:rid(), dir:"out", group:false, video, state:"calling", peers:new Map(), me:R.id, local, name:R.peerName||dn(R.title), t0:Date.now(), ackd:false};
   showOutgoing(); peerEl("?", call.name); callStatus(t("Calling…")); startRing("back");
@@ -1734,7 +1789,7 @@ function endCall(reason, silent){
   if(!silent && c.R){ try{ callSig(c.R, c.group ? {a:"hangup",cid:c.cid,from:c.me} : {a:(c.dir==="out"&&!c.t1)?"cancel":"hangup", cid:c.cid, from:c.me, to:c.from}); }catch(e){} }
   c.peers.forEach(P=>{ clearTimeout(P.discT); try{ P.pc.close(); }catch(e){} });
   if(c.local) c.local.getTracks().forEach(tr=>tr.stop());
-  $("callStage").innerHTML=""; $("callLocal").srcObject=null; callUIShow(false);
+  $("callStage").innerHTML=""; $("callLocal").srcObject=null; $("callLocal").style.transform=""; callUIShow(false);
   const kind=c.video?t("Video call"):t("Audio call"); const dur=c.t1?fmtDur(Date.now()-c.t1):null;
   const line = dur ? "📞 "+kind+" · "+dur
     : reason==="declined" ? t("📞 {kind} declined",{kind}) : reason==="busy" ? t("📞 {kind} — busy",{kind})
@@ -1767,7 +1822,9 @@ async function callSignal(R, env, who){
       const ans=await P.pc.createAnswer(); await P.pc.setLocalDescription(ans);
       callSend({a:"answer",cid:call.cid,to:env.from,from:call.me,sdp:{type:P.pc.localDescription.type,sdp:P.pc.localDescription.sdp}}); break; }
     case "answer": { const P=call.peers.get(env.from); if(!P||!env.sdp) break; await P.pc.setRemoteDescription(env.sdp); P.remoteSet=true; for(const c of P.cands){ try{ await P.pc.addIceCandidate(c); }catch(e){} } P.cands=[]; break; }
-    case "ice": { const P=call.peers.get(env.from); if(!P||!env.cand) break; if(P.remoteSet){ try{ await P.pc.addIceCandidate(env.cand); }catch(e){} } else P.cands.push(env.cand); break; }
+    case "ice": { const P=call.peers.get(env.from); if(!env.cand) break;
+      if(!P){ if(!call.early) call.early=new Map(); const l=call.early.get(env.from)||[]; if(l.length<64) l.push(env.cand); call.early.set(env.from,l); break; }   // before the offer was handled: kept
+      if(P.remoteSet){ try{ await P.pc.addIceCandidate(env.cand); }catch(e){} } else P.cands.push(env.cand); break; }
     case "decline": if(!call.group) endCall("declined",true); break;
     case "busy": if(!call.group) endCall("busy",true); break;
     case "cancel": if(!call.group) endCall("missed",true); break;
@@ -1778,6 +1835,7 @@ async function callSignal(R, env, who){
 // ----- groups: "there is a call, join it" (no ringing; presence tells who is in) -----
 async function startGroupCall(R, video){
   initAudio(); let local; try{ local=await callMedia(video); }catch(e){ toast(mediaErr(e)); return; }
+  if(call){ local.getTracks().forEach(tr=>tr.stop()); return; }
   video = video && local.getVideoTracks().length>0;
   call={R, cid:rid(), dir:"out", group:true, video, state:"live", peers:new Map(), me:R.id, local, name:R.title||t("Group"), t0:Date.now()};
   showOutgoing(); onCallConnected();
@@ -1787,6 +1845,7 @@ async function startGroupCall(R, video){
 async function joinGroupCall(){
   const R=A(); if(!R||!R.group||!R.gcall) return; if(call){ toast(t("You're already in a call")); return; }
   initAudio(); let local; try{ local=await callMedia(R.gcall.video); }catch(e){ toast(mediaErr(e)); return; }
+  if(call){ local.getTracks().forEach(tr=>tr.stop()); return; }
   call={R, cid:R.gcall.cid, dir:"in", group:true, video:!!(R.gcall.video && local.getVideoTracks().length), state:"connecting", peers:new Map(), me:R.id, local, name:R.title||t("Group"), t0:Date.now()};
   showOutgoing(); callStatus(t("Connecting…")); try{ R.channel && R.channel.track(presencePayload(R)); }catch(e){}
   callSig(R,{a:"gjoin",cid:call.cid,from:R.id,n:myName,video:call.video}); showCallBanner(R); updateCallUI();
@@ -2006,7 +2065,8 @@ function openPicker(b){
 function placePicker(b){
   const pk=$("rxPick"); if(pk.hidden || !b) return; const r=b.getBoundingClientRect(); const w=pk.offsetWidth, h=pk.offsetHeight;
   const bar=$("bar"); const minTop=(bar ? bar.getBoundingClientRect().bottom : 0)+6;
-  let top=r.top-h-8; if(top<minTop) top=Math.min(r.bottom+8, window.innerHeight-h-8);
+  const ap=$("app"), dy=(ap && ap.style.transform) ? ap.getBoundingClientRect().top : 0;   // fixed inside a transformed #app: offsets follow it
+  let top=r.top-h-8; if(top<minTop) top=Math.min(r.bottom+8, viewH()-h-8); top-=dy;
   let left=b.classList.contains("sent") ? r.right-w : r.left; left=Math.max(8, Math.min(left, window.innerWidth-w-8));
   pk.style.top=Math.round(top)+"px"; pk.style.left=Math.round(left)+"px";
 }
@@ -2051,7 +2111,7 @@ function locCard(env, mine){ const acc=env.acc?t("±{m} m",{m:env.acc})+" · ":"
 function ginvCard(env, who, dir){ const name=String(env.name||"Group").slice(0,40);
   return { ico:"👥", title: dir==="sent" ? t("Group “{name}” created",{name}) : t("{who} invited you to the group “{name}”",{who:who||t("Contact"),name}),
     sub: dir==="sent" ? t("invitation sent in this chat") : "", action:{label: dir==="sent"?t("Open the group"):(groupsLoad().some(g=>g.rid===env.rid)?t("Open the group"):t("Join the group")), onclick:()=>{ closeSidebar(); doJoinGroup(env.rid, unb64(env.gk), name, env.adm); }} }; }
-function validGinv(env){ return env && env.t==="ginv" && typeof env.rid==="string" && /^[a-z0-9]{8,32}$/.test(env.rid) && typeof env.gk==="string" && env.gk.length>=40 && env.gk.length<=64; }
+function validGinv(env){ return env && env.t==="ginv" && typeof env.rid==="string" && /^[a-z0-9]{8,32}$/.test(env.rid) && typeof env.gk==="string" && env.gk.length>=40 && env.gk.length<=64 && /^[A-Za-z0-9+\/]+=*$/.test(env.gk) && (env.adm===undefined || (typeof env.adm==="string" && env.adm.length===88)); }
 function groupAddIfNew(rid, gkB64, name, adm){ const l=groupsLoad(); if(l.some(g=>g.rid===rid)) return false; const g={rid,gk:gkB64,name:(name||"Group").slice(0,40),ts:Date.now()}; if(adm) g.adm=adm; l.push(g); groupsSave(l); return true; }
 function openLightbox(url, opts){
   opts=opts||{}; const t_=t;   // the countdown label shadows t below
@@ -2098,9 +2158,9 @@ function addImageRecvOnce(logEl, meta, tag, ts, mid, vf){
     try{
       const url=await fetchImage(meta);
       markViewed(mid);                                   // never shown again, even after a reload
-      openLightbox(url,{countdown:10,onClose:()=>{ try{URL.revokeObjectURL(url);}catch(e){} deleteBlob(meta.path);
+      openLightbox(url,{countdown:10,onClose:()=>{ try{URL.revokeObjectURL(url);}catch(e){} if(!tag) deleteBlob(meta.path);   // in a group the others still have to see it (the relay sweeps it)
         const x=document.createElement("div"); x.className="imgph"; x.textContent=t("📷 photo viewed"); btn.replaceWith(x); }});
-    }catch(e){ opened=false; btn.innerHTML=prev; }
+    }catch(e){ opened=false; btn.innerHTML=prev; toast(e&&e.message==="gone"?t("This photo is no longer available"):t("Couldn't open this photo")); }
   });
   return d;
 }
@@ -2171,7 +2231,7 @@ async function shareInvite(){
   const parts=inviteParts(), {url,msg}=parts, pi=parts.invite?_pendingInvite:null;
   // One combined text field is handled most consistently across targets (WhatsApp included).
   if(navigator.share){ try{ await navigator.share({text:msg}); openInviteChatIfStill(pi); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
-  try{ await navigator.clipboard.writeText(url); toast(t("Link copied")); }catch(e){ prompt(t("Copy this link:"),url); }
+  try{ await navigator.clipboard.writeText(url); persistPendingInvite(); toast(t("Link copied")); }catch(e){ persistPendingInvite(); prompt(t("Copy this link:"),url); }
 }
 const IS_PHONE=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
 function shareWhatsApp(){
@@ -2204,6 +2264,7 @@ function setIdle(R){
   if(isPendingInvite(pc)){ if(pc.dead) return setStatus(R, t("this invite link was cancelled after three wrong codes — make a new one"), false, "warn", t("link cancelled"));
     if(inviteExpired(pc.x)) return setStatus(R, t("this invite link has expired — make a new one"), false, "warn", t("link expired"));
     return setStatus(R, idleStatus(R), false, "busy", t("link not opened yet")); }
+  if(pc && pc.v3 && pc.dead && !pc.pk) return pc.nopin ? setStatus(R, t("wrong code — open the link again"), false, "warn", t("wrong code")) : setStatus(R, t("invite link already used — ask for a new one"), false, "warn", t("link used"));
   return setStatus(R, idleStatus(R), false, "offline");
 }
 async function establish(R, other, authed){
@@ -2217,7 +2278,7 @@ async function establish(R, other, authed){
   R.establishing=false;
   const changed=rootFp!==R.rootFp;
   R.peer=other; R.root=root; R.rootFp=rootFp; if(changed){ R.sendI=0; R.recvI=-1; } R.paired=true; R.authOk=!!authed;
-  const nm=other.name||"Peer"; R.peerName=dn(nm); R.avatar=up(nm[0]||"?");
+  const nm=String(other.name||"Peer").replace(/[\r\n\t]+/g," ").slice(0,40); R.peerName=dn(nm); R.avatar=up(nm[0]||"?");
   const alias=R.fromContact ? (contactFind(R.fromContact)||{}).alias : "";
   if(alias){ R.title=alias; R.peerName=alias; R.avatar=up(alias[0]||"?"); }
   else if(realName(nm)) R.title=nm;                    // show the person's name in the tab/header
@@ -2298,7 +2359,7 @@ function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.cha
 function scheduleRejoin(R, ch){
   if(!R.bind || R.rejoinT) return;
   R.joinFails=(R.joinFails||0)+1; const wait=Math.min(30000, 3000*Math.pow(2, R.joinFails-1));
-  R.rejoinT=setTimeout(()=>{ R.rejoinT=null; if(!rooms.has(R.code) || R.channel!==ch) return; if(ch.state==="joined") return;
+  R.rejoinT=setTimeout(()=>{ R.rejoinT=null; if(rooms.get(R.code)!==R || R.channel!==ch) return; if(ch.state==="joined") return;
     try{ ch.unsubscribe(); }catch(e){} R.bind(); }, wait);
 }
 async function onSync(R){
@@ -2307,7 +2368,7 @@ async function onSync(R){
   others=others.filter(m=>!(me && m.u===me));          // my own account on another device/tab is not a peer
   // someone who just opened our invite link announces the key agreement in presence: bind first, verify after
   for(const m of others){ if(m.hello && m.hello.e && R.fromContact){ const c=contactFind(R.fromContact);
-    if(c && c.pk) await processHello(R.fromContact, m.hello.e, m.hello.n||m.name, m.hello.m, m.hello.fs===1);
+    if(c && c.pk) await processHello(R.fromContact, m.hello.e, m.hello.n||m.name, m.hello.m, m.hello.fs===1, m.hello.ke);
     else if(c && c.prev && isForeignHello(c, m.hello.e)) noteLinkReuse(c, c.prev, m.hello.e); } }
   if(others.length===0){ R.multiSig=""; if(R.paired) unpair(R); else setIdle(R); return; }
   // Authenticate every candidate with the shared contact key. Only someone holding the key we established
@@ -2447,7 +2508,7 @@ async function convertToGroup(){
 async function sendImage(file){
   const R=A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
   const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid); const now=Date.now();
-  const el=addImageSent(R.logEl, null, URL.createObjectURL(file), now, {mid, st:"pending"});
+  const purl=URL.createObjectURL(file); const el=addImageSent(R.logEl, null, purl, now, {mid, st:"pending"}); setTimeout(()=>{ try{ URL.revokeObjectURL(purl); }catch(e){} }, 60000);
   try{
     const meta=await uploadImage(file); meta.t="img"; meta.once=true;
     await deliverOut(R, meta, mid, el, now);
@@ -2484,7 +2545,7 @@ async function doJoin(code, opts){
         past.sort((a,b)=>(a.ts||0)-(b.ts||0)); } }
     renderHistory(R, past);
   }
-  if(!R.seen) R.seen=new Set();
+  R.seen=seenSetFor(R);
   R.bind=()=>{ const ch=client.channel("ratchet-"+code,{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
     R.channel=ch;
     ch.on("presence",{event:"sync"},()=>onSync(R));
@@ -2504,7 +2565,7 @@ let _installChecked=false, _showInstallInvite=null;
 function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
-function goHome(){ cancelReply(); closePicker(); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
+function goHome(){ cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 function showAuth(mode){
@@ -2564,7 +2625,7 @@ function ncSet(nc){
 }
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
-  if(!_reply || _reply.code!==code) cancelReply(); closePicker();
+  if(!_reply || _reply.code!==code) cancelReply(); closePicker(); if(rec && code!==active) stopRec(false);
   active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   { const hk=histKeyOf(R), n=(_meta.unread&&+_meta.unread[hk])||0; markNew(R, n); }
@@ -2593,6 +2654,7 @@ function moveRoomSoon(R){
 }
 function leaveRoom(code){
   const R=rooms.get(code); if(!R) return;
+  clearTimeout(R.rejoinT); R.rejoinT=null; R.bind=null;
   try{ R.channel && R.channel.unsubscribe(); }catch(e){}
   if(R.logEl) R.logEl.remove();
   rooms.delete(code);
@@ -2735,8 +2797,10 @@ async function recoverABKWithPassword(pw){
   }catch(e){ return false; }
 }
 function mergeContacts(remote){ let _chainChanged=false;
+  const gone=_meta.gone=Object.assign({},_meta.gone||{},remote.gone||{});   // removals known on any device
   const lc=contactsLoad(), byCk={}; lc.forEach(c=>byCk[c.ck]=Object.assign({},c));
   (remote.contacts||[]).forEach(rc=>{ if(!rc||!rc.ck) return;
+    if((gone[rc.ck]||0)>(rc.ts||0)) return;                            // removed after it was last saved: stays removed
     // the other device rotated this contact's key: its record replaces our pre-rotation one
     if(rc.prev && byCk[rc.prev] && !byCk[rc.ck]){ const o=byCk[rc.prev]; delete byCk[rc.prev]; byCk[rc.ck]=Object.assign({},rc,{v:(o.v||rc.v)?1:undefined, name:realName(o.name)&&!realName(rc.name)?o.name:rc.name}); if(!byCk[rc.ck].v) delete byCk[rc.ck].v; return; }
     // we rotated already and the other device still has the old record: ours wins, its flags are kept
@@ -2760,13 +2824,16 @@ function mergeContacts(remote){ let _chainChanged=false;
            if(rc.into && !e.into){ e.into=rc.into; e.hk=rc.into; if(rc.its) e.its=rc.its; }   // merged on another device: one-way, never undone
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
-  (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; const e=byRid[rg.rid];
+  (remote.groups||[]).forEach(rg=>{ if(!rg||!rg.rid) return; if((gone["g:"+rg.rid]||0)>(rg.ts||0)) return; const e=byRid[rg.rid];
     if(!e){ byRid[rg.rid]=Object.assign({},rg); }
-    else { if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk) e.gk=rg.gk; }
+    else { if((rg.ts||0)>(e.ts||0)){ e.name=rg.name||e.name; e.ts=rg.ts; if(rg.gk && rg.gk!==e.gk){ e.gk=rg.gk; e.rot=rg.rot||e.rot; e.rotFp=rg.rotFp; e.prevGk=rg.prevGk; e.rotAt=rg.rotAt; if(rg.left) e.left=1; else delete e.left; } }
+           if(rg.adm && !e.adm) e.adm=rg.adm;
            if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; }
            if(rg.mts&&(rg.mts>(e.mts||0))){ e.mu=rg.mu; e.mts=rg.mts; if(!e.mu) delete e.mu; }
            if(rg.mem){ const mem=Object.assign({},e.mem||{}); for(const pk in rg.mem){ if(!mem[pk] || (rg.mem[pk].ts||0)<(mem[pk].ts||0)) mem[pk]=rg.mem[pk]; } e.mem=mem; } } });
   if(_chainChanged) _chainCache.clear();   // keys derived from a root this merge replaced must not be reused
+  for(const k in byCk) if((gone[k]||0)>(byCk[k].ts||0)) delete byCk[k];
+  for(const k in byRid) if((gone["g:"+k]||0)>(byRid[k].ts||0)) delete byRid[k];
   return { contacts:Object.values(byCk), groups:Object.values(byRid) };
 }
 async function vaultDecrypt(cipher){ if(!gContactsKey||!cipher||!cipher.ct) return null;
@@ -2793,11 +2860,11 @@ async function pullMerge(){
 async function pushBlob(){
   if(!gContactsKey) return false;
   const ep=gEpoch;
-  const cipher=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ident:identLoad()||undefined, ts:Date.now() });
+  const cipher=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ident:identLoad()||undefined, gone:_meta.gone||undefined, ts:Date.now() });
   let res=await vaultFn("pushContacts",{contacts:cipher, cver:gVaultCver}); if(ep!==gEpoch) return false;
   if(res.data && res.data.conflict){            // another device advanced it — merge then retry once
     gVaultCver=res.data.cver||gVaultCver; try{ await pullMerge(); }catch(e){} if(ep!==gEpoch) return false;
-    const c2=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ident:identLoad()||undefined, ts:Date.now() });
+    const c2=await vaultEncrypt({ contacts:contactsForVault(), groups:groupsLoad(), ident:identLoad()||undefined, gone:_meta.gone||undefined, ts:Date.now() });
     res=await vaultFn("pushContacts",{contacts:c2, cver:gVaultCver}); if(ep!==gEpoch) return false;
   }
   if(res.data && res.data.ok){ gVaultCver=res.data.cver||gVaultCver; return true; }
@@ -2921,14 +2988,17 @@ function autoLockMs(){ try{ return +localStorage.getItem(LS_AUTOLOCK)||0; }catch
 function privateDefaults(){ try{ if(localStorage.getItem(EXP_G)===null) localStorage.setItem(EXP_G,"86400000"); if(localStorage.getItem(LS_AUTOLOCK)===null) localStorage.setItem(LS_AUTOLOCK,"900000"); }catch(e){} }
 function setAutoLock(ms){ try{ localStorage.setItem(LS_AUTOLOCK,String(ms||0)); }catch(e){} armAutoLock(); }
 let _lockT=null, _hiddenAt=0;
-function armAutoLock(){ clearTimeout(_lockT); const ms=autoLockMs(); if(!ms||!gHistKey) return; _lockT=setTimeout(lockApp, ms); }
+function armAutoLock(){ clearTimeout(_lockT); const ms=autoLockMs(); if(!ms||!gHistKey) return; _lockT=setTimeout(()=>{ if(call){ armAutoLock(); return; } lockApp(); }, ms); }   // never in the middle of a call
 function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop(); stopScan(); cancelReply(); closePicker();
   const s=sessLoad(); if(!s||!gHistKey) return;                 // not signed in, or already locked
   clearTimeout(_lockT); clearTimeout(_syncT);
+  clearTimeout(_muteT);
+  if(_syncT){ clearTimeout(_syncT); _syncT=null; pushBlob().catch(()=>{}); }      // a pending vault push (a binding, a mute, a merge) must not be lost
+  if(_localT){ clearTimeout(_localT); _localT=null; localSave().catch(()=>{}); }   // nor a pending local save (unread, queued sends, cursors)
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
   rooms.clear(); active=null;
   gHistKey=null; gEpoch++; gABK=null; gContactsKey=null; _acct=""; gRestoring=false; clearPreviews(); localClear();   // keys leave memory; the cached ABK stays for a quick unlock
-  try{ $("wireCt").textContent="—"; $("msgInput").value=""; const m=$("barMenu"); if(m) m.hidden=true; }catch(e){}
+  try{ $("wireCt").textContent="—"; $("msgInput").value=""; const m=$("barMenu"); if(m) m.hidden=true; $("invLinkOut").value=""; $("qrBox").hidden=true; const cv=$("qrCanvas"); if(cv) cv.getContext("2d").clearRect(0,0,cv.width,cv.height); $("peerMeta").title=""; }catch(e){}
   document.querySelectorAll(".modal.show").forEach(m=>m.classList.remove("show"));          // every dialog, whatever it was
   try{ document.querySelectorAll(".lightbox").forEach(l=>l.remove()); }catch(e){}
   _ginvPending=null; _pendingInvite=null; _pendingNotify=null;
@@ -3026,13 +3096,13 @@ async function changePassword(cur, nw){
   const {AK:AKold, av:avOld}=await avFor(cur);
   if(!gABK){ const ok=await recoverABK(AKold); if(!ok) throw new Error(t("Couldn't reach your account backup — try again when online")); }
   const saltB=crypto.getRandomValues(new Uint8Array(16)), AKnew=await pbkdf2bits(nw,saltB), avNew=await sha256b64(AKnew), verifier=await sha256b64(unb64(avNew));
-  const r=await authFn("changepw",{token:s.token, av:avOld, salt:b64(saltB), verifier});
-  if(isRateLimited(r)) throw new Error(String(RL_MSG));
-  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?t("Current password is wrong"):t("Couldn't change the password — try again")); }
-  // the server now expects the new password: re-wrap the account backup key under it, and the local master key too
+  // the account backup key re-wrapped under the new password travels in the same request as the new verifier:
+  // the server writes both in one transaction, so no device can end up able to log in but unable to open the backup
   const wrapKey=await abkWrapKeyFromAK(AKnew); const iv=crypto.getRandomValues(new Uint8Array(12));
   const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},wrapKey,gABK);
-  await vaultFn("rewrapAbk",{abk:{iv:b64(iv),ct:b64(ct)}, av:avNew});
+  const r=await authFn("changepw",{token:s.token, av:avOld, salt:b64(saltB), verifier, abk:{iv:b64(iv),ct:b64(ct)}});
+  if(isRateLimited(r)) throw new Error(String(RL_MSG));
+  if(!r.data||!r.data.ok){ const st=r.error&&r.error.context&&r.error.context.status; throw new Error(st===401?t("Current password is wrong"):t("Couldn't change the password — try again")); }
   await rewrapPin(nw, mk);
 }
 async function deleteAccount(pw){
@@ -3078,6 +3148,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("qrScan").addEventListener("click",startScan); $("scanCancel").addEventListener("click",stopScan);
   if(!scanSupported()){ $("qrScan").hidden=true; } else { $("qrScanHint").textContent=t("You can also point your phone's camera at the code: the link opens here."); }
   $("invLinkOut").addEventListener("focus",e=>{ try{ e.target.select(); }catch(x){} });
+  ["copy","cut"].forEach(ev=>$("invLinkOut").addEventListener(ev,()=>{ try{ persistPendingInvite(); }catch(x){} }));   // a link copied by hand is a link sent
   $("advRoom").addEventListener("click",()=>{ $("join").dataset.adv="1"; ncSet("direct"); });
   $("joinBtn").addEventListener("click",join);
   let _ucT=null;
@@ -3246,7 +3317,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   ["pointerdown","keydown","touchstart"].forEach(ev=>document.addEventListener(ev,()=>{ if(gHistKey) armAutoLock(); },{passive:true}));
   document.addEventListener("visibilitychange",()=>{
     if(document.hidden){ _hiddenAt=Date.now(); return; }
-    const ms=autoLockMs(); if(ms && gHistKey && _hiddenAt && Date.now()-_hiddenAt>=ms) lockApp(); else if(gHistKey) armAutoLock();
+    const ms=autoLockMs(); if(ms && gHistKey && _hiddenAt && !call && Date.now()-_hiddenAt>=ms) lockApp(); else if(gHistKey) armAutoLock();
     _hiddenAt=0;
   });
   $("expGlobal").addEventListener("change",e=>{ setExpGlobal(+e.target.value||0); toast(t("Default updated")); });
@@ -3320,7 +3391,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("installLater").addEventListener("click",closeInstallModal);
   $("installModal").addEventListener("click",e=>{ if(e.target.id==="installModal") closeInstallModal(); });
 
-  if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }); }
+  if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("/sw.js").catch(()=>{}); });
+    navigator.serviceWorker.addEventListener("message", e=>{ const m=e.data||{}; if(m.type!=="open") return;   // a notification tapped while a window is open
+      let n=""; try{ const mm=/^n=(.*)$/.exec((new URL(m.url,location.origin).hash||"").replace(/^#/,"")); if(mm) n=decodeURIComponent(mm[1]); }catch(x){}
+      if(!n) return; if(gHistKey) openByNotifyKey(n).then(ok=>{ if(!ok) _pendingNotify=n; }).catch(()=>{}); else _pendingNotify=n; }); }
   // ----- a newer version is out -----
   // An app left open (a phone keeps it in memory for days) goes on running the code it started with. When it
   // comes back to the foreground (and every 30 minutes) it reads the version of the service worker on the

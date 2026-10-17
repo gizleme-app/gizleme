@@ -147,6 +147,9 @@ rate-limit counters.
   chat's history id on your devices, and its key stays (hidden) only so that what still arrives on it is read.
   No keys are combined, nothing is sent, the other side is not told, and verification marks are not carried
   over as proof of anything — Gizleme never merges on its own, because a matching name proves nothing.
+- **Server functions accept calls only from gizleme.com** (CORS), TURN credentials only with a session, and
+  the per-account login limit counts wrong passwords only (10 in 15 min pause logins for that name; existing
+  devices unlock locally, so a stranger can at most delay a new-device login).
 - **Muted chats and the unread count.** Whether a chat is muted (and until when) is stored with the contact or
   group in the encrypted vault. For notifications, the service worker's cache holds — next to the names it
   already kept — the end time of each muted chat, keyed by a hash of its notification key, and the unread

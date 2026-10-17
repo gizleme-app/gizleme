@@ -587,7 +587,9 @@ window.GZ_I18N = {
     "Merge your chat with “{old}” into this one?\n\nIts messages will show here, in order, and it leaves your chats list. If they still write in that chat, it arrives here too. Only on your devices — nothing is sent.": "Fusionner ta conversation avec « {old} » dans celle-ci ?\n\nSes messages apparaîtront ici, dans l'ordre, et elle quittera ta liste. Si la personne écrit encore dans l'ancienne, ça arrivera ici aussi. Seulement sur tes appareils — rien n'est envoyé.",
     "Chats merged": "Conversations fusionnées",
     "Couldn't merge these chats": "Impossible de fusionner ces conversations",
-    "🔗 Your earlier chat with {name} is now part of this one.": "🔗 Ton ancienne conversation avec {name} fait maintenant partie de celle-ci."
+    "🔗 Your earlier chat with {name} is now part of this one.": "🔗 Ton ancienne conversation avec {name} fait maintenant partie de celle-ci.",
+    "This photo is no longer available": "Cette photo n'est plus disponible",
+    "Couldn't open this photo": "Impossible d'ouvrir cette photo"
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1164,6 +1166,8 @@ window.GZ_I18N = {
     "Merge your chat with “{old}” into this one?\n\nIts messages will show here, in order, and it leaves your chats list. If they still write in that chat, it arrives here too. Only on your devices — nothing is sent.": "“{old}” ile olan sohbetin bununla birleştirilsin mi?\n\nMesajları sırayla burada görünecek ve listenden çıkacak. Kişi eski sohbete yazmaya devam ederse o da buraya gelir. Yalnızca senin cihazlarında — hiçbir şey gönderilmez.",
     "Chats merged": "Sohbetler birleştirildi",
     "Couldn't merge these chats": "Bu sohbetler birleştirilemedi",
-    "🔗 Your earlier chat with {name} is now part of this one.": "🔗 {name} ile olan eski sohbetin artık bunun bir parçası."
+    "🔗 Your earlier chat with {name} is now part of this one.": "🔗 {name} ile olan eski sohbetin artık bunun bir parçası.",
+    "This photo is no longer available": "Bu fotoğraf artık mevcut değil",
+    "Couldn't open this photo": "Bu fotoğraf açılamadı"
   }
 };
