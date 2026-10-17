@@ -10,6 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
+const APP_VERSION = 25;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -850,6 +851,18 @@ function onInbound(R, env, who, ts, mid, own, animate){
 }
 function bumpUnread(R){ const k=histKeyOf(R); _meta.unread[k]=(_meta.unread[k]||0)+1; R.unread=(R.unread||0)+1; pulseChat(R); localSaveSoon(); renderTabs(); renderContacts(); }
 function clearUnread(R){ const k=histKeyOf(R); if(_meta.unread[k]){ delete _meta.unread[k]; localSaveSoon(); } R.unread=0; }
+// ----- newer version on the server -----
+let _updChk=0, _updLater=false;
+async function checkUpdate(force){
+  const now=Date.now(); if(!force && now-_updChk<300000) return; _updChk=now;
+  try{ const txt=await fetch("/sw.js?v="+now,{cache:"no-store"}).then(r=>r.ok?r.text():"");
+    const m=/const CACHE = "gizleme-v(\d+)"/.exec(txt); if(m && +m[1]>APP_VERSION) offerUpdate(); }catch(e){}
+}
+function offerUpdate(){
+  const idle=document.body.classList.contains("in-auth") && !call && !(($("pwInput")||{}).value) && !(($("userInput")||{}).value) && !(($("pw2Input")||{}).value);
+  if(idle){ location.reload(); return; }
+  if(_updLater) return; $("updPill").hidden=false;
+}
 // ----- muted chats -----
 // A muted chat makes no sound, doesn't glow and isn't counted on the app icon; its notifications still arrive,
 // silently (a push must always show something). Kept with the contact / group in the encrypted vault, so it
@@ -3220,6 +3233,15 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("installModal").addEventListener("click",e=>{ if(e.target.id==="installModal") closeInstallModal(); });
 
   if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("/sw.js").catch(()=>{}); }); }
+  // ----- a newer version is out -----
+  // An app left open (a phone keeps it in memory for days) goes on running the code it started with. When it
+  // comes back to the foreground (and every 30 minutes) it reads the version of the service worker on the
+  // server; a higher one shows a small pill: tap to update. On the lock / login screen with nothing typed,
+  // nothing can be lost, so it simply reloads there.
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkUpdate(false); });
+  setInterval(()=>checkUpdate(false), 1800000);
+  $("updGo").addEventListener("click",()=>{ if(call && !confirm(t("Updating will end the call. Update now?"))) return; location.reload(); });
+  $("updX").addEventListener("click",()=>{ $("updPill").hidden=true; _updLater=true; });
 
   // ----- in-app browser nudge -----
   // A link tapped inside WhatsApp/Messenger/Instagram opens in their embedded webview, which cannot

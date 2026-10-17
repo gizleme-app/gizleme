@@ -476,6 +476,13 @@
   .menu[hidden]{display:none}
   .menu-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:none;border:none;color:var(--fg);font-size:.9rem;padding:11px 12px;border-radius:8px;cursor:pointer}
   .menu-item:hover{background:var(--surface-2)}
+  .upd-pill{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 66px);transform:translateX(-50%);z-index:70;display:flex;align-items:center;max-width:calc(100vw - 32px);background:var(--accent);color:#fff;border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.28);animation:updin .35s ease-out both}
+  .upd-pill[hidden]{display:none}
+  .upd-pill button{background:none;border:none;color:inherit;cursor:pointer;font:600 .82rem var(--ui)}
+  .upd-pill .upd-go{padding:9px 6px 9px 15px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .upd-pill .upd-x{padding:6px 12px 6px 6px;font-size:1.05rem;opacity:.8}
+  @keyframes updin{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
+  @media (prefers-reduced-motion:reduce){.upd-pill{animation:none}}
   .menu-sub{display:flex;flex-direction:column;margin:0 0 4px 28px;border-left:2px solid var(--line)}
   .menu-sub[hidden]{display:none}
   .menu-sub .menu-item{padding:9px 12px;font-size:.86rem}
@@ -955,6 +962,10 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="upd-pill" id="updPill" role="status" hidden>
+  <button type="button" class="upd-go" id="updGo">✨ New version available — tap to update</button>
+  <button type="button" class="upd-x" id="updX" aria-label="Later" title="Later">×</button>
+</div>
 
 <!-- Privacy screen: covers the content the instant the app goes to the background, so the OS app-switcher
      thumbnail and a glance at the phone show nothing. (No web API can block or detect screenshots.) -->

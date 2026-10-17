@@ -49,6 +49,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   1 hour, 8 hours or until you turn it back on (it follows your account; its notifications arrive silently).
 - Unread count in the tab title and on the app icon (a number, never a name), and a "New messages" line
   where you left off when you open a chat.
+- An app left open for days notices a new release when it comes back to the foreground: a small pill,
+  "New version available — tap to update" (on the lock screen it simply reloads).
 - Web Push: the wire carries only "New message" / "Incoming call" / "A contact wants to chat"; the
   receiving device adds the contact's name ("New message from X"). Never message content.
 - Audio and video calls (WebRTC): media goes peer-to-peer and is end-to-end encrypted by construction

@@ -1,6 +1,7 @@
 # Settings → Sounds (messages and calls / calls only / none), per-chat mute (1 h, 8 h, always; synced; silent
 # pushes), the unread count in the tab title and on the icon, the "New messages" line, and invites sent through
-# WhatsApp or the share sheet opening the new chat (no blank page left behind on a phone).
+# WhatsApp or the share sheet opening the new chat (no blank page left behind on a phone), and the
+# "new version available" pill.
 from playwright.sync_api import sync_playwright
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
@@ -55,7 +56,7 @@ HOOK='''window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),
   callState:()=>call?{state:call.state,live:!!call.t1,group:!!call.group,video:call.video,dir:call.dir,peers:[...call.peers.values()].map(P=>({pid:P.pid,cs:P.pc.connectionState,connected:P.connected,tracks:P.stream.getTracks().map(t=>t.kind)})),localAudioOn:call.local?call.local.getAudioTracks().every(t=>t.enabled):null,localVideo:call.local?call.local.getVideoTracks().length:0}:null,
   setIce:(l)=>{ _iceCache={servers:l,exp:Date.now()+1e9}; }, room:()=>{ const R=A(); return R?{paired:R.paired,group:R.group,gcall:R.gcall?R.gcall.cid:null,ck:R.fromContact}:null; },
   outq:()=>JSON.parse(JSON.stringify(_meta.outq||{})), histOf:async()=>{ const R=A(); const l=await histLoad(histKeyOf(R)); return l.map(r=>r.mid+'|'+r.dir+'|'+(r.env&&r.env.t)); }, lastSys:()=>{ const R=A(); return R&&R.logEl?[...R.logEl.querySelectorAll('.sys')].map(e=>e.textContent):[]; },
-  merge:(x)=>JSON.parse(JSON.stringify(mergeContacts(x))), soundMode:()=>soundMode(), unreadTotal:()=>unreadTotal() };
+  merge:(x)=>JSON.parse(JSON.stringify(mergeContacts(x))), soundMode:()=>soundMode(), unreadTotal:()=>unreadTotal(), checkUpdate:()=>checkUpdate(true) };
 '''
 _app=_app[:_app.rstrip().rfind("})();")]+HOOK+'})();\n'
 (site/"app.js").write_text(_app)
@@ -280,6 +281,27 @@ try:
     # the share sheet: once it completed, the new chat opens
     C.click("#copyLink"); C.wait_for_timeout(600)
     r["share_thenChat"]= C.evaluate("()=>window.__shared")==1 and wait_for(C, INCHAT, 5000)
+    # --- a newer version on the server: a pill offers to update (the page's version and the worker's agree)
+    import re as _re2
+    appv=int(_re2.search(r"const APP_VERSION = (\d+);", pathlib.Path(SRC+"app.js").read_text()).group(1))
+    swv=int(_re2.search(r'const CACHE = "gizleme-v(\d+)";', pathlib.Path(SRC+"sw.js").read_text()).group(1))
+    r["version_inStep"]= appv==swv
+    B.evaluate("()=>window.__gz.checkUpdate()"); B.wait_for_timeout(500)
+    r["upd_noPillWhenCurrent"]= not B.is_visible("#updPill")
+    swtxt=(site/"sw.js").read_text(); (site/"sw.js").write_text(swtxt.replace(f'gizleme-v{swv}"', f'gizleme-v{swv+1}"'))
+    B.evaluate("()=>window.__gz.checkUpdate()")
+    r["upd_pillShown"]= wait_for(B,"()=>!document.getElementById('updPill').hidden",4000) and B.is_visible("#updGo")
+    B.click("#updX"); B.wait_for_timeout(200); B.evaluate("()=>window.__gz.checkUpdate()"); B.wait_for_timeout(500)
+    r["upd_laterHolds"]= not B.is_visible("#updPill")
+    # at the login screen with nothing typed, it just reloads
+    ctxD=b.new_context(viewport={"width":390,"height":820},locale="en-US"); D=ctxD.new_page(); D.on("pageerror",lambda e:errsC.append(str(e)))
+    D.goto(f"http://127.0.0.1:{port}/"); D.wait_for_timeout(600); D.evaluate("()=>{ window.__mark=1; }")
+    D.evaluate("()=>window.__gz && window.__gz.checkUpdate ? window.__gz.checkUpdate() : null"); D.wait_for_timeout(1500)
+    r["upd_reloadsWhenIdle"]= D.evaluate("()=>window.__mark===undefined")
+    # tapping the pill reloads (here: an open, unlocked app → it comes back on the unlock screen)
+    B.evaluate("()=>{ document.getElementById('updPill').hidden=false; window.__mark=1; }"); B.click("#updGo"); B.wait_for_timeout(1500)
+    r["upd_tapReloads"]= B.evaluate("()=>window.__mark===undefined") and B.is_visible("#pwInput")
+    (site/"sw.js").write_text(swtxt)
     r["errors"]= (errsA+errsB+errsC)[:4]
     b.close()
 except Exception as e:

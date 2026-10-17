@@ -40,4 +40,4 @@ files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose
 | test41 | Turkish: detection, every string translated (placeholders intact), switching, dates, initials, privacy page |
 | test42 | reactions (double tap / double click, toggle, replace, counts) and replies (swipe, ↩, quote jump), persistence |
 | test43 | quiet sounds (none on send, connect or reaction; a small echo in the open chat; the rate-limited chime elsewhere) and the glowing row |
-| test44 | Settings → Sounds, per-chat mute (menu, list, merge, silent pushes), unread count in the title / on the icon, the "New messages" line, invites through WhatsApp / the share sheet opening the new chat |
+| test44 | Settings → Sounds, per-chat mute (menu, list, merge, silent pushes), unread count in the title / on the icon, the "New messages" line, invites through WhatsApp / the share sheet opening the new chat, the "new version" pill |
