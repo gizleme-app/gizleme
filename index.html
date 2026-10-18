@@ -232,6 +232,11 @@
   .rx-pick button:hover,.rx-pick button:focus-visible{background:var(--surface-2)}
   .rx-pick button:active{transform:scale(1.18)}
   .rx-pick .rx-tool{font-size:1.15rem;opacity:.8}
+  .rx-pick button[hidden]{display:none}
+  .bubble .edm{font-style:italic;opacity:.85;margin-right:2px}
+  .reply-bar.editing .rb-q{border-left-color:var(--warn)} .reply-bar.editing .rb-n{color:var(--warn)}
+  .logs .bubble{-webkit-touch-callout:none}
+  @media (hover:none) and (pointer:coarse){ .logs .bubble{-webkit-user-select:none;user-select:none} }   /* a long press opens the message menu (Copy is in it) */
   .rx-pick button.on{background:var(--surface-2);box-shadow:inset 0 0 0 2px var(--accent)}
   .rx-grid{display:grid;grid-template-columns:repeat(8,40px);border-top:1px solid var(--line);margin-top:4px;padding-top:4px;width:100%;justify-content:center}
   .rx-grid[hidden]{display:none}
@@ -265,10 +270,15 @@
   .call-stage{position:absolute;inset:0;display:grid;grid-template-columns:1fr;grid-auto-rows:1fr;gap:4px;background:#07070c}
   .call-stage.n2{grid-template-rows:1fr 1fr} .call-stage.n3,.call-stage.n4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr}
   .call-stage .peer{position:relative;overflow:hidden;background:#15131f;display:flex;align-items:center;justify-content:center}
-  .call-stage video{width:100%;height:100%;object-fit:cover;background:#15131f}
+  .call-stage video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#15131f}
+  .call-stage video.fit{object-fit:contain;background:#000}
+  .call-stage.n1{gap:0} .call-stage.n1 .peer{background:#000}
+  .call-top,.callui #callCtl{transition:opacity .25s}
+  .callui.bare .call-top,.callui.bare #callCtl{opacity:0;pointer-events:none}
   .call-stage .peer.audio video{display:none}
   .call-stage .peer:not(.audio) .pav{display:none}
   .call-stage .pav{width:96px;height:96px;border-radius:50%;background:var(--peer);color:#fff;display:grid;place-items:center;font-size:2.4rem;font-weight:700;box-shadow:0 0 0 10px rgba(255,255,255,.06)}
+  .call-stage.n1 .pname{display:none}
   .call-stage .pname{position:absolute;left:10px;bottom:10px;font-size:.8rem;font-weight:600;background:rgba(0,0,0,.45);padding:3px 9px;border-radius:999px}
   .call-top{position:absolute;top:0;left:0;right:0;padding:calc(18px + env(safe-area-inset-top,0px)) 20px 18px;text-align:center;background:linear-gradient(rgba(7,7,12,.85),rgba(7,7,12,0));z-index:2;pointer-events:none}
   .call-name{font-size:1.35rem;font-weight:700}
@@ -310,6 +320,17 @@
   .lightbox .lb-timer{position:absolute;bottom:calc(22px + env(safe-area-inset-bottom,0px));left:0;right:0;text-align:center;color:#fff;font-family:var(--mono);font-size:.82rem;opacity:.85}
   .sent{align-self:flex-end;background:var(--me);color:#fff;border-bottom-right-radius:5px}
   .recv{align-self:flex-start;background:var(--surface-2);color:var(--fg);border-bottom-left-radius:5px}
+  /* "typing…": three dots (a microphone while recording) at the end of the chat, and in the header */
+  .typing-bub{order:1;align-self:flex-start;display:flex;align-items:center;gap:6px;padding:11px 14px;border-radius:15px;border-bottom-left-radius:5px;background:var(--surface-2);color:var(--muted);animation:typIn .2s ease-out}
+  .typing-bub .tv{display:none;font-size:.95rem;line-height:1} .typing-bub.voice .tv{display:inline}
+  .typing-bub .dots{display:flex;gap:4px} .typing-bub .dots i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.35;animation:typDot 1.2s ease-in-out infinite}
+  .typing-bub .dots i:nth-child(2){animation-delay:.18s} .typing-bub .dots i:nth-child(3){animation-delay:.36s}
+  .typing-bub.voice .dots i{background:var(--bad)}
+  @keyframes typDot{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+  @keyframes typIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .bar.typing .status{color:var(--accent)} .bar.typing .status .led{background:var(--accent);animation:ledPulse 1.2s ease-in-out infinite}
+  .ct .cm.typing{color:var(--accent);font-style:italic}
+  @media (prefers-reduced-motion:reduce){.typing-bub .dots i,.bar.typing .status .led{animation:none}}
   .sys{align-self:center;font-size:.72rem;color:var(--muted);font-family:var(--mono);text-align:center;max-width:90%}
   .sys.warnline{color:var(--warn)}
   .fail{align-self:flex-start;border:1px dashed var(--bad);color:var(--bad);font-size:.82rem;background:transparent}
@@ -373,7 +394,10 @@
   .set-group.first{margin-top:6px;border-top:none;padding-top:0}
   .set-note{font-size:.82rem;color:var(--muted);margin:2px 0 14px;line-height:1.45}
   .install-steps{margin:0 0 14px;padding-left:20px;font-size:.85rem;color:var(--fg);line-height:1.6}
-  .install-steps li{margin:5px 0}
+  .install-steps li{margin:7px 0}
+  .install-steps .iico{width:20px;height:20px;vertical-align:-4px;margin:0 2px;color:var(--accent)}
+  #installNever{display:block;margin:10px auto 0;background:none;border:0;color:var(--muted);font-size:.8rem;text-decoration:underline;cursor:pointer;font-family:inherit}
+  #installNever[hidden]{display:none}
   #installLater{margin-top:8px}
   .set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 0;border-top:1px solid var(--line);font-size:.92rem;color:var(--fg)}
   .set-row span{min-width:0}
@@ -438,6 +462,15 @@
   .ct.active .cn{color:var(--accent)}
   .ct .ava{width:46px;height:46px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;flex:none}
   .ct .ava.grp{background:linear-gradient(135deg,#7c3aed,#4338ca);font-size:1.25rem}
+  .ct{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}   /* a long press opens the colour palette */
+  .col-pick{position:fixed;z-index:70;width:236px;padding:10px 10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.28)}
+  .col-pick[hidden]{display:none}
+  .col-pick .col-t{font-size:.78rem;font-weight:700;color:var(--muted);margin:0 2px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .col-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .col-grid .sw{width:36px;height:36px;border-radius:50%;border:0;cursor:pointer;justify-self:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
+  .col-grid .sw.auto{background:linear-gradient(135deg,var(--accent),#7c3aed);color:#fff;font-size:1.05rem;font-weight:700}
+  .col-grid .sw.on{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--fg)}
+  .col-grid .sw:active{transform:scale(1.12)}
   .ct .ci{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
   .ct .crow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
   .ct .cn{font-weight:600;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -714,6 +747,8 @@
     <div class="rx-quick" id="rxQuick"></div>
     <button class="rx-tool" id="rxMore" type="button" aria-label="More reactions" title="More reactions">＋</button>
     <button class="rx-tool" id="rxReply" type="button" aria-label="Reply" title="Reply">↩</button>
+    <button class="rx-tool" id="rxEdit" type="button" aria-label="Edit" title="Edit" hidden>✏️</button>
+    <button class="rx-tool" id="rxCopy" type="button" aria-label="Copy" title="Copy" hidden>⧉</button>
     <div class="rx-grid" id="rxGrid" hidden></div>
   </div>
   <div class="composer">
@@ -762,6 +797,9 @@
           <option value="1800000">30 minutes</option>
         </select>
       </label>
+      <div class="set-row"><span>Typing indicators <span class="lbl-sub" id="typState">On</span><br><span class="lbl-sub">Shows when the other person is typing or recording a voice message — and shows them when you are. Off: neither.</span></span>
+        <button class="pill" id="typToggle" type="button">On</button>
+      </div>
       <div class="set-row"><span>Message previews in the chats list <span class="lbl-sub" id="prevState">Shown</span></span>
         <button class="pill off" id="prevToggle" type="button">Hide</button>
       </div>
@@ -974,9 +1012,14 @@
     <ol class="install-steps" id="installSteps" style="display:none"></ol>
     <button class="btn" id="installNow" type="button">Install</button>
     <button class="ghost" id="installLater" type="button">Maybe later</button>
+    <button type="button" id="installNever">Don't show this again</button>
   </div>
 </div>
 
+<div class="col-pick" id="colPick" role="dialog" aria-label="Colour" hidden>
+  <div class="col-t" id="colTitle">Colour</div>
+  <div class="col-grid" id="colGrid"></div>
+</div>
 <div class="toast" id="toast"></div>
 <div class="upd-pill" id="updPill" role="status" hidden>
   <button type="button" class="upd-go" id="updGo">✨ New version available — tap to update</button>

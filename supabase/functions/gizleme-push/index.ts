@@ -116,24 +116,27 @@ Deno.serve(async (req) => {
       const from = clean(body.from, 64);
       const from_acct = body.from_acct ? clean(body.from_acct, 64) : "";
       if (!notify_key) return json({ error: "missing notify_key" }, 400);
-      if (!(await rl("push:nt:" + notify_key, 12, 600))) return json({ ok: true, sent: 0, targets: 0, limited: true });
+      const kind = body.kind === "chat" ? "chat" : body.kind === "call" ? "call" : body.kind === "missed" ? "missed" : "msg";
+      const ringing = kind === "call" || kind === "missed";
+      // a call rings again every few seconds while it isn't answered: its own, larger bucket (messages keep theirs)
+      if (!(await rl((ringing ? "push:ntc:" : "push:nt:") + notify_key, ringing ? 40 : 12, 600))) return json({ ok: true, sent: 0, targets: 0, limited: true });
       if (ip && !(await rl("push:ntip:" + ip, 120, 600))) return json({ error: "rate_limited" }, 429);
       const { data, error } = await db.from(SUBS).select("owner, acct, sub").eq("notify_key", notify_key);
       if (error) return json({ error: error.message }, 500);
       // never wake the sending device, nor the sender's other devices (same account marker)
       // at most 8 devices per notify key (a contact pair has a handful): no amplification through bulk registrations
       const targets = (data || []).filter((r: any) => r.owner !== from && !(from_acct && r.acct && r.acct === from_acct)).slice(0, 8);
-      const kind = body.kind === "chat" ? "chat" : body.kind === "call" ? "call" : "msg";
       const payload = JSON.stringify({
         title: "Gizleme",
-        body:  kind === "call" ? "Incoming call" : kind === "chat" ? "A contact wants to chat" : "New message",   // fixed text: the receiving device puts the name on it
+        body:  kind === "call" ? "Incoming call" : kind === "missed" ? "Missed call" : kind === "chat" ? "A contact wants to chat" : "New message",   // fixed text: the receiving device puts the name on it
         kind,
         tag:   clean(body.tag, 64)   || notify_key.slice(0, 12),
         url:   safeUrl(body.url),
       });
       let sent = 0; const dead: string[] = [];
       for (const r of targets) {
-        try { await webpush.sendNotification(r.sub, payload, { TTL: 1800, urgency: "high" }); sent++; }
+        // a ringing alert is only worth delivering while the call can still be answered
+        try { await webpush.sendNotification(r.sub, payload, { TTL: kind === "call" ? 45 : 1800, urgency: "high" }); sent++; }
         catch (e: any) { const sc = e?.statusCode; if (sc === 404 || sc === 410) dead.push(r.owner); }
       }
       if (dead.length) await db.from(SUBS).delete().eq("notify_key", notify_key).in("owner", dead);

@@ -9,6 +9,7 @@
   "background_color": "#040509",
   "theme_color": "#040509",
   "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
+  "related_applications": [{ "platform": "webapp", "url": "https://gizleme.com/manifest.webmanifest" }],
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

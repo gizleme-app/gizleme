@@ -7,9 +7,10 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v28";
+const CACHE = "gizleme-v29";
 const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
-               "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png"];
+               "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png",
+               "/call-icon.png", "/call-badge.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));
@@ -69,6 +70,7 @@ async function badgeLoad() { try { const c = await caches.open(META); const r = 
 function pushNk(d) { try { const u = new URL(d.url || "", self.location.origin); const h = (u.hash || "").replace(/^#/, ""); if (h.indexOf("n=") === 0) return decodeURIComponent(h.slice(2)); } catch (_) {} return ""; }
 // a muted chat: its message (and "wants to chat") notifications arrive without sound or vibration; calls ring
 async function mutedPush(d, meta) {
+  if (d.kind === "missed") return true;               // a missed call replaces the ringing alert without a sound
   if (d.kind === "call" || !meta || !meta.muted) return false;
   const nk = pushNk(d); if (!nk) return false;
   try { const u = +meta.muted[await nkHash(nk)] || 0; return u > Date.now(); } catch (_) { return false; }
@@ -81,14 +83,14 @@ async function composeBody(d, meta) {
   const fallback = String(d.body || "A contact wants to chat").slice(0, 140);
   if (!meta || !meta.tmpl) return fallback;
   const nk = pushNk(d);
-  const kind = d.kind === "chat" ? "chat" : d.kind === "call" ? "call" : "msg";
+  const kind = d.kind === "chat" ? "chat" : d.kind === "call" ? "call" : d.kind === "missed" ? "missed" : "msg";
   let name = ""; if (nk && meta.names) { try { name = meta.names[await nkHash(nk)] || ""; } catch (_) { name = ""; } }
   const t = meta.tmpl;
-  const tpl = kind === "chat" ? t.chat : kind === "call" ? t.call : t.msg;
+  const tpl = kind === "chat" ? t.chat : kind === "call" ? t.call : kind === "missed" ? t.missed : t.msg;
   if (name && tpl) return String(tpl).replace("{name}", name).slice(0, 140);
   if (name) return String("{name}").replace("{name}", name).slice(0, 140);
   if (!nk) return fallback;
-  const any = kind === "chat" ? t.anyChat : kind === "call" ? t.anyCall : t.anyMsg;
+  const any = kind === "chat" ? t.anyChat : kind === "call" ? t.anyCall : kind === "missed" ? t.anyMissed : t.anyMsg;
   return String(any || fallback).slice(0, 140);
 }
 self.__composeBody = composeBody;   // exposed for tests
@@ -101,18 +103,26 @@ self.addEventListener("push", e => {
     const meta = await loadNames();
     const quiet = await mutedPush(d, meta);
     let seen = false; try { seen = (await self.clients.matchAll({ type: "window", includeUncontrolled: true })).some(c => c.visibilityState === "visible"); } catch (_) {}
-    if (!quiet && !seen && d.kind !== "call" && d.kind !== "chat") {   // one more unread message on the app icon (an open window counts for itself)
+    if (!quiet && !seen && d.kind !== "call" && d.kind !== "chat" && d.kind !== "missed") {   // one more unread message on the app icon (an open window counts for itself)
       const n = (await badgeLoad()) + 1; await badgeStore(n);
       try { if (self.navigator.setAppBadge) await self.navigator.setAppBadge(n); } catch (_) {}
     }
-    return self.registration.showNotification("Gizleme", {
+    const tag = String(d.tag || "gizleme").slice(0, 64);
+    const ring = d.kind === "call";
+    // A call rings again with every push the caller's app sends (every few seconds while it rings), under one tag:
+    // each new alert replaces the previous one; a "missed call" replaces them all at the end. (Closed explicitly too,
+    // for systems that don't replace by tag.)
+    if (ring || d.kind === "missed") { try { (await self.registration.getNotifications({ tag })).forEach(n => n.close()); } catch (_) {} }
+    return self.registration.showNotification(ring ? "📞 Gizleme" : "Gizleme", {
       body: await composeBody(d, meta),
-      tag: String(d.tag || "gizleme").slice(0, 64),
+      tag,
       renotify: !quiet,
       silent: quiet,
-      icon: "/icon-192.png",
-      badge: "/icon-192.png",
-      data: { url: safeTarget(d.url) },
+      icon: ring ? "/call-icon.png" : "/icon-192.png",
+      badge: ring ? "/call-badge.png" : "/icon-192.png",
+      vibrate: ring ? [500, 250, 500, 250, 500, 250, 500] : undefined,
+      requireInteraction: ring,
+      data: { url: safeTarget(d.url), ring },
     });
   })());
 });

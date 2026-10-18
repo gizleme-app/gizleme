@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 28;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 29;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -207,7 +207,7 @@ async function swNames(clear){
   // for a muted chat, until when its notifications arrive silently
   if(!clear) for(const c of contactsLoad()){ try{ const tg=mergedTarget(c)||c; const nm=tg.alias||(DN_KEYS[tg.name]?"":realName(tg.name)); const mu=mutedUntil(tg); if(!nm && !mu) continue;   // a merged-away key: its chat's name and mute
     const h=await nkHash(await notifyKeyFor(c.ck)); if(nm) names[h]=nm; if(mu) muted[h]=mu; }catch(e){} }
-  const msg={type:"names", names, muted, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), call:t("{name} is calling you"), anyMsg:t("New message"), anyChat:t("A contact wants to chat"), anyCall:t("Incoming call") }};
+  const msg={type:"names", names, muted, tmpl:{ msg:t("New message from {name}"), chat:t("{name} wants to chat on Gizleme"), call:t("{name} is calling you"), missed:t("Missed call from {name}"), anyMsg:t("New message"), anyChat:t("A contact wants to chat"), anyCall:t("Incoming call"), anyMissed:t("Missed call") }};
   try{ const reg=await navigator.serviceWorker.ready; (reg.active||navigator.serviceWorker.controller)?.postMessage(msg); }catch(e){}
 }
 async function localSave(){ if(!gHistKey) return; const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify({contacts:_contacts,groups:_groups,meta:_meta})));
@@ -486,11 +486,47 @@ function adoptNameFromMessage(R, n){
   if(R.code===active){ $("peerName").textContent=n; $("peerAvatar").textContent=R.avatar; } renderTabs();
 }
 function activeCK(){ const R=A(); return R&&R.fromContact||null; }
+// ---------- a colour for each chat's avatar ----------
+// A long press (right click on a computer) on a chat in the list opens a small palette: the round avatar of that
+// chat takes the colour chosen — in the list, at the top of the chat and on the call screen. Saved with the
+// contact (or group) in your encrypted list, so it follows your account to your other devices; the other
+// person never sees it.
+const AVA_COLORS={violet:"#7c3aed", indigo:"#4f46e5", blue:"#2563eb", sky:"#0284c7", teal:"#0d9488", green:"#16a34a",
+  lime:"#65a30d", amber:"#d97706", orange:"#ea580c", red:"#dc2626", pink:"#db2777", slate:"#475569"};
+function recOfId(id){ id=String(id||""); if(id.startsWith("g:")) return _groups.find(g=>g.rid===id.slice(2))||null;
+  if(id.startsWith("c:")) return _contacts.find(c=>c.ck===id.slice(2))||null; return null; }
+function roomColor(R){ const rec=muteRecOf(R); return (rec && AVA_COLORS[rec.cl]) || ""; }
+function paintPeerAvatar(){ const e=$("peerAvatar"); if(!e) return; const R=A(); e.style.background=R ? roomColor(R) : ""; }
+function setAvaColor(id, key){ const now=Date.now(); id=String(id||"");
+  const apply=rec=>{ if(key && AVA_COLORS[key]) rec.cl=key; else delete rec.cl; rec.cts=now; };
+  if(id.startsWith("g:")){ const l=groupsLoad(); const g=l.find(x=>x.rid===id.slice(2)); if(!g) return false; apply(g); groupsSave(l); }
+  else if(id.startsWith("c:")){ const l=contactsLoad(); const c=l.find(x=>x.ck===id.slice(2)); if(!c) return false; apply(c); contactsSave(l); }
+  else return false;
+  paintPeerAvatar(); return true; }
+let _colFor=null;
+function openColorPick(row){
+  const id=row && row.dataset.id; const rec=recOfId(id); if(!rec) return;
+  closePicker(); _colFor=id;
+  const pk=$("colPick"), g=$("colGrid");
+  if(!g.childElementCount){
+    const d=document.createElement("button"); d.type="button"; d.className="sw auto"; d.dataset.c=""; d.textContent="↺"; d.title=t("Default colour"); d.setAttribute("aria-label",d.title); g.appendChild(d);
+    for(const k in AVA_COLORS){ const b=document.createElement("button"); b.type="button"; b.className="sw"; b.dataset.c=k; b.style.background=AVA_COLORS[k]; b.setAttribute("aria-label",k); g.appendChild(b); } }
+  const nm=rec.alias || dn(rec.name) || (id.startsWith("g:") ? t("Group") : t("Contact"));
+  $("colTitle").textContent=t("Colour for {name}",{name:nm});
+  g.querySelectorAll("button").forEach(b=>b.classList.toggle("on", (b.dataset.c||"")===(AVA_COLORS[rec.cl] ? rec.cl : "")));
+  pk.hidden=false;
+  const a=(row.querySelector(".ava")||row).getBoundingClientRect(), w=pk.offsetWidth, h=pk.offsetHeight;
+  const ap=$("app"), dy=(ap && ap.style.transform) ? ap.getBoundingClientRect().top : 0;
+  let top=a.bottom+8; if(top+h>viewH()-8) top=Math.max(8, a.top-h-8); top-=dy;
+  const left=Math.max(8, Math.min(a.left, window.innerWidth-w-8));
+  pk.style.top=Math.round(top)+"px"; pk.style.left=Math.round(left)+"px";
+}
+function closeColorPick(){ const pk=$("colPick"); if(pk) pk.hidden=true; _colFor=null; }
 function renderContacts(fromPreview){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
   const lastTs=it=>Math.max(it.ts||0, (_prev[previewKeyOf(it)]||{}).ts||0);
-  const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,alias:g.alias,ts:g.ts||0}))
-    .concat(contactsLoad().filter(c=>!c.into).map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,alias:c.alias,v:c.v,ts:c.ts||0})))
+  const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,alias:g.alias,cl:g.cl,ts:g.ts||0}))
+    .concat(contactsLoad().filter(c=>!c.into).map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,alias:c.alias,cl:c.cl,v:c.v,ts:c.ts||0})))
     .sort((a,b)=>lastTs(b)-lastTs(a));                 // most recent activity first, like any chats list
   if(!fromPreview) refreshPreviews();
   if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
@@ -502,9 +538,10 @@ function renderContacts(fromPreview){
     wrap.appendChild(e); wrap.appendChild(btn); wrap.appendChild(e2); el.appendChild(wrap); return; }
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
   items.forEach(it=>{
-    const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":"");
+    const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":""); row.dataset.id=it.id;
     { const pk=previewKeyOf(it), age=pulseAge(_pulse.get(pk)); if(age>=0 && it.id!==activeId){ row.classList.add("pulse"); row.style.setProperty("--pd","-"+age+"ms"); } else if(age<0) _pulse.delete(pk); }
     const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":(up((it.alias||it.name)&&(it.alias||it.name)[0]||"?"));
+    if(AVA_COLORS[it.cl]){ ava.style.background=AVA_COLORS[it.cl]; ava.dataset.cl=it.cl; }   // the colour chosen for this chat (long press)
     const ci=document.createElement("div"); ci.className="ci";
     // line 1: name (+ verified) ……… time of the last message
     const r1=document.createElement("div"); r1.className="crow";
@@ -528,6 +565,8 @@ function renderContacts(fromPreview){
       ? (unread ? t(unread>1?"{n} new messages":"{n} new message",{n:unread}) : (pv ? t("🔒 Encrypted message") : placeholder))
       : (pv ? pv.text : placeholder);
     if(unread) cm.classList.add("unread");
+    { let TR=null; rooms.forEach(x=>{ if(!TR && x.typing && typingRowId(x)===it.id) TR=x; }); const tl=TR ? typingLabel(TR) : "";
+      if(tl){ cm.dataset.was=cm.textContent; cm.textContent=tl; cm.classList.add("typing"); } }
     r2.appendChild(cm);
     if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"+(muted?" muted":""); ub.textContent=unread>99?"99+":String(unread); ub.title=t("{n} unread",{n:unread}); r2.appendChild(ub); ct.classList.add("unread"); }
     ci.appendChild(r1); ci.appendChild(r2);
@@ -536,10 +575,11 @@ function renderContacts(fromPreview){
       if(it.t==="g"){ if(confirm(t("Leave the group “{name}”?\n\nYou'll need a new invite link to come back.",{name:dn(it.name)||t("Group")}))) groupRemove(it.rid); }
       else { if(confirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(it.name)||t("this contact")}))) contactRemove(it.ck); } });
     row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
-    row.addEventListener("click",()=> it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.alias||it.name));
+    row.addEventListener("click",()=>{ if(row._lp){ row._lp=false; return; }   // that was a long press: the colour menu is open
+      it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.alias||it.name); });
     el.appendChild(row);
   });
-  updateBadge(); scheduleMuteRefresh();
+  updateBadge(); scheduleMuteRefresh(); paintPeerAvatar();
 }
 
 // ---------- group chats (named, invite-only, shared group key) ----------
@@ -722,6 +762,7 @@ async function doJoinGroup(rid, gkBytes, name, adm, rot){
     R.channel=ch;
     ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
     ch.on("broadcast",{event:"msg"},(payload)=>onMsgGroup(R,payload));
+    ch.on("broadcast",{event:"rcpt"},(payload)=>onRcptGroup(R,payload));   // typing signals
     ch.subscribe(async st=>{ if(st==="SUBSCRIBED"){ R.joinFails=0; await ch.track(presencePayload(R)); const gl=groupsLoad().find(x=>x.rid===R.rid);
         if(gl && gl.left){ setStatus(R, t("removed from the group"), false, "warn", t("removed")); if(R.code===active) enableComposer(false); return; }
         setStatus(R,t("🔒 encrypted group"),true,"online",t("group"));
@@ -764,7 +805,7 @@ async function onMsgGroup(R,{payload:p}){
     if(env.t==="gk2"){ await onGk2(R, env, vf, who); return; }
     if(env.t==="call"){ if(vf!=="bad") callSignal(R, env, who).catch(()=>{}); return; }
     onInbound(R, env, who, now, p.mid, false, true);
-    if(env.t!=="react"){ if(R.code===active) blinkEyes(); messageTone(R); }
+    if(env.t!=="react" && env.t!=="edit"){ if(R.code===active) blinkEyes(); messageTone(R); }
   }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail",t("⚠ could not decrypt this message"),""); }
 }
 function groupInviteLink(R){ const g=groupsLoad().find(x=>x.rid===R.rid); const o={rid:R.rid,gk:b64(R.gk),name:(g&&g.name)||R.title}; if(g&&g.adm) o.adm=g.adm; if(g&&g.rot) o.rot=1; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); }
@@ -898,7 +939,7 @@ async function fetchMailboxId(R, id, key, ck){
         if(R.group && own && env.t==="hi") continue;
         if(!own) adoptNameFromMessage(R, env.n);
         onInbound(R, env, who, ts, it.mid, own, false);
-        if(!own && env.t!=="react") delivered++;
+        if(!own && env.t!=="react" && env.t!=="edit") delivered++;
       }catch(e){ if(it.mid) R.seen.delete(it.mid);
         if(it.data && typeof it.data.ep==="number" && Date.now()-ts<48*3600*1000){ if(!hold || ts<hold) hold=ts; } }   // wrong chain on this device for now: keep it for a later pass
     }
@@ -913,6 +954,8 @@ async function fetchMailboxId(R, id, key, ck){
 // always save, count as unread when not being looked at, and tell the sender it arrived.
 function onInbound(R, env, who, ts, mid, own, animate){
   if(env && env.t==="react"){ onReactEnv(R, env, who, ts, mid, own); return; }
+  if(env && env.t==="edit"){ onEditEnv(R, env, who, ts, mid, own); return; }
+  if(!own) typingClear(R, who);
   if(R.shadow){   // the inbox read it: show it in the open chat of that conversation (or of the chat it was merged into)
     let ck=R.fromContact; if(ck && !R.group){ const tg=mergedTarget(contactFind(ck)); if(tg) ck=tg.ck; }
     let V=null; rooms.forEach(x=>{ if(x.logEl && (R.group ? x.rid===R.rid : x.fromContact===ck)) V=x; });
@@ -928,7 +971,7 @@ function onInboundView(R, V, env, who, ts, mid, own, animate){
       else if(env.t==="aud"){ if(validAud(env)) addVoice(V.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
       else if(validLoc(env)) addCard(V.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
       else if(validGinv(env)) addCard(V.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
-      else addText(V.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid),quote:validQuote(env.q)?quoteEl(V,cleanQuote(env.q),"sent",""):null}); }
+      else addText(V.logEl,"sent",env.body,"",false,ts,{mid,st:stateFor(mid),quote:validQuote(env.q)?quoteEl(V,cleanQuote(env.q),"sent",""):null,tx:1}); }
     histSave(hk,{dir:"sent",env,ts,mid}); return;
   }
   const tag=R.group?(who||""):""; const vf=R.group?env.vf:undefined;
@@ -936,7 +979,7 @@ function onInboundView(R, V, env, who, ts, mid, own, animate){
   else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(V.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
   else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(V.logEl,"recv",locCard(env,false),tag,ts,{mid,vf}); }
   else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(V.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid,vf}); }
-  else if(open) addText(V.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf,quote:validQuote(env.q)?quoteEl(V,cleanQuote(env.q),"recv",who):null});
+  else if(open) addText(V.logEl,"recv",env.body,tag,!!animate,ts,{mid,vf,quote:validQuote(env.q)?quoteEl(V,cleanQuote(env.q),"recv",who):null,tx:1,pk:R.group?(env.pk||""):""});
   histSave(hk,{dir:"recv",env,ts,who,mid,vf});
   healLinkUsed(R);
   if(!open || V.code!==active) bumpUnread(V); else updateBadge(true);
@@ -1061,8 +1104,73 @@ async function onRcpt(R,{payload:p}){
   if(!p||p.from===R.id||!R.fromContact) return;
   for(const ck of contactCKSet(R.fromContact)){
     try{ const key=await mboxKeyForSecret(ck); const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)},key,unb64(p.ct));
-      const env=JSON.parse(dec.decode(pt)); if(env.t==="rcpt"){ markReceived(histKeyOf(R), env.mids||[]); return; } }catch(e){}
+      const env=JSON.parse(dec.decode(pt)); if(env.t==="rcpt"){ markReceived(histKeyOf(R), env.mids||[]); return; }
+      if(env.t==="typ"){ onTyping(R, env); return; } }catch(e){}
   }
+}
+// ---------- "typing…" / "recording a voice message…" ----------
+// While you type (or record a voice message) in a chat, the people in it get a small signal — at once, then
+// every 3 seconds while it goes on, and "stopped" when you send, empty the box or leave the chat; without news
+// it fades after 6.5 s. Live only (never left in the mailbox) and encrypted: in a two-person chat under the
+// same key and on the same relay event as a delivery receipt, so the relay can't tell one from the other; in a
+// group under the group key. Settings → Typing indicators off: you neither send them nor see them.
+const LS_TYPING="gz-typing", TYP_EVERY=3000, TYP_TTL=6500;
+function typingOn(){ try{ return localStorage.getItem(LS_TYPING)!=="0"; }catch(e){ return true; } }
+let _typOut={code:null, s:"", at:0};
+async function typingSend(R, s){
+  if(!R || !R.channel) return;
+  try{ const env={t:"typ", s, a:_acct||undefined}; let key;
+    if(R.group){ if(!R.gkMsg) return; key=R.gkMsg; env.n=String(myName||"").slice(0,40); }
+    else { if(!R.fromContact || !R.paired) return; key=await mboxKeyForSecret(R.fromContact); }
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv}, key, enc.encode(JSON.stringify(env)));
+    R.channel.send({type:"broadcast",event:"rcpt",payload:{from:R.id,iv:b64(iv),ct:b64(ct)}});
+  }catch(e){}
+}
+// s: "t" typing, "v" recording, "" stopped — for the chat on screen; leaving a chat stops what was sent there
+function typingTick(s){
+  const R=A(), now=Date.now();
+  if(_typOut.code && (!R || _typOut.code!==R.code)){ const P=rooms.get(_typOut.code); if(P && _typOut.s) typingSend(P, ""); _typOut={code:null, s:"", at:0}; }
+  if(!R || !typingOn()) return;
+  if(s===_typOut.s && (!s || now-_typOut.at<TYP_EVERY)) return;
+  _typOut={code:R.code, s, at:now}; typingSend(R, s);
+}
+function onTyping(R, env){
+  if(!typingOn() || !env) return;
+  if(_acct && env.a===_acct) return;                                  // our own other device
+  const s=(env.s==="t"||env.s==="v") ? env.s : "";
+  const who=R.group ? String(env.n||"").replace(/[\r\n\t]+/g," ").trim().slice(0,40) : "";
+  if(R.group && !who) return;
+  R.typing=R.typing||new Map();
+  if(s) R.typing.set(who,{s, until:Date.now()+TYP_TTL}); else R.typing.delete(who);
+  typingShow(R);
+}
+function typingClear(R, who){ if(R && R.typing && R.typing.delete(R.group ? String(who||"").trim().slice(0,40) : "")) typingShow(R); }
+function typingList(R){ const now=Date.now(), out=[]; if(R && R.typing) for(const [k,v] of [...R.typing]){ if(v.until>now) out.push([k,v.s]); else R.typing.delete(k); } return out; }
+function typingLabel(R){ if(!typingOn()) return ""; const l=typingList(R); if(!l.length) return "";
+  if(!R.group) return l[0][1]==="v" ? t("recording a voice message…") : t("typing…");
+  if(l.length>1) return t("{n} people are typing…",{n:l.length});
+  return l[0][1]==="v" ? t("{name} is recording a voice message…",{name:l[0][0]}) : t("{name} is typing…",{name:l[0][0]}); }
+function typingRowId(R){ if(R.group) return "g:"+R.rid; if(!R.fromContact) return ""; const c=contactFind(R.fromContact); const tg=mergedTarget(c); return "c:"+((tg||c||{}).ck||R.fromContact); }
+function typingShow(R){
+  clearTimeout(R._typT); const lab=typingLabel(R);
+  if(lab){ const next=Math.min(...[...R.typing.values()].map(v=>v.until))-Date.now(); R._typT=setTimeout(()=>typingShow(R), Math.max(200, next+60)); }
+  if(R.code===active) applyStatus(R);
+  // three dots (or a microphone) at the end of the chat — kept last by CSS order, whatever arrives after it
+  if(R.logEl){ let b=R.logEl.querySelector(":scope > .typing-bub");
+    if(lab){ const voice=typingList(R).some(x=>x[1]==="v");
+      if(!b){ b=document.createElement("div"); b.className="typing-bub"; b.innerHTML='<span class="tv" aria-hidden="true">🎙️</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+        const L=R.logEl, near=L.scrollHeight-L.scrollTop-L.clientHeight<140; L.appendChild(b); if(near) scrollEl(L); }
+      b.classList.toggle("voice", voice); b.title=lab; b.setAttribute("aria-label", lab); }
+    else if(b) b.remove(); }
+  // the chats list: the preview line says it too
+  const id=typingRowId(R); const row=id && document.querySelector('#contactList .ct[data-id="'+CSS.escape(id)+'"]'); const cm=row && row.querySelector(".cm");
+  if(cm){ if(lab){ if(!cm.classList.contains("typing")) cm.dataset.was=cm.textContent; cm.textContent=lab; cm.classList.add("typing"); }
+    else if(cm.classList.contains("typing")){ cm.textContent=cm.dataset.was||""; delete cm.dataset.was; cm.classList.remove("typing"); } }
+}
+async function onRcptGroup(R,{payload:p}){
+  if(!p||p.from===R.id||!R.gkMsg) return;
+  try{ const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(p.iv)},R.gkMsg,unb64(p.ct)); const env=JSON.parse(dec.decode(pt)); if(env && env.t==="typ") onTyping(R, env); }catch(e){}
 }
 function markReceived(hk, mids){
   if(!mids.length) return;
@@ -1207,13 +1315,14 @@ async function notifyPeer(ckB64, kind){
 async function notifyPeerKey(ckB64, kind){
   const nk=await notifyKeyFor(ckB64);
   if(!_meta.notified) _meta.notified={}; const map=_meta.notified;
-  const now=Date.now(); if(kind!=="call" && map[nk]&&now-map[nk]<90000) return false;   // debounce 90s per contact (not for calls)
+  const now=Date.now(); if(kind!=="call" && kind!=="missed" && map[nk]&&now-map[nk]<90000) return false;   // debounce 90s per contact (not for calls)
   map[nk]=now; localSaveSoon();
   // no name in the push: the relay and the push service see only a kind; the receiving device's service
   // worker puts the contact's own name (or nickname) on it from its local list
   try{ await fn("notify",{notify_key:nk, from:deviceId(), title:"Gizleme",
-    body: kind==="msg" ? t("New message") : kind==="call" ? t("Incoming call") : t("A contact wants to chat"),
-    kind: kind==="msg"?"msg":kind==="call"?"call":"chat", url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined}); return true; }catch(e){ return false; }
+    body: kind==="msg" ? t("New message") : kind==="call" ? t("Incoming call") : kind==="missed" ? t("Missed call") : t("A contact wants to chat"),
+    kind: kind==="msg"?"msg":kind==="call"?"call":kind==="missed"?"missed":"chat", url:CANONICAL+"/#n="+encodeURIComponent(nk), from_acct:_acct||undefined,
+    tag: (kind==="call"||kind==="missed") ? "c"+nk.slice(0,11) : undefined}); return true; }catch(e){ return false; }   // a call's alerts replace one another (and the missed-call one replaces them)
 }
 async function nudgeContact(){           // manual "notify this contact" from the chat
   const R=A(); if(!R||!R.fromContact) return;
@@ -1336,7 +1445,10 @@ async function histLast(room){
     // the last records, newest first (a few, since reactions are skipped: they are not what the list should show)
     const recs=await new Promise((res,rej)=>{ const out=[]; const idx=db.transaction("msgs").objectStore("msgs").index("room");
       const rq=idx.openCursor(IDBKeyRange.only(room),"prev"); rq.onsuccess=e=>{ const c=e.target.result; if(!c || out.length>=25){ res(out); return; } out.push(c.value); c.continue(); }; rq.onerror=()=>rej(rq.error); });
-    for(const rec of recs){ const r=JSON.parse(dec.decode(await aesDec(gHistKey,rec.iv,rec.ct))); if(r && r.env && r.env.t==="react") continue; r.ts=r.ts||rec.ts||0; return r; }
+    const ed={};
+    for(const rec of recs){ const r=JSON.parse(dec.decode(await aesDec(gHistKey,rec.iv,rec.ct))); if(r && r.env && r.env.t==="react") continue;
+      if(r && r.env && r.env.t==="edit"){ if(editValid(r.env) && !ed[r.env.m]) ed[r.env.m]=r.env.x; continue; }   // newest first: the first edit seen is the latest
+      r.ts=r.ts||rec.ts||0; if(r.mid && ed[r.mid] && r.env && (!r.env.t || r.env.t==="txt")) r.env=Object.assign({},r.env,{body:ed[r.mid]}); return r; }
     return null;
   }catch(e){ return null; }
 }
@@ -1502,12 +1614,14 @@ async function startRec(){
   src.connect(proc); proc.connect(gain); gain.connect(ctx.destination);   // silent sink: the processor only runs when connected
   rec={stream, ctx, src, proc, gain, chunks, t0:Date.now(), rate:ctx.sampleRate, timer:null};
   const comp=document.querySelector(".composer"); if(comp) comp.classList.add("rec"); $("recBar").hidden=false;
-  rec.timer=setInterval(()=>{ if(!rec) return; if((Date.now()-rec.t0)/1000>=VOICE_MAX_S) stopRec(true); },250);   // 2-minute cap
+  rec.timer=setInterval(()=>{ if(!rec) return; typingTick("v"); if((Date.now()-rec.t0)/1000>=VOICE_MAX_S) stopRec(true); },250);   // 2-minute cap; "recording…" for the others
+  typingTick("v");
 }
 function recTeardown(){ const r=rec; rec=null; if(!r) return null; clearInterval(r.timer);
   r.rate=r.ctx.sampleRate;   // read at the end: the rate the samples were really captured at
   try{ r.proc.onaudioprocess=null; r.src.disconnect(); r.proc.disconnect(); r.gain.disconnect(); }catch(e){} try{ r.stream.getTracks().forEach(tr=>tr.stop()); }catch(e){} try{ r.ctx.close(); }catch(e){}
-  const comp=document.querySelector(".composer"); if(comp) comp.classList.remove("rec"); $("recBar").hidden=true; return r; }
+  const comp=document.querySelector(".composer"); if(comp) comp.classList.remove("rec"); $("recBar").hidden=true;
+  typingTick(""); return r; }   // "recording…" ends with the recording
 async function stopRec(send){
   const r=recTeardown(); if(!r) return; if(!send) return;
   const dur=(Date.now()-r.t0)/1000; if(dur<0.6){ toast(t("Too short — hold on a little longer")); return; }
@@ -1659,7 +1773,7 @@ function pulseAge(at){ const a=at ? Date.now()-at : PULSE_MS; return a<PULSE_MS 
 // chat's existing encrypted and authenticated channel, so the relay sees nothing about a call but
 // ciphertext and the DTLS fingerprints are protected by the same session that protects messages. Groups
 // use a mesh (every participant streams to every other) — fine for a few people, capped at CALL_MAX.
-const CALL_RING_MS=45000, CALL_MAX=4, TURN_FN="gizleme-turn";
+const CALL_RING_MS=45000, CALL_MAX=4, TURN_FN="gizleme-turn", CALL_REPUSH_MS=7000;
 let call=null;        // the one call this device is in
 let _iceCache=null;
 async function iceServers(){
@@ -1671,7 +1785,7 @@ async function iceServers(){
 }
 function callSig(R, env){ if(!R) return Promise.resolve(false); const e=Object.assign({t:"call"},env); return R.group ? broadcastGroup(R, e, rid()) : (R.paired ? broadcast(R, e, rid()) : Promise.resolve(false)); }
 function callSend(env){ return call ? callSig(call.R, env) : Promise.resolve(false); }
-function callUIShow(on){ $("callUI").hidden=!on; document.body.classList.toggle("in-call",!!on); }
+function callUIShow(on){ $("callUI").hidden=!on; document.body.classList.toggle("in-call",!!on); if(!on) $("callUI").classList.remove("bare"); }
 function callStatus(txt){ const e=$("callStatus"); if(e) e.textContent=txt; }
 function fmtDur(ms){ const s=Math.max(0,Math.floor(ms/1000)); return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0"); }
 function mediaErr(e){ const n=e&&e.name||"";
@@ -1679,10 +1793,11 @@ function mediaErr(e){ const n=e&&e.name||"";
   if(n==="NotFoundError"||n==="OverconstrainedError") return t("No microphone or camera found");
   if(n==="NotReadableError") return t("The microphone or camera is in use by another app");
   return t("Couldn't start the microphone / camera"); }
-async function callMedia(video, facing){
+async function callMedia(video, facing, hd){
   if(rec) stopRec(false);   // the microphone goes to the call
   const audio={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
-  const v= video ? {facingMode:facing||"user", width:{ideal:640}, height:{ideal:480}, frameRate:{ideal:24}} : false;
+  // a two-person call fills the screen: ask for HD; a group mesh sends to several people, so it stays at 640×480
+  const v= video ? {facingMode:facing||"user", width:{ideal:hd?1280:640}, height:{ideal:hd?720:480}, frameRate:{ideal:hd?30:24}} : false;
   try{ return await navigator.mediaDevices.getUserMedia({audio, video:v}); }
   catch(e){ if(video){ return navigator.mediaDevices.getUserMedia({audio, video:false}); } throw e; }
 }
@@ -1700,12 +1815,21 @@ function peerEl(pid, name){
   if(!d){ d=st.querySelector('[data-pid="?"]'); if(d){ d.dataset.pid=pid; d.querySelector(".pname").textContent=name||""; d.querySelector(".pav").textContent=up((name||"?")[0]||"?"); } }
   if(!d){ d=document.createElement("div"); d.className="peer audio"; d.dataset.pid=pid;
     const v=document.createElement("video"); v.autoplay=true; v.playsInline=true; d.appendChild(v);
+    v.addEventListener("loadedmetadata",()=>fitVideo(v)); v.addEventListener("resize",()=>fitVideo(v));
     const av=document.createElement("div"); av.className="pav"; av.textContent=up((name||"?")[0]||"?"); d.appendChild(av);
+    if(call && !call.group && call.R){ const c=roomColor(call.R); if(c) av.style.background=c; }
     const nm=document.createElement("div"); nm.className="pname"; nm.textContent=name||""; d.appendChild(nm);
     st.appendChild(d); }
   st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); return d;
 }
-function restage(){ const st=$("callStage"); st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); }
+function restage(){ const st=$("callStage"); st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); st.querySelectorAll("video").forEach(fitVideo); }
+// The other person's picture fills the whole screen (cropped at the edges, as on a phone call app). Only when the
+// shapes really don't match — a phone held upright shown on a wide computer screen — is it shown whole instead,
+// so a face isn't cut in half.
+function fitVideo(v){ try{ const box=v.parentElement; if(!box) return; const vw=v.videoWidth, vh=v.videoHeight; if(!vw||!vh) return;
+  const r=box.getBoundingClientRect(); if(!r.width||!r.height) return;
+  const va=vw/vh, ba=r.width/r.height; v.classList.toggle("fit", (ba>1.15 && va<0.9) || (ba<0.87 && va>2.0)); }catch(e){} }
+window.addEventListener("resize",()=>{ if(call) $("callStage").querySelectorAll("video").forEach(fitVideo); });
 async function newPeer(pid, name, initiator){
   if(!call) return null;
   const pc=new RTCPeerConnection({iceServers:await iceServers(), bundlePolicy:"max-bundle"});
@@ -1745,7 +1869,9 @@ function setLocalPreview(){ const v=$("callLocal"); if(!call||!call.local){ v.hi
   $("callMute").classList.toggle("on", !call.local.getAudioTracks().every(tr=>tr.enabled));
   $("callCam").classList.toggle("on", call.local.getVideoTracks().length>0 && !hasV); }
 function showOutgoing(){ callUIShow(true); $("callName").textContent=call.name||""; $("callIncoming").hidden=true; $("callCtl").hidden=false; $("callStage").innerHTML=""; setLocalPreview(); }
-function showIncoming(){ callUIShow(true); $("callName").textContent=call.name||""; callStatus(call.video?t("Incoming video call"):t("Incoming audio call")); $("callIncoming").hidden=false; $("callCtl").hidden=true; $("callLocal").hidden=true; $("callStage").innerHTML=""; peerEl(call.from||"?", call.name); startRing("tone"); }
+// the ringing alerts the service worker showed for a call are closed once the app itself rings (or the call ends)
+function closeCallNotifs(){ try{ if(!("serviceWorker" in navigator)) return; navigator.serviceWorker.ready.then(reg=>reg.getNotifications()).then(ns=>{ (ns||[]).forEach(n=>{ if(n.data && n.data.ring) n.close(); }); }).catch(()=>{}); }catch(e){} }
+function showIncoming(){ callUIShow(true); closeCallNotifs(); $("callName").textContent=call.name||""; callStatus(call.video?t("Incoming video call"):t("Incoming audio call")); $("callIncoming").hidden=false; $("callCtl").hidden=true; $("callLocal").hidden=true; $("callStage").innerHTML=""; peerEl(call.from||"?", call.name); startRing("tone"); }
 // ----- 1:1 -----
 async function startCall(video){
   const R=A(); if(!R) return;
@@ -1754,14 +1880,17 @@ async function startCall(video){
   if(R.group) return startGroupCall(R, video);
   if(!R.fromContact && !R.paired) return;
   initAudio();
-  let local; try{ local=await callMedia(video); }catch(e){ toast(mediaErr(e)); return; }
+  let local; try{ local=await callMedia(video, null, true); }catch(e){ toast(mediaErr(e)); return; }
   if(call){ local.getTracks().forEach(tr=>tr.stop()); return; }   // a call began meanwhile (a second tap, an incoming one)
   video = video && local.getVideoTracks().length>0;
   call={R, cid:rid(), dir:"out", group:false, video, state:"calling", peers:new Map(), me:R.id, local, name:R.peerName||dn(R.title), t0:Date.now(), ackd:false};
   showOutgoing(); peerEl("?", call.name); callStatus(t("Calling…")); startRing("back");
   call.ringT=setTimeout(()=>{ if(call && !call.t1){ callSend({a:"cancel",cid:call.cid,to:call.from,from:call.me}); endCall("noanswer",true); } }, CALL_RING_MS);
-  // not answered quickly (or not even online): wake their phone — "X is calling you"
-  call.pushT=setTimeout(()=>{ if(call && !call.ackd && R.fromContact) notifyPeer(R.fromContact,"call").catch(()=>{}); }, R.paired?4000:0);
+  // not answered quickly (or not even online): wake their phone — "X is calling you" — and ring again every few
+  // seconds until their app answers ("ringing"), they pick up or the call gives up; a "missed call" follows then
+  const me=call, ringPush=()=>{ if(call!==me || me.state!=="calling" || me.ackd || !R.fromContact) return;
+    me.pushed=(me.pushed||0)+1; notifyPeer(R.fromContact,"call").catch(()=>{}); me.pushT=setTimeout(ringPush, CALL_REPUSH_MS); };
+  call.pushT=setTimeout(ringPush, R.paired?4000:0);
   callTryInvite();
   // the invitation is repeated until the other side acknowledges it ("ringing"): it may have been sent while
   // they were still finishing their own pairing, or simply lost on the way
@@ -1775,7 +1904,7 @@ function callTryInvite(){
 }
 async function acceptCall(){
   if(!call || call.dir!=="in" || call.state!=="ringing") return; stopRing(); clearTimeout(call.ringT); initAudio();
-  let local; try{ local=await callMedia(call.video); }catch(e){ toast(mediaErr(e)); declineCall(); return; }
+  let local; try{ local=await callMedia(call.video, null, true); }catch(e){ toast(mediaErr(e)); declineCall(); return; }
   if(!call) { local.getTracks().forEach(tr=>tr.stop()); return; }
   call.local=local; call.video=call.video && local.getVideoTracks().length>0; call.state="connecting";
   $("callIncoming").hidden=true; $("callCtl").hidden=false; setLocalPreview(); callStatus(t("Connecting…"));
@@ -1785,7 +1914,9 @@ function declineCall(){ if(!call) return; callSend({a:"decline",cid:call.cid,to:
 function hangup(){ if(!call) return; endCall("ended"); }
 function endCall(reason, silent){
   const c=call; if(!c) return; call=null;
-  stopRing(); clearTimeout(c.ringT); clearTimeout(c.pushT); clearInterval(c.timer); clearInterval(c.inviteT);
+  stopRing(); clearTimeout(c.ringT); clearTimeout(c.pushT); clearInterval(c.timer); clearInterval(c.inviteT); closeCallNotifs();
+  // we rang their phone and they never picked up: the ringing alert there becomes "missed call"
+  if(c.dir==="out" && !c.group && !c.t1 && c.pushed && !c.ackd && reason!=="declined" && reason!=="busy" && c.R && c.R.fromContact) notifyPeer(c.R.fromContact,"missed").catch(()=>{});
   if(!silent && c.R){ try{ callSig(c.R, c.group ? {a:"hangup",cid:c.cid,from:c.me} : {a:(c.dir==="out"&&!c.t1)?"cancel":"hangup", cid:c.cid, from:c.me, to:c.from}); }catch(e){} }
   c.peers.forEach(P=>{ clearTimeout(P.discT); try{ P.pc.close(); }catch(e){} });
   if(c.local) c.local.getTracks().forEach(tr=>tr.stop());
@@ -1860,7 +1991,8 @@ function toggleMute(){ if(!call||!call.local) return; const on=!call.local.getAu
 function toggleCam(){ if(!call||!call.local) return; const vts=call.local.getVideoTracks(); if(!vts.length) return; const on=!vts.every(tr=>tr.enabled); vts.forEach(tr=>tr.enabled=on); setLocalPreview(); }
 async function flipCam(){ if(!call||!call.local) return; const cur=call.local.getVideoTracks()[0]; if(!cur) return;
   const facing=(cur.getSettings().facingMode==="environment")?"user":"environment";
-  let ns; try{ ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:facing}, width:{ideal:640}, height:{ideal:480}}}); }catch(e){ toast(t("Couldn't switch camera")); return; }
+  const hd=!call.group;
+  let ns; try{ ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:facing}, width:{ideal:hd?1280:640}, height:{ideal:hd?720:480}}}); }catch(e){ toast(t("Couldn't switch camera")); return; }
   const nt=ns.getVideoTracks()[0]; if(!nt) return;
   call.peers.forEach(P=>{ const sn=P.pc.getSenders().find(x=>x.track && x.track.kind==="video"); if(sn) sn.replaceTrack(nt).catch(()=>{}); });
   call.local.removeTrack(cur); cur.stop(); call.local.addTrack(nt); $("callLocal").style.transform=facing==="user"?"scaleX(-1)":"none"; setLocalPreview();
@@ -1960,6 +2092,7 @@ function whoEl(tag, vf){
 function addText(logEl, cls, body, tag, animate, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
+  if(opts.tx) d.dataset.tx="1"; if(opts.pk) d.dataset.pk=opts.pk;   // a real text message (editable by its author); the group signer
   if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   if(opts.quote) d.appendChild(opts.quote);
   const t=document.createElement("span"); t.className="txt"; d.appendChild(t);
@@ -1967,7 +2100,74 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   if(cls==="sent"){ d.addEventListener("click",()=>{ if(d.classList.contains("failed") && d._retry) d._retry(); }); }
   logEl.appendChild(d); scrollEl(logEl);
   if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
+  if(opts.edited) markEdited(d);
   return d;
+}
+// ---------- editing a sent message ----------
+// An edit is an ordinary encrypted message {t:"edit", m:<id of the message>, x:<new text>} (with a plain body
+// "✏️ …" so an older app shows something sensible), sent like a reaction: no sound, no push. Only the author
+// can edit: in a 1:1 chat an edit applies to a message received from that same contact (or, from one of our
+// own devices, to a message we sent); in a group it must be signed by the key that signed the original.
+// Text messages only, within EDIT_WINDOW of sending; the latest edit wins. The bubble says "edited".
+const EDIT_WINDOW=24*3600*1000;
+function editValid(env){ return !!(env && env.t==="edit" && typeof env.m==="string" && MID_RE.test(env.m) && typeof env.x==="string" && env.x.trim() && env.x.length<=2000); }
+function markEdited(b){ if(!b) return; b.classList.add("edited"); const m=b.querySelector(":scope > .meta"); if(m && !m.querySelector(".edm")){ const s=document.createElement("span"); s.className="edm"; s.textContent=t("edited"); m.insertBefore(s, m.firstChild); } }
+function editableBubble(b){
+  if(!b || !b.classList.contains("sent") || !b.dataset.tx || !b.dataset.mid || !b.querySelector(":scope > .txt")) return false;
+  const st=b.querySelector(":scope > .meta .st"); if(st && st.dataset.st!=="sent" && st.dataset.st!=="rcvd") return false;   // still sending, or failed
+  return Date.now()-(+b.dataset.ts||0) < EDIT_WINDOW;
+}
+// apply an edit to the bubble on screen (V: the room showing the chat); false if it doesn't qualify
+function applyEditToBubble(V, env, own, ts){
+  const b=bubbleOf(V, env.m); if(!b || !b.dataset.tx) return false;
+  if(own ? !b.classList.contains("sent") : !b.classList.contains("recv")) return false;
+  if(V.group && !own && (b.dataset.pk||"")!==(env.pk||"")) return false;          // a group edit: same signer as the original
+  if((ts||Date.now())-(+b.dataset.ts||0) > EDIT_WINDOW+600000) return false;         // (ten minutes of clock skew allowed)
+  if((+b.dataset.edts||0) > (ts||0)) return false;                                  // an older edit arriving late
+  const tx=b.querySelector(":scope > .txt"); if(!tx) return false;
+  tx.classList.remove("scrambling"); tx.textContent=env.x; b.dataset.edts=String(ts||Date.now()); markEdited(b); return true;
+}
+function onEditEnv(R, env, who, ts, mid, own){
+  if(!editValid(env)) return;
+  if(R.group && !own && env.vf!=="ok") return;                                       // unsigned or forged: ignored
+  histSave(histKeyOf(R),{dir:own?"sent":"recv",env,ts,who,mid,vf:env.vf});
+  let V=R.logEl ? R : null;
+  if(!V){ let ck=R.fromContact; if(ck && !R.group){ const tg=mergedTarget(contactFind(ck)); if(tg) ck=tg.ck; }
+    rooms.forEach(x=>{ if(x.logEl && (R.group ? x.rid===R.rid : x.fromContact===ck)) V=x; }); }
+  if(V) applyEditToBubble(V, env, own, ts);
+}
+// from saved history: the latest valid edit per message
+function editsFrom(R, past){
+  const orig=new Map(), out=new Map();
+  for(const r of past){ if(r && r.env && r.mid && r.env.t!=="edit" && r.env.t!=="react") orig.set(r.mid, r); }
+  for(const r of past){ if(!r || !editValid(r.env)) continue; const o=orig.get(r.env.m); if(!o) continue;
+    const isText=!o.env.t || o.env.t==="txt"; if(!isText || o.dir!==r.dir) continue;
+    if(R.group && r.dir==="recv" && (r.vf!=="ok" || (o.env.pk||"")!==(r.env.pk||""))) continue;
+    if((r.ts||0)-(o.ts||0) > EDIT_WINDOW+600000) continue;
+    const cur=out.get(r.env.m); if(!cur || (cur.ts||0)<=(r.ts||0)) out.set(r.env.m, {x:r.env.x, ts:r.ts||0}); }
+  return out;
+}
+let _edit=null;   // {code, m, orig}
+function startEdit(b){
+  const R=A(); if(!R || !editableBubble(b) || $("msgInput").disabled) { if(b && b.dataset.tx && b.classList.contains("sent")) toast(t("Messages can only be edited within 24 hours")); return; }
+  cancelReply(); closePicker();
+  const orig=(b.querySelector(":scope > .txt")||{}).textContent||"";
+  _edit={code:R.code, m:b.dataset.mid, orig, draft:$("msgInput").value};   // a half-typed message comes back afterwards
+  $("rbName").textContent=t("Editing your message"); $("rbText").textContent=orig; $("replyBar").classList.add("editing"); $("replyBar").hidden=false;
+  const ta=$("msgInput"); ta.value=orig; try{ ta.dispatchEvent(new Event("input",{bubbles:true})); ta.focus(); ta.setSelectionRange(orig.length, orig.length); }catch(e){}
+}
+async function sendEdit(R, text){
+  const e=_edit; _edit=null; $("replyBar").classList.remove("editing"); $("replyBar").hidden=true;
+  $("msgInput").value=e.draft||""; $("msgInput").style.height="auto"; try{ $("msgInput").dispatchEvent(new Event("input",{bubbles:true})); }catch(_){}
+  const b=bubbleOf(R, e.m); if(!b || text===e.orig) return;
+  const now=Date.now(); if(now-(+b.dataset.ts||0) > EDIT_WINDOW){ toast(t("Messages can only be edited within 24 hours")); return; }
+  const env={t:"edit", m:e.m, x:text, body:"✏️ "+text}; const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  const tx=b.querySelector(":scope > .txt"), prev=tx?tx.textContent:"", wasEdited=b.classList.contains("edited"), prevTs=b.dataset.edts||"";
+  if(tx) tx.textContent=text; b.dataset.edts=String(now); markEdited(b); initAudio();
+  const ok=await deliverOut(R, env, mid, null, now, true);
+  if(!ok){ if(tx) tx.textContent=prev; b.dataset.edts=prevTs; if(!wasEdited){ b.classList.remove("edited"); const m=b.querySelector(".edm"); if(m) m.remove(); }
+    toast(t("Edit not sent — check your connection")); return; }
+  refreshPreviews();
 }
 // ---------- reactions and replies ----------
 // Both are ordinary end-to-end encrypted messages (same live channel, same mailbox, signed in groups): the
@@ -2060,6 +2260,7 @@ function openPicker(b){
     RX_MORE.forEach(e=>{ const x=document.createElement("button"); x.type="button"; x.textContent=e; x.dataset.e=e; x.setAttribute("aria-label",e); g.appendChild(x); }); }
   const mine=R.reacts && R.reacts.get(b.dataset.mid) && R.reacts.get(b.dataset.mid).get("me");
   pk.querySelectorAll("button[data-e]").forEach(x=>x.classList.toggle("on", !!(mine && mine.e===x.dataset.e)));
+  $("rxEdit").hidden=!editableBubble(b); $("rxCopy").hidden=!b.querySelector(":scope > .txt");
   g.hidden=true; pk.classList.remove("open-grid"); pk.hidden=false; placePicker(b);
 }
 function placePicker(b){
@@ -2075,13 +2276,16 @@ function closePicker(){ const pk=$("rxPick"); if(pk && !pk.hidden){ pk.hidden=tr
 let _reply=null;   // {code, m, s, o, w}
 function startReply(b){
   const R=A(); if(!R || !rxTargetOk(b) || $("msgInput").disabled) return;
+  if(_edit) cancelReply();
   const own=b.classList.contains("sent"); const w=own ? "" : (R.group ? whoName(b) : "");
   _reply={code:R.code, m:b.dataset.mid, s:bubbleSnippet(b), o:own?1:0, w};
   $("rbName").textContent= own ? t("Replying to your message") : t("Replying to {name}",{name: R.group ? (w||t("Member")) : (R.peerName||dn(R.title)||t("Contact"))});
   $("rbText").textContent=_reply.s; $("replyBar").hidden=false; closePicker();
   try{ $("msgInput").focus(); }catch(e){}
 }
-function cancelReply(){ _reply=null; const rb=$("replyBar"); if(rb) rb.hidden=true; }
+function cancelReply(){ _reply=null; const rb=$("replyBar");
+  if(_edit){ const d=_edit.draft||""; _edit=null; if(rb) rb.classList.remove("editing"); const ta=$("msgInput"); if(ta){ ta.value=d; ta.style.height="auto"; try{ ta.dispatchEvent(new Event("input",{bubbles:true})); }catch(e){} } }   // leaving an edit puts back what was in the composer
+  if(rb) rb.hidden=true; }
 // Card bubbles (a location, a group invitation): icon, title, a mono sub-line and one action.
 function addCard(logEl, cls, card, tag, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
@@ -2168,7 +2372,9 @@ function addImageRecvOnce(logEl, meta, tag, ts, mid, vf){
 // shown as "tap to view" until viewed, our own messages with their delivery state.
 function renderHistory(R, past){
   const hk=histKeyOf(R); const dur=expFor(hk); const cut=dur?Date.now()-dur:0; if(dur) histSweep(hk,cut);
+  const edits=editsFrom(R, past);
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
+    if(r.env.t==="edit") continue;                                       // applied to the message it edits (above)
     if(r.env.t==="react"){ if(typeof r.env.m==="string" && MID_RE.test(r.env.m) && validRx(r.env.e) && !(R.group && r.dir!=="sent" && r.vf==="bad"))
         rxApply(R, r.env.m, r.dir==="sent" ? {k:"me",n:t("You")} : rxActor(R,false,r.env,r.who), r.env.e, r.ts); continue; }
     if(r.env.t==="img"){
@@ -2181,9 +2387,11 @@ function renderHistory(R, past){
       if(r.dir==="sent") addCard(R.logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid,vf:r.vf}); continue; }
     if(r.env.t==="ginv"){ if(!validGinv(r.env)) continue;
       if(r.dir==="sent") addCard(R.logEl,"sent",ginvCard(r.env,"","sent"),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",ginvCard(r.env,r.who||R.title,"recv"),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
-    const qq=validQuote(r.env.q) ? cleanQuote(r.env.q) : null;
-    if(r.dir==="sent") addText(R.logEl,"sent",r.env.body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),quote:qq?quoteEl(R,qq,"sent",""):null});
-    else addText(R.logEl,"recv",r.env.body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf,quote:qq?quoteEl(R,qq,"recv",r.who):null});
+    const qq=validQuote(r.env.q) ? cleanQuote(r.env.q) : null; const ed=r.mid ? edits.get(r.mid) : null; const body=ed ? ed.x : r.env.body;
+    let tb;
+    if(r.dir==="sent") tb=addText(R.logEl,"sent",body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),quote:qq?quoteEl(R,qq,"sent",""):null,tx:1,edited:!!ed});
+    else tb=addText(R.logEl,"recv",body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf,quote:qq?quoteEl(R,qq,"recv",r.who):null,tx:1,pk:R.group?(r.env.pk||""):"",edited:!!ed});
+    if(ed && tb) tb.dataset.edts=String(ed.ts);
   }
   if(R.reacts) R.reacts.forEach((_,m)=>rxRender(R,m));
   seedSeen(R, past);
@@ -2199,7 +2407,8 @@ function setStatus(R, txt, secure, kind, short){
 }
 function applyStatus(R){
   const bar=$("bar"); if(!bar) return;
-  $("statusText").textContent=R.statusShort||statusShort(R.statusKind);
+  const ty=typingLabel(R); bar.classList.toggle("typing", !!ty);
+  $("statusText").textContent=ty || R.statusShort || statusShort(R.statusKind);
   const meta=$("peerMeta"); if(meta) meta.title=R.statusText||"";
   bar.classList.toggle("secure",!!R.secure);
   ["st-online","st-offline","st-busy","st-warn"].forEach(c=>bar.classList.remove(c)); bar.classList.add("st-"+(R.statusKind||"offline"));
@@ -2427,7 +2636,7 @@ async function onMsg(R, {payload:p}){
     const now=Date.now();
     if(env.t==="call"){ callSignal(R, env, R.peerName).catch(()=>{}); return; }
     onInbound(R, env, "", now, p.mid, false, true);
-    if(env.t!=="react"){ if(R.code===active) blinkEyes(); messageTone(R); }
+    if(env.t!=="react" && env.t!=="edit"){ if(R.code===active) blinkEyes(); messageTone(R); }
   }catch(e){
     if(p.mid && R.seen) R.seen.delete(p.mid);            // not decrypted here: let the encrypted mailbox copy deliver it
     if(R.fromContact){ setTimeout(()=>fetchMailbox(R),1500); }   // e.g. we're paired with their other device — the mailbox has it
@@ -2445,12 +2654,14 @@ async function sendText(){
   const R=A(); if(!R) return;
   const text=$("msgInput").value.trim(); if(!text) return;
   if(!R.group && !R.fromContact && !R.paired) return;       // manual room with no one here yet: nothing to send to
+  if(_edit && _edit.code===R.code) return sendEdit(R, text);
+  typingTick("");
   const env={t:"txt",body:text}; const mid=rid(); const now=Date.now();
   if(_reply && _reply.code===R.code) env.q={m:_reply.m, s:_reply.s, o:_reply.o, w:_reply.w};
   cancelReply();
   if(!R.seen) R.seen=new Set(); R.seen.add(mid);
   $("msgInput").value=""; $("msgInput").style.height="auto"; initAudio();
-  const el=addText(R.logEl,"sent",text,"",false,now,{mid,st:"pending",quote:env.q?quoteEl(R,cleanQuote(env.q),"sent",""):null});
+  const el=addText(R.logEl,"sent",text,"",false,now,{mid,st:"pending",quote:env.q?quoteEl(R,cleanQuote(env.q),"sent",""):null,tx:1});
   await deliverOut(R, env, mid, el, now);
 }
 // Delivery: live broadcast when paired, and/or the encrypted mailbox (always for contacts and groups, so
@@ -2565,7 +2776,7 @@ let _installChecked=false, _showInstallInvite=null;
 function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
-function goHome(){ cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
+function goHome(){ typingTick(""); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 function showAuth(mode){
@@ -2625,12 +2836,13 @@ function ncSet(nc){
 }
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
+  if(code!==active) typingTick("");                       // leaving a chat: "stopped typing" there
   if(!_reply || _reply.code!==code) cancelReply(); closePicker(); if(rec && code!==active) stopRec(false);
   active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   { const hk=histKeyOf(R), n=(_meta.unread&&+_meta.unread[hk])||0; markNew(R, n); }
   clearUnread(R);
-  $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar;
+  $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar; paintPeerAvatar();
   applyStatus(R);
   // Composer is usable whenever there's somewhere to deliver: a live pairing, a group,
   // or a saved contact (message goes to the encrypted mailbox and is delivered when they reconnect).
@@ -2807,6 +3019,7 @@ function mergeContacts(remote){ let _chainChanged=false;
     const rotLocal=Object.values(byCk).find(c=>c.prev===rc.ck);
     if(rotLocal){ if(rc.v) rotLocal.v=1; if(realName(rc.name) && !realName(rotLocal.name)) rotLocal.name=rc.name;
       if(rc.mts&&(rc.mts>(rotLocal.mts||0))){ rotLocal.mu=rc.mu; rotLocal.mts=rc.mts; if(!rotLocal.mu) delete rotLocal.mu; }
+      if(rc.cts&&(rc.cts>(rotLocal.cts||0))){ rotLocal.cl=rc.cl; rotLocal.cts=rc.cts; if(!rotLocal.cl) delete rotLocal.cl; }
       if(rc.into && !rotLocal.into){ rotLocal.into=rc.into; rotLocal.hk=rc.into; } return; }
     const e=byCk[rc.ck];
     if(!e){ byCk[rc.ck]=Object.assign({},rc); }
@@ -2821,6 +3034,7 @@ function mergeContacts(remote){ let _chainChanged=false;
            // peer — so it is never carried across a user's devices via the vault.
            if(rc.ats&&(rc.ats>(e.ats||0))){ e.alias=rc.alias; e.ats=rc.ats; if(!e.alias) delete e.alias; }
            if(rc.mts&&(rc.mts>(e.mts||0))){ e.mu=rc.mu; e.mts=rc.mts; if(!e.mu) delete e.mu; }
+           if(rc.cts&&(rc.cts>(e.cts||0))){ e.cl=rc.cl; e.cts=rc.cts; if(!e.cl) delete e.cl; }
            if(rc.into && !e.into){ e.into=rc.into; e.hk=rc.into; if(rc.its) e.its=rc.its; }   // merged on another device: one-way, never undone
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
   const lg=groupsLoad(), byRid={}; lg.forEach(g=>byRid[g.rid]=Object.assign({},g));
@@ -2830,6 +3044,7 @@ function mergeContacts(remote){ let _chainChanged=false;
            if(rg.adm && !e.adm) e.adm=rg.adm;
            if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; }
            if(rg.mts&&(rg.mts>(e.mts||0))){ e.mu=rg.mu; e.mts=rg.mts; if(!e.mu) delete e.mu; }
+           if(rg.cts&&(rg.cts>(e.cts||0))){ e.cl=rg.cl; e.cts=rg.cts; if(!e.cl) delete e.cl; }
            if(rg.mem){ const mem=Object.assign({},e.mem||{}); for(const pk in rg.mem){ if(!mem[pk] || (rg.mem[pk].ts||0)<(mem[pk].ts||0)) mem[pk]=rg.mem[pk]; } e.mem=mem; } } });
   if(_chainChanged) _chainCache.clear();   // keys derived from a root this merge replaced must not be reused
   for(const k in byCk) if((gone[k]||0)>(byCk[k].ts||0)) delete byCk[k];
@@ -3159,38 +3374,59 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("waShare").addEventListener("click",shareWhatsApp);
 
   $("sendBtn").addEventListener("click",sendText);
-  // Reactions: double tap (phone) or double click (computer) on a message opens the emoji picker.
-  // Replies: swipe a message to the right (phone), or ↩ in the picker. Taps on a quote jump to the original.
+  // The message menu (reactions, reply, edit, copy): long press or double tap (phone), double or right click
+  // (computer). Replies: also a swipe to the right. Taps on a quote jump to the original.
   (function(){
     const logs=$("logs"); let lastTap=null, sw=null;
     const interactive=el=>!!(el && el.closest && el.closest("button,a,input,textarea,select,.tapview,.vbar,.quote,.reacts,img,video"));
     logs.addEventListener("dblclick",e=>{ const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b) || interactive(e.target)) return;
       try{ window.getSelection().removeAllRanges(); }catch(_){} openPicker(b); });
+    // a long press (about half a second, finger still) opens the same menu: react, reply, edit, copy
+    logs.addEventListener("contextmenu",e=>{ const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b) || interactive(e.target)) return;
+      e.preventDefault(); openPicker(b); });
     logs.addEventListener("touchstart",e=>{ if(e.touches.length!==1){ sw=null; return; } const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b)){ sw=null; return; }
-      const p=e.touches[0]; sw={b, x:p.clientX, y:p.clientY, t:Date.now(), on:false, ready:false, moved:false, inter:interactive(e.target), lock:!!(e.target.closest && e.target.closest(".vbar"))}; },{passive:true});
+      const p=e.touches[0]; sw={b, x:p.clientX, y:p.clientY, t:Date.now(), on:false, ready:false, moved:false, inter:interactive(e.target), lock:!!(e.target.closest && e.target.closest(".vbar"))};
+      const me=sw; if(!me.inter) me.lp=setTimeout(()=>{ if(sw!==me || me.moved || me.on) return; me.long=true; try{ navigator.vibrate && navigator.vibrate(10); }catch(_){} openPicker(me.b); }, 480); },{passive:true});
     logs.addEventListener("touchmove",e=>{ if(!sw || sw.lock) return; const p=e.touches[0]; const dx=p.clientX-sw.x, dy=p.clientY-sw.y;
-      if(Math.abs(dx)>10 || Math.abs(dy)>10) sw.moved=true;
+      if(Math.abs(dx)>10 || Math.abs(dy)>10){ sw.moved=true; clearTimeout(sw.lp); }
       if(!sw.on){ if(Math.abs(dy)>12 && Math.abs(dy)>=Math.abs(dx)){ sw.lock=true; return; }          // a vertical scroll: leave it alone
         if(dx>14 && dx>Math.abs(dy)*1.4){ sw.on=true; sw.b.classList.add("swiping"); closePicker(); } else return; }
       const x=Math.max(0, Math.min(dx-14, 84)); sw.b.style.transform="translateX("+x+"px)";
       const ready=x>=56; if(ready!==sw.ready){ sw.ready=ready; sw.b.classList.toggle("swipe-ready",ready); if(ready){ try{ navigator.vibrate && navigator.vibrate(8); }catch(_){} } } },{passive:true});
     const endSwipe=s=>{ const b=s.b; b.style.transition="transform .18s ease"; b.style.transform="";
       setTimeout(()=>{ b.style.transition=""; b.classList.remove("swiping","swipe-ready"); },200); if(s.ready) startReply(b); };
-    logs.addEventListener("touchend",e=>{ const s=sw; sw=null; if(!s) return;
+    logs.addEventListener("touchend",e=>{ const s=sw; sw=null; if(!s) return; clearTimeout(s.lp);
+      if(s.long){ lastTap=null; e.preventDefault(); return; }               // the long press already opened the menu
       if(s.on){ endSwipe(s); lastTap=null; return; }
       if(s.moved || s.inter || Date.now()-s.t>350){ lastTap=null; return; }
       const now=Date.now(); if(lastTap && lastTap.b===s.b && now-lastTap.t<330){ lastTap=null; e.preventDefault(); openPicker(s.b); return; }
       lastTap={b:s.b, t:now}; },{passive:false});
-    logs.addEventListener("touchcancel",()=>{ const s=sw; sw=null; if(s && s.on){ s.ready=false; endSwipe(s); } },{passive:true});
+    logs.addEventListener("touchcancel",()=>{ const s=sw; sw=null; if(s) clearTimeout(s.lp); if(s && s.on){ s.ready=false; endSwipe(s); } },{passive:true});
     logs.addEventListener("click",e=>{ const q=e.target.closest && e.target.closest(".quote"); if(q){ const R=A(); if(R) jumpToQuoted(R, q.dataset.ref); return; }
       const c=e.target.closest && e.target.closest(".rx"); if(c){ const b=c.closest(".bubble"); const R=A(); if(R && b && b.dataset.mid) sendReaction(R, b.dataset.mid, c.dataset.e); } });
     logs.addEventListener("scroll",()=>closePicker(),{capture:true,passive:true});
     $("rxPick").addEventListener("click",e=>{ const x=e.target.closest && e.target.closest("button"); if(!x) return; const R=A(); const f=_rxFor;
       if(x.id==="rxMore"){ const g=$("rxGrid"); g.hidden=!g.hidden; $("rxPick").classList.toggle("open-grid",!g.hidden); const b=(f&&R)?bubbleOf(R,f.m):null; if(b) placePicker(b); return; }
       if(x.id==="rxReply"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) startReply(b); return; }
+      if(x.id==="rxEdit"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) startEdit(b); return; }
+      if(x.id==="rxCopy"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); const tx=b && b.querySelector(":scope > .txt");
+        if(tx){ (navigator.clipboard ? navigator.clipboard.writeText(tx.textContent) : Promise.reject()).then(()=>toast(t("Copied"))).catch(()=>{}); } return; }
       if(x.dataset.e && f && R && R.code===f.code){ closePicker(); sendReaction(R, f.m, x.dataset.e); } });
-    document.addEventListener("pointerdown",e=>{ const pk=$("rxPick"); if(pk && !pk.hidden && !pk.contains(e.target)) closePicker(); },true);
-    document.addEventListener("keydown",e=>{ if(e.key==="Escape") closePicker(); });
+    document.addEventListener("pointerdown",e=>{ const pk=$("rxPick"); if(pk && !pk.hidden && !pk.contains(e.target)) closePicker();
+      const cp=$("colPick"); if(cp && !cp.hidden && !cp.contains(e.target)) closeColorPick(); },true);
+    // the chats list: a long press (or right click) on a chat opens its colour palette
+    { const cl=$("contactList"); let lp=null;
+      const isRow=t=>{ const row=t && t.closest && t.closest(".ct"); return row && !(t.closest && t.closest(".cx")) ? row : null; };
+      cl.addEventListener("contextmenu",e=>{ const row=isRow(e.target); if(!row) return; e.preventDefault(); openColorPick(row); });
+      cl.addEventListener("touchstart",e=>{ clearTimeout(lp&&lp.t); lp=null; if(e.touches.length!==1) return; const row=isRow(e.target); if(!row) return;
+        const p=e.touches[0]; const me={row, x:p.clientX, y:p.clientY, long:false}; lp=me;
+        me.t=setTimeout(()=>{ if(lp!==me) return; me.long=true; row._lp=true; try{ navigator.vibrate && navigator.vibrate(10); }catch(_){} openColorPick(row); }, 480); },{passive:true});
+      cl.addEventListener("touchmove",e=>{ if(!lp) return; const p=e.touches[0]; if(Math.abs(p.clientX-lp.x)>10 || Math.abs(p.clientY-lp.y)>10){ clearTimeout(lp.t); lp=null; } },{passive:true});
+      cl.addEventListener("touchend",e=>{ const s=lp; lp=null; if(!s) return; clearTimeout(s.t); if(s.long){ e.preventDefault(); setTimeout(()=>{ s.row._lp=false; }, 400); } },{passive:false});
+      cl.addEventListener("touchcancel",()=>{ if(lp){ clearTimeout(lp.t); lp=null; } },{passive:true});
+      cl.addEventListener("scroll",()=>closeColorPick(),{passive:true});
+      $("colGrid").addEventListener("click",e=>{ const b=e.target.closest && e.target.closest("button"); if(!b || !_colFor) return; const id=_colFor; closeColorPick(); setAvaColor(id, b.dataset.c||""); }); }
+    document.addEventListener("keydown",e=>{ if(e.key==="Escape"){ closePicker(); closeColorPick(); } });
     window.addEventListener("resize",()=>closePicker());
     $("rbCancel").addEventListener("mousedown",e=>e.preventDefault());
     $("rbCancel").addEventListener("click",()=>{ cancelReply(); try{ $("msgInput").focus(); }catch(_){} });
@@ -3198,6 +3434,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("callBtn").addEventListener("click",()=>startCall(false)); $("videoBtn").addEventListener("click",()=>startCall(true));
   $("callEnd").addEventListener("click",hangup); $("callAccept").addEventListener("click",acceptCall); $("callDecline").addEventListener("click",declineCall);
   $("callMute").addEventListener("click",toggleMute); $("callCam").addEventListener("click",toggleCam); $("callFlip").addEventListener("click",flipCam);
+  // during a video call, a tap on the picture hides the buttons and the name (another tap brings them back)
+  $("callStage").addEventListener("click",()=>{ if(!call || !call.t1 || !$("callIncoming").hidden) return;
+    if(!$("callStage").querySelector(".peer:not(.audio)")) return; $("callUI").classList.toggle("bare"); });
   $("callBannerJoin").addEventListener("click",joinGroupCall);
   window.addEventListener("pagehide",()=>{ if(call) endCall("ended"); });
   const ginvLink=()=>{ const g=_ginvPending; if(!g) return ""; const o={rid:g.rid,gk:g.gk,name:g.name}; if(g.adm) o.adm=g.adm; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); };
@@ -3223,6 +3462,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("msgInput").addEventListener("keydown",e=>{ if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); sendText(); } });
   const growBox=()=>{ const el=$("msgInput"); el.style.height="auto"; el.style.height=Math.min(120, el.scrollHeight)+"px"; };
   $("msgInput").addEventListener("input",growBox);
+  $("msgInput").addEventListener("input",e=>{ if(!e.isTrusted || _edit) return; typingTick($("msgInput").value.trim() ? "t" : ""); });   // "typing…" for the others
   $("attachBtn").addEventListener("click",()=>$("fileInput").click());
   $("micBtn").addEventListener("mousedown",e=>e.preventDefault());
   $("micBtn").addEventListener("click",()=>startRec());
@@ -3295,6 +3535,12 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?t("Hidden"):t("Shown"); if($("prevToggle")) $("prevToggle").textContent=h?t("Show"):t("Hide");
     const s=shieldOn(); if($("shieldState")) $("shieldState").textContent=s?t("On"):t("Off"); if($("shieldToggle")){ $("shieldToggle").textContent=s?t("On"):t("Off"); $("shieldToggle").classList.toggle("off",!s); } }
   $("prevToggle").addEventListener("click",()=>{ const h=!previewsHidden(); setPreviewsHidden(h); refreshPrevUI(); toast(h?t("Previews hidden"):t("Previews shown")); });
+  function refreshTypUI(){ const on=typingOn(); if($("typState")) $("typState").textContent=on?t("On"):t("Off"); if($("typToggle")){ $("typToggle").textContent=on?t("On"):t("Off"); $("typToggle").classList.toggle("off",!on); } }
+  refreshTypUI();
+  $("typToggle").addEventListener("click",()=>{ const on=!typingOn(); if(!on) typingTick("");
+    try{ localStorage.setItem(LS_TYPING, on?"1":"0"); }catch(e){}
+    if(!on) rooms.forEach(R=>{ if(R.typing){ R.typing.clear(); typingShow(R); } });
+    refreshTypUI(); toast(on?t("Typing indicators on"):t("Typing indicators off")); });
   $("shieldToggle").addEventListener("click",()=>{ const s=!shieldOn(); setShieldOn(s); refreshPrevUI(); toast(s?t("Privacy screen on"):t("Privacy screen off")); });
   // display name (what friends see): free text, changed server-side and re-announced
   $("dispEdit").addEventListener("click",async()=>{ const s=sessLoad(); if(!s||!s.token) return; const v=prompt(t("New display name:"), s.display||""); if(v===null) return; const nv=v.trim().slice(0,24); if(!nv) return;
@@ -3341,47 +3587,74 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   // ----- PWA install (surfaced in Settings) -----
   let deferredPrompt=null;
   const isStandalone = matchMedia("(display-mode: standalone)").matches || window.navigator.standalone===true;
-  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+  const isIOS = (/iphone|ipad|ipod/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints>1)) && !window.MSStream;   // (an iPad says "Macintosh")
+  const isAndroid = /android/i.test(navigator.userAgent);
+  const isMacSafari = !isIOS && /Macintosh/.test(navigator.userAgent) && /Safari\//.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg|Firefox|OPR/.test(navigator.userAgent);
+  if(isStandalone){ try{ localStorage.setItem("gz-installed", String(Date.now())); }catch(e){} }   // opened as the installed app
   if(isIOS && $("toneHint")) $("toneHint").hidden=false;
   function showInstall(on){ if($("installGroup")) $("installGroup").style.display=on?"block":"none"; }
   window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; if(!isStandalone) showInstall(true);
-    if(installModalPending && !installPrompted()){ installModalPending=false; openInstallModal(); } });
-  window.addEventListener("appinstalled",()=>{ showInstall(false); deferredPrompt=null; closeInstallModal(); markInstallPrompted(); toast(t("Gizleme installed 🎉")); });
-  if(isIOS && !isStandalone) showInstall(true);
+    if(installModalPending){ installModalPending=false; clearTimeout(_instWait); openInstallModal(); } });
+  window.addEventListener("appinstalled",()=>{ showInstall(false); deferredPrompt=null; closeInstallModal(); try{ localStorage.setItem("gz-installed", String(Date.now())); }catch(e){} toast(t("Gizleme installed 🎉")); });
+  if((isIOS || isAndroid || isMacSafari) && !isStandalone) showInstall(true);
   $("installPill").addEventListener("click",async()=>{
     if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; showInstall(false); return; }
-    if(isIOS){ toast(t("Tap Share then “Add to Home Screen”")); return; }
-    toast(t("Open the browser menu → Install Gizleme"));
+    openInstallModal(true);
   });
 
-  // ----- one-time install invitation, after the first time you reach the app on this device -----
-  const LS_INSTALL="gz-installPrompted";
-  let installModalPending=false;
-  function installPrompted(){ try{ return localStorage.getItem(LS_INSTALL)==="1"; }catch(e){ return false; } }
-  function markInstallPrompted(){ try{ localStorage.setItem(LS_INSTALL,"1"); }catch(e){} }
+  // ----- install invitation -----
+  // While Gizleme isn't installed on this device, a window offers to add it (one button where the browser can
+  // install it itself, illustrated steps on iPhone / iPad, Android browsers without that button and Safari on a
+  // Mac). It comes back spaced out — the next day, then every three days, at most six times — and never once
+  // "Don't show this again" was chosen, or the installed app was opened on this device in the last two weeks.
+  const LS_INST="gz-install", INST_MAX=6, DAY=86400000;
+  let installModalPending=false, _instWait=null;
+  function instState(){ let o=null; try{ o=JSON.parse(localStorage.getItem(LS_INST)||"null"); }catch(e){}
+    if(!o || typeof o!=="object"){ o={n:0, next:0}; try{ if(localStorage.getItem("gz-installPrompted")==="1") o.n=1; }catch(e){} }   // (the old one-time flag: shown once)
+    return o; }
+  function instSave(o){ try{ localStorage.setItem(LS_INST, JSON.stringify(o)); }catch(e){} }
+  function recentlyInstalled(){ try{ const ts=+localStorage.getItem("gz-installed")||0; return ts && Date.now()-ts < 14*DAY; }catch(e){ return false; } }
+  function installDue(){ if(isStandalone || recentlyInstalled()) return false; const o=instState(); return !o.never && (o.n||0)<INST_MAX && Date.now()>=(o.next||0); }
+  function markInstallShown(){ const o=instState(); o.n=(o.n||0)+1; o.next=Date.now()+(o.n<=1?1:3)*DAY; instSave(o); }
   function closeInstallModal(){ const m=$("installModal"); if(m) m.classList.remove("show"); }
-  function openInstallModal(){
-    if(isStandalone || installPrompted()) return;
+  const I_SHARE='<svg class="iico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  const I_ADD='<svg class="iico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="17" height="17" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 8v8M8 12h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  const I_MENU='<svg class="iico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg>';
+  function instSteps(list){ return list.map(x=>"<li>"+x+"</li>").join(""); }
+  // manual: opened from Settings → Install (shown whatever the schedule says, and not counted)
+  function openInstallModal(manual){
+    if(isStandalone) return false;
     const steps=$("installSteps"), body=$("installBody"), now=$("installNow"), sub=$("installSub");
     if(deferredPrompt){
       sub.textContent=t("Add it to your device");
       body.textContent=t("Open Gizleme straight from your home screen, full-screen, and get notified of new messages even when your browser is closed.");
       steps.style.display="none"; now.style.display="block";
-    } else if(isIOS){
-      sub.textContent=t("Add it to your Home Screen");
+    } else if(isIOS || isAndroid || isMacSafari){
+      sub.textContent= isMacSafari ? t("Add it to your Dock") : t("Add it to your Home Screen");
       body.textContent=t("Install Gizleme for a full-screen app and message notifications:");
-      steps.innerHTML=t("<li>Tap the <b>Share</b> icon in Safari’s toolbar</li><li>Scroll to <b>Add to Home Screen</b></li><li>Tap <b>Add</b></li>");
+      steps.innerHTML = isIOS ? instSteps([ t("Tap {icon} <b>Share</b> in Safari (at the bottom of the screen — or under <b>⋯</b>)").replace("{icon}",I_SHARE),
+                                            t("Choose {icon} <b>Add to Home Screen</b> (scroll down the list if needed)").replace("{icon}",I_ADD),
+                                            t("Tap <b>Add</b>: the Gizleme icon appears on your home screen") ])
+                      : isAndroid ? instSteps([ t("Open the browser menu {icon} (top right, or ≡ at the bottom)").replace("{icon}",I_MENU),
+                                                t("Choose {icon} <b>Install app</b> or <b>Add to Home screen</b>").replace("{icon}",I_ADD),
+                                                t("Confirm: the Gizleme icon appears on your home screen") ])
+                      : instSteps([ t("In the menu bar, choose <b>File</b> → {icon} <b>Add to Dock…</b>").replace("{icon}",I_ADD),
+                                    t("Click <b>Add</b>: Gizleme opens like an app, from your Dock") ]);
       steps.style.display="block"; now.style.display="none";
-    } else { return; }     // no install path on this browser yet — try again next session
-    markInstallPrompted();
-    $("installModal").classList.add("show");
+    } else { if(manual) toast(t("Open the browser menu → Install Gizleme")); return false; }   // no known install path on this browser
+    $("installNever").hidden=!!manual;
+    if(!manual) markInstallShown();
+    $("installModal").classList.add("show"); return true;
   }
-  function maybeShowInstallModal(){
-    if(isStandalone || installPrompted()) return;
-    if(isInAppBrowser()) return;       // can't install from inside WhatsApp/Messenger — don't show or consume the prompt here
-    if(document.querySelector(".modal.show")) { setTimeout(maybeShowInstallModal, 4000); return; }   // don't stack on an open dialog
-    if(deferredPrompt || isIOS) openInstallModal();
-    else installModalPending=true;     // wait for beforeinstallprompt to fire, then show
+  async function maybeShowInstallModal(){
+    if(!installDue()) return;
+    if(isInAppBrowser()) return;       // can't install from inside WhatsApp/Messenger — don't show it there
+    if(document.querySelector(".modal.show") || !$("callUI").hidden) { setTimeout(maybeShowInstallModal, 4000); return; }   // don't stack on an open dialog or a call
+    try{ if(navigator.getInstalledRelatedApps){ const apps=await navigator.getInstalledRelatedApps(); if(apps && apps.length){ try{ localStorage.setItem("gz-installed", String(Date.now())); }catch(e){} return; } } }catch(e){}
+    if(deferredPrompt || isIOS || isMacSafari){ openInstallModal(); return; }
+    // the browser's own install button may still be coming: wait for it a little, then show the steps (Android)
+    installModalPending=true; clearTimeout(_instWait);
+    _instWait=setTimeout(()=>{ if(!installModalPending) return; installModalPending=false; if(isAndroid && installDue() && !document.querySelector(".modal.show")) openInstallModal(); }, 6000);
   }
   _showInstallInvite = maybeShowInstallModal;   // expose to enterApp (top-level scope)
   $("installNow").addEventListener("click",async()=>{
@@ -3389,6 +3662,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; showInstall(false); }
   });
   $("installLater").addEventListener("click",closeInstallModal);
+  $("installNever").addEventListener("click",()=>{ const o=instState(); o.never=true; instSave(o); closeInstallModal(); });
   $("installModal").addEventListener("click",e=>{ if(e.target.id==="installModal") closeInstallModal(); });
 
   if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ navigator.serviceWorker.register("/sw.js").catch(()=>{}); });

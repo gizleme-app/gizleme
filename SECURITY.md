@@ -109,7 +109,9 @@ rate-limit counters.
   service-role-only `gizleme_config` row, like the VAPID key — never in source or in the client) and hands
   out short-lived credentials; the relay only ever forwards ciphertext. Group calls are a mesh (every
   participant to every other), capped at 4. A web app cannot ring while closed the way a phone app does:
-  an offline contact gets a push ("X is calling you") and the call connects when they open the chat.
+  an offline contact gets a push ("X is calling you"), sent again every 7 seconds while the call rings
+  (under one notification tag, so each alert replaces the last) and replaced by "Missed call" if nobody
+  answers; the call connects when they open the chat.
 - **Groups: signed messages, creator-controlled key rotation.** Every account holds an identity key pair
   (ECDSA P-256 for signatures, an ECDH half for key delivery) that follows it across devices in the vault.
   Group messages are signed (`pk`, `ek`, `sig` inside the ciphertext; the signature covers the group id and
@@ -158,11 +160,23 @@ rate-limit counters.
   `{t:"react", m, e}` and a reply an encrypted text carrying the quoted message id and a snippet of at most
   160 characters, both sent like any message (signed in groups; a group reaction with a broken signature is
   ignored). The snippet is a copy of text the recipient already has; it disappears with the reply.
+- **Edits** are an encrypted envelope `{t:"edit", m, x}` sent the same way. A device applies one only to a
+  text message from the same author, within 24 hours of it: in a two-person chat, to a message received
+  from that contact (or, coming from one of your own devices, to one you sent); in a group, only when it is
+  signed by the key that signed the original. The newest edit wins. An edit is a correction, not an unsend:
+  the original stays in each device's encrypted local history until the chat's messages expire, and an app
+  older than v29 shows the edit as a new message ("✏️ …").
+- **Typing indicators** ("typing…", "recording a voice message…") are live-only encrypted signals
+  `{t:"typ", s}`, never left in the mailbox: in a two-person chat under the contact's mailbox key and on the
+  same relay event as delivery receipts, in a group under the group key. The relay can neither read them nor
+  tell them from receipts, but it does see small encrypted events every few seconds while someone types —
+  timing metadata that Settings → Typing indicators (off: neither sent nor shown) removes. In a group the
+  name shown comes from the signal itself, which only members can produce; it is not signed.
 - **View-once and disappearing messages are best effort.** They are enforced by the recipient's device;
-  nothing stops a screenshot or a modified client. Voice messages follow the photo path (random key inside
-  the message, ciphertext blob deleted from the relay after the first fetch) and are then kept encrypted
-  in the recipient's local store for replay; like photos, a second device of the same account that did not
-  fetch the blob first cannot play it.
+  nothing stops a screenshot or a modified client. Voice messages are encrypted like a photo (a random key
+  inside the message); the ciphertext blob stays on the relay for 14 days, so every member of a group and
+  each of your devices can fetch it, and each device keeps its own encrypted copy for replay. A view-once
+  photo in a two-person chat is deleted from the relay once it has been viewed.
 - **Web delivery.** Code is delivered at each load; a compromised origin could serve malicious code. The
   CSP, HSTS and the absence of third-party scripts limit, but do not remove, this trust in the host.
 - **Screenshots and the operating system.** No web app can prevent screenshots or protect against a
@@ -183,8 +197,10 @@ rate-limit counters.
   IP, blob uploads 30/min per IP, TURN credentials 40/10 min per IP. There are no per-account storage
   quotas beyond these.
 - Push: endpoints restricted to the browser push services, at most 8 devices woken per notification key,
-  fixed bodies ("New message", "Incoming call", "A contact wants to chat") — the name is added by the
-  receiving device from a cache keyed by hashed notification keys, cleared on log-out.
+  12 alerts per notification key per 10 minutes for messages and 40 for call alerts (a call rings every
+  7 seconds; a ringing alert expires after 45 s), fixed bodies ("New message", "Incoming call", "Missed
+  call", "A contact wants to chat") — the name is added by the receiving device from a cache keyed by
+  hashed notification keys, cleared on log-out.
 - TURN: short-lived credentials (15 min) minted by the function from a server-side key and shared by all
   callers for 2 minutes; a credential only lets someone relay ciphertext through Cloudflare's TURN.
 - Password change and account deletion require both the session token and the current password.

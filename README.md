@@ -29,9 +29,11 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
 - View-once photos, disappearing messages (24 h by default), auto-lock, privacy screen, hidden previews.
-- Reactions (double tap / double click on a message → emoji picker; one reaction per person, tap it again to
-  take it back) and replies (swipe a message to the right, or ↩ in the picker; the quote jumps to the
-  original). Both are ordinary encrypted messages — signed in groups — so the relay learns nothing new.
+- A long press on a message (right click or double click on a computer) opens its menu: react, reply, edit,
+  copy. Reactions: one per person, tap it again to take it back. Replies: also a swipe to the right; the
+  quote jumps to the original. Your own text messages can be edited for 24 hours ("edited" shows on the
+  bubble, on every side). All three are ordinary encrypted messages — signed in groups — so the relay learns
+  nothing new, and only the author's own edit is ever applied.
 - Voice messages (up to 2 min): recorded on the device with one small built-in codec (IMA ADPCM, 16 kHz —
   the same bytes decode in every browser, no container or codec negotiation), encrypted exactly like a
   photo under a key that only travels inside the message; the relay keeps the ciphertext for 14 days (so
@@ -54,15 +56,26 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   menu (⋮ → Merge with another chat…): the earlier chat's messages show in this one in time order, it leaves
   the list, and anything still sent on its key lands here. Never automatic — a name proves nothing — and only
   on your devices.
+- "Typing…" and "recording a voice message…": in the chat's header, as three dots (or a microphone) at the
+  end of the chat and in the chats list — live-only encrypted signals that stop when the message is sent and
+  fade after a few seconds of nothing. Settings → Typing indicators: off means you neither send nor see them.
+- A colour for each chat: a long press (right click on a computer) on a chat in the list opens a palette of
+  twelve colours for its round avatar — in the list, at the top of the chat and on the call screen. Saved
+  in your encrypted contact list, so it follows your account; the other person never sees it.
 - An app left open for days notices a new release when it comes back to the foreground: a small pill,
   "New version available — tap to update" (on the lock screen it simply reloads).
-- Web Push: the wire carries only "New message" / "Incoming call" / "A contact wants to chat"; the
-  receiving device adds the contact's name ("New message from X"). Never message content.
+- Web Push: the wire carries only "New message" / "Incoming call" / "Missed call" / "A contact wants to
+  chat"; the receiving device adds the contact's name ("New message from X"). Never message content.
+- Installing: while Gizleme isn't installed on a device, a window offers to add it — one button where the
+  browser can install it itself, illustrated steps on iPhone / iPad, Android and Safari on a Mac. It comes
+  back the next day, then every three days (six times at most), unless you tap "Don't show this again".
 - Audio and video calls (WebRTC): media goes peer-to-peer and is end-to-end encrypted by construction
   (DTLS-SRTP); the signalling travels inside the chat's already-encrypted channel, so the relay sees
   nothing but ciphertext. Group calls are a mesh of up to 4 people. A contact who is offline is woken
-  with a push ("Incoming call"). A Cloudflare TURN relay (see SECURITY.md) only forwards
-  ciphertext and takes over when both sides sit behind strict NATs.
+  with a push ("📞 X is calling you", with a ringing-phone icon) that rings again every 7 seconds while the
+  call rings and turns into "Missed call" if nobody picks up. A two-person video call fills the screen (HD
+  capture, your own picture small in a corner; tap to hide the buttons). A Cloudflare TURN relay (see
+  SECURITY.md) only forwards ciphertext and takes over when both sides sit behind strict NATs.
 
 ## Security
 
