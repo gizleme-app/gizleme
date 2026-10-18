@@ -265,7 +265,8 @@ try:
     r["sw_other_counts"]= sw["r2"]["silent"] is False and sw["r2"]["renotify"] is True and sw["r2"]["badge"]==3 and sw["r2"]["body"]=="New message from Ali"
     r["sw_call_rings"]= sw["r3"]["silent"] is False and sw["r3"]["badge"]==3
     # --- on a phone: WhatsApp's own link scheme (no wa.me page left behind), and the chat opens once WhatsApp is in front
-    ctxC,C=boot("carla",errsC,w=390,ua=IPHONE,extra=SHARE)
+    NOINST="try{ localStorage.setItem('gz-install', JSON.stringify({n:0,next:0,never:true})); }catch(e){}"   # not about installing: no invitation popping up mid-test
+    ctxC,C=boot("carla",errsC,w=390,ua=IPHONE,extra=SHARE+NOINST)
     C.click("#sbNew"); C.wait_for_timeout(300)
     C.click("#waShare"); C.wait_for_timeout(400)
     r["wa_phone_noWebPage"]= C.evaluate("()=>window.__opened.length")==0 and C.evaluate("()=>location.origin")==f"http://127.0.0.1:{port}"

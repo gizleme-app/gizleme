@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 29;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 30;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -1785,7 +1785,24 @@ async function iceServers(){
 }
 function callSig(R, env){ if(!R) return Promise.resolve(false); const e=Object.assign({t:"call"},env); return R.group ? broadcastGroup(R, e, rid()) : (R.paired ? broadcast(R, e, rid()) : Promise.resolve(false)); }
 function callSend(env){ return call ? callSig(call.R, env) : Promise.resolve(false); }
-function callUIShow(on){ $("callUI").hidden=!on; document.body.classList.toggle("in-call",!!on); if(!on) $("callUI").classList.remove("bare"); }
+function callUIShow(on){ $("callUI").hidden=!on; document.body.classList.toggle("in-call",!!on); if(!on){ $("callUI").classList.remove("bare"); clearTimeout(_bareT); } }
+// ---- full screen for video calls ----
+// On a phone the call takes the whole screen — the system bars too (Android; an iPhone has no such switch for a
+// web page). The ⛶ button does the same on a computer. Asked for inside the tap that starts or accepts the call,
+// as browsers require.
+let _bareT=null, _fsByCall=false;
+function fsActive(){ return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function fsCan(){ const el=document.documentElement; return !!(el.requestFullscreen || el.webkitRequestFullscreen) && (document.fullscreenEnabled!==false); }
+function fsEnter(){ try{ if(fsActive() || !fsCan()) return; const el=document.documentElement;
+    const p=el.requestFullscreen ? el.requestFullscreen({navigationUI:"hide"}) : el.webkitRequestFullscreen(); _fsByCall=true; if(p && p.catch) p.catch(()=>{ _fsByCall=false; }); }catch(e){} }
+function fsExit(){ try{ _fsByCall=false; if(!fsActive()) return; const p=document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen(); if(p && p.catch) p.catch(()=>{}); }catch(e){} }
+function callFsAuto(video){ if(video && TOUCH_UI && !/iphone|ipad|ipod/i.test(navigator.userAgent)) fsEnter(); }
+// show the buttons now, and let them fade after 4 s while the other person's picture is on screen
+function callChrome(){ const ui=$("callUI"); clearTimeout(_bareT); ui.classList.remove("bare");
+  $("callFs").hidden=!(call && call.video && fsCan() && !/iphone|ipad|ipod/i.test(navigator.userAgent));
+  if(!call || !call.t1 || !$("callIncoming").hidden) return;
+  if(!$("callStage").querySelector(".peer:not(.audio)")) return;
+  _bareT=setTimeout(()=>{ if(call && call.t1 && $("callStage").querySelector(".peer:not(.audio)")) ui.classList.add("bare"); }, 4000); }
 function callStatus(txt){ const e=$("callStatus"); if(e) e.textContent=txt; }
 function fmtDur(ms){ const s=Math.max(0,Math.floor(ms/1000)); return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0"); }
 function mediaErr(e){ const n=e&&e.name||"";
@@ -1812,9 +1829,14 @@ function soundEnd(){ beep([{f:523.25,t0:0,dur:.14,gain:.04},{f:392,t0:.15,dur:.2
 // ----- stage (remote participants) -----
 function peerEl(pid, name){
   const st=$("callStage"); let d=st.querySelector('[data-pid="'+CSS.escape(pid)+'"]');
-  if(!d){ d=st.querySelector('[data-pid="?"]'); if(d){ d.dataset.pid=pid; d.querySelector(".pname").textContent=name||""; d.querySelector(".pav").textContent=up((name||"?")[0]||"?"); } }
+  // a two-person call has one picture, whichever of their devices answers: the tile is reused, never doubled
+  // (two tiles would split the screen in half)
+  if(!d){ d=st.querySelector('[data-pid="?"]') || ((call && !call.group) ? st.querySelector(".peer") : null);
+    if(d){ d.dataset.pid=pid; d.querySelector(".pname").textContent=name||""; d.querySelector(".pav").textContent=up((name||"?")[0]||"?"); } }
+  if(d && call && !call.group) st.querySelectorAll(".peer").forEach(x=>{ if(x!==d) x.remove(); });
   if(!d){ d=document.createElement("div"); d.className="peer audio"; d.dataset.pid=pid;
-    const v=document.createElement("video"); v.autoplay=true; v.playsInline=true; d.appendChild(v);
+    const bg=document.createElement("video"); bg.className="bgv"; bg.autoplay=true; bg.playsInline=true; bg.muted=true; bg.setAttribute("aria-hidden","true"); d.appendChild(bg);
+    const v=document.createElement("video"); v.className="mainv"; v.autoplay=true; v.playsInline=true; d.appendChild(v);
     v.addEventListener("loadedmetadata",()=>fitVideo(v)); v.addEventListener("resize",()=>fitVideo(v));
     const av=document.createElement("div"); av.className="pav"; av.textContent=up((name||"?")[0]||"?"); d.appendChild(av);
     if(call && !call.group && call.R){ const c=roomColor(call.R); if(c) av.style.background=c; }
@@ -1822,14 +1844,16 @@ function peerEl(pid, name){
     st.appendChild(d); }
   st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); return d;
 }
-function restage(){ const st=$("callStage"); st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); st.querySelectorAll("video").forEach(fitVideo); }
-// The other person's picture fills the whole screen (cropped at the edges, as on a phone call app). Only when the
-// shapes really don't match — a phone held upright shown on a wide computer screen — is it shown whole instead,
-// so a face isn't cut in half.
-function fitVideo(v){ try{ const box=v.parentElement; if(!box) return; const vw=v.videoWidth, vh=v.videoHeight; if(!vw||!vh) return;
+function restage(){ const st=$("callStage"); st.className="call-stage n"+Math.min(4,Math.max(1,st.children.length)); st.querySelectorAll("video.mainv").forEach(fitVideo); }
+// The other person's picture fills the whole screen, cropped at the edges as on a phone call app — always on a
+// phone or tablet. On a computer, a phone held upright would lose most of the face that way: there it is shown
+// whole, over a blurred, enlarged copy of itself that fills the rest of the screen.
+const TOUCH_UI = matchMedia("(pointer:coarse)").matches;
+function fitVideo(v){ try{ const box=v.parentElement; if(!box || !v.classList.contains("mainv")) return; const vw=v.videoWidth, vh=v.videoHeight; if(!vw||!vh) return;
   const r=box.getBoundingClientRect(); if(!r.width||!r.height) return;
-  const va=vw/vh, ba=r.width/r.height; v.classList.toggle("fit", (ba>1.15 && va<0.9) || (ba<0.87 && va>2.0)); }catch(e){} }
-window.addEventListener("resize",()=>{ if(call) $("callStage").querySelectorAll("video").forEach(fitVideo); });
+  const va=vw/vh, ba=r.width/r.height; const fit=!TOUCH_UI && ((ba>1.15 && va<0.9) || (ba<0.87 && va>2.0));
+  v.classList.toggle("fit", fit); box.classList.toggle("fitted", fit); }catch(e){} }
+window.addEventListener("resize",()=>{ if(call) $("callStage").querySelectorAll("video.mainv").forEach(fitVideo); });
 async function newPeer(pid, name, initiator){
   if(!call) return null;
   const pc=new RTCPeerConnection({iceServers:await iceServers(), bundlePolicy:"max-bundle"});
@@ -1838,8 +1862,10 @@ async function newPeer(pid, name, initiator){
   call.peers.set(pid,P); if(call.early && call.early.has(pid)){ P.cands.push(...call.early.get(pid)); call.early.delete(pid); }
   if(call.local) call.local.getTracks().forEach(tr=>pc.addTrack(tr, call.local));
   pc.onicecandidate=e=>{ if(e.candidate && call) callSend({a:"ice",cid:call.cid,to:pid,from:call.me,cand:e.candidate.toJSON()}); };
-  pc.ontrack=e=>{ P.stream.addTrack(e.track); const v=P.el.querySelector("video"); if(v.srcObject!==P.stream) v.srcObject=P.stream; v.play().catch(()=>{});
-    if(e.track.kind==="video"){ P.el.classList.remove("audio"); e.track.onmute=()=>P.el.classList.add("audio"); e.track.onunmute=()=>P.el.classList.remove("audio"); } };
+  pc.ontrack=e=>{ P.stream.addTrack(e.track); const v=P.el.querySelector("video.mainv"); if(v.srcObject!==P.stream) v.srcObject=P.stream; v.play().catch(()=>{});
+    if(e.track.kind==="video"){ const bg=P.el.querySelector("video.bgv"); if(bg && !bg.srcObject){ bg.srcObject=new MediaStream([e.track]); bg.play().catch(()=>{}); }
+      P.el.classList.remove("audio"); callChrome();
+      e.track.onmute=()=>{ P.el.classList.add("audio"); callChrome(); }; e.track.onunmute=()=>{ P.el.classList.remove("audio"); callChrome(); }; } };
   pc.onconnectionstatechange=()=>{ const st=pc.connectionState;
     if(st==="connected"){ clearTimeout(P.discT); P.connected=true; onCallConnected(); }
     else if(st==="failed"){ dropPeer(pid,"failed"); }
@@ -1857,7 +1883,7 @@ function dropPeer(pid, why){
 function anyConnected(){ return !!(call && [...call.peers.values()].some(P=>P.connected)); }
 function onCallConnected(){
   if(!call) return;
-  if(!call.t1){ call.t1=Date.now(); call.state="live"; stopRing(); clearTimeout(call.ringT); clearTimeout(call.pushT); soundConnect(); }
+  if(!call.t1){ call.t1=Date.now(); call.state="live"; stopRing(); clearTimeout(call.ringT); clearTimeout(call.pushT); soundConnect(); callChrome(); }
   if(!call.timer) call.timer=setInterval(()=>{ if(!call||!call.t1) return;
     if(call.group && call.peers.size===0) callStatus(t("Waiting for others…"));
     else callStatus(fmtDur(Date.now()-call.t1)+(call.group?" · "+t("{n} in the call",{n:call.peers.size+1}):"")); },1000);
@@ -1879,7 +1905,7 @@ async function startCall(video){
   if(!navigator.mediaDevices || !window.RTCPeerConnection){ toast(t("Calls aren't supported in this browser")); return; }
   if(R.group) return startGroupCall(R, video);
   if(!R.fromContact && !R.paired) return;
-  initAudio();
+  initAudio(); callFsAuto(video);
   let local; try{ local=await callMedia(video, null, true); }catch(e){ toast(mediaErr(e)); return; }
   if(call){ local.getTracks().forEach(tr=>tr.stop()); return; }   // a call began meanwhile (a second tap, an incoming one)
   video = video && local.getVideoTracks().length>0;
@@ -1903,7 +1929,7 @@ function callTryInvite(){
   callSig(R,{a:"invite",cid:call.cid,from:R.id,to:R.peer.id,video:call.video,n:myName});
 }
 async function acceptCall(){
-  if(!call || call.dir!=="in" || call.state!=="ringing") return; stopRing(); clearTimeout(call.ringT); initAudio();
+  if(!call || call.dir!=="in" || call.state!=="ringing") return; stopRing(); clearTimeout(call.ringT); initAudio(); callFsAuto(call.video && !call.group);
   let local; try{ local=await callMedia(call.video, null, true); }catch(e){ toast(mediaErr(e)); declineCall(); return; }
   if(!call) { local.getTracks().forEach(tr=>tr.stop()); return; }
   call.local=local; call.video=call.video && local.getVideoTracks().length>0; call.state="connecting";
@@ -1915,6 +1941,7 @@ function hangup(){ if(!call) return; endCall("ended"); }
 function endCall(reason, silent){
   const c=call; if(!c) return; call=null;
   stopRing(); clearTimeout(c.ringT); clearTimeout(c.pushT); clearInterval(c.timer); clearInterval(c.inviteT); closeCallNotifs();
+  if(_fsByCall) fsExit();
   // we rang their phone and they never picked up: the ringing alert there becomes "missed call"
   if(c.dir==="out" && !c.group && !c.t1 && c.pushed && !c.ackd && reason!=="declined" && reason!=="busy" && c.R && c.R.fromContact) notifyPeer(c.R.fromContact,"missed").catch(()=>{});
   if(!silent && c.R){ try{ callSig(c.R, c.group ? {a:"hangup",cid:c.cid,from:c.me} : {a:(c.dir==="out"&&!c.t1)?"cancel":"hangup", cid:c.cid, from:c.me, to:c.from}); }catch(e){} }
@@ -1989,13 +2016,37 @@ function updateCallUI(){ const R=A(); const ok=!!(R && (R.group || R.fromContact
 // ----- in-call controls -----
 function toggleMute(){ if(!call||!call.local) return; const on=!call.local.getAudioTracks().every(tr=>tr.enabled); call.local.getAudioTracks().forEach(tr=>tr.enabled=on); setLocalPreview(); }
 function toggleCam(){ if(!call||!call.local) return; const vts=call.local.getVideoTracks(); if(!vts.length) return; const on=!vts.every(tr=>tr.enabled); vts.forEach(tr=>tr.enabled=on); setLocalPreview(); }
-async function flipCam(){ if(!call||!call.local) return; const cur=call.local.getVideoTracks()[0]; if(!cur) return;
-  const facing=(cur.getSettings().facingMode==="environment")?"user":"environment";
-  const hd=!call.group;
-  let ns; try{ ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:facing}, width:{ideal:hd?1280:640}, height:{ideal:hd?720:480}}}); }catch(e){ toast(t("Couldn't switch camera")); return; }
-  const nt=ns.getVideoTracks()[0]; if(!nt) return;
-  call.peers.forEach(P=>{ const sn=P.pc.getSenders().find(x=>x.track && x.track.kind==="video"); if(sn) sn.replaceTrack(nt).catch(()=>{}); });
-  call.local.removeTrack(cur); cur.stop(); call.local.addTrack(nt); $("callLocal").style.transform=facing==="user"?"scaleX(-1)":"none"; setLocalPreview();
+// Front ↔ back camera. Many Android phones (Samsung among them) cannot open a second camera while the first is
+// still running — asking for the other one first fails there — so the current camera is released before the
+// other is opened: by facing ("environment" / "user"), else by device (the camera whose name says back / front,
+// else any other one). If nothing opens, the camera we had comes back.
+let _flipping=false;
+async function flipCam(){
+  if(!call || !call.local || _flipping) return; const cur=call.local.getVideoTracks()[0]; if(!cur) return;
+  _flipping=true; const btn=$("callFlip"); if(btn) btn.disabled=true;
+  const me=call, st=cur.getSettings ? cur.getSettings() : {}, curId=st.deviceId||"", was=call.facing||st.facingMode||"user";
+  const want= was==="environment" ? "user" : "environment", on=cur.enabled, hd=!call.group;
+  const size={width:{ideal:hd?1280:640}, height:{ideal:hd?720:480}};
+  let devs=[]; try{ devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput"); }catch(e){}
+  const BACK=/back|rear|environment|arri[eè]re|r[uü]ck/i, FRONT=/front|user|avant|selfie|vorder/i;
+  const byLabel=devs.filter(d=>d.deviceId && d.deviceId!==curId && (want==="environment" ? BACK.test(d.label) : FRONT.test(d.label) && !BACK.test(d.label)));
+  const others=devs.filter(d=>d.deviceId && d.deviceId!==curId);
+  const tries=[ {facingMode:{exact:want}}, ...byLabel.map(d=>({deviceId:{exact:d.deviceId}})), {facingMode:want}, ...others.map(d=>({deviceId:{exact:d.deviceId}})) ];
+  const use=nt=>{ call.peers.forEach(P=>{ const sn=P.pc.getSenders().find(x=>x.track && x.track.kind==="video") || P.pc.getSenders().find(x=>!x.track && x.dtmf===null);
+      if(sn) sn.replaceTrack(nt).catch(()=>{}); });
+    call.local.getVideoTracks().forEach(x=>call.local.removeTrack(x)); call.local.addTrack(nt); nt.enabled=on; };
+  try{
+    cur.stop();                                                    // free the camera first
+    let nt=null;
+    for(const v of tries){ if(call!==me) break; try{ const ns=await navigator.mediaDevices.getUserMedia({video:Object.assign({}, v, size)}); const x=ns.getVideoTracks()[0];
+        if(x && x.getSettings && curId && x.getSettings().deviceId===curId){ x.stop(); continue; }   // the same camera again
+        if(x){ nt=x; break; } }catch(e){} }
+    if(call!==me){ if(nt) nt.stop(); return; }
+    if(nt){ use(nt); const f=(nt.getSettings && nt.getSettings().facingMode) || want; call.facing=f; $("callLocal").style.transform=f==="environment"?"none":"scaleX(-1)"; }
+    else { toast(t("Couldn't switch camera"));
+      try{ const ns=await navigator.mediaDevices.getUserMedia({video:Object.assign({}, curId ? {deviceId:{exact:curId}} : {facingMode:was}, size)}); const x=ns.getVideoTracks()[0]; if(x && call===me) use(x); else if(x) x.stop(); }catch(e){} }
+    setLocalPreview();
+  } finally { _flipping=false; if(btn) btn.disabled=false; }
 }
 async function previewTone(n){
   setTone(n); const p=initAudio();
@@ -3434,9 +3485,14 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("callBtn").addEventListener("click",()=>startCall(false)); $("videoBtn").addEventListener("click",()=>startCall(true));
   $("callEnd").addEventListener("click",hangup); $("callAccept").addEventListener("click",acceptCall); $("callDecline").addEventListener("click",declineCall);
   $("callMute").addEventListener("click",toggleMute); $("callCam").addEventListener("click",toggleCam); $("callFlip").addEventListener("click",flipCam);
-  // during a video call, a tap on the picture hides the buttons and the name (another tap brings them back)
+  // during a video call the buttons and the name step aside after a few seconds; a tap on the picture brings them
+  // back (and another tap hides them again)
   $("callStage").addEventListener("click",()=>{ if(!call || !call.t1 || !$("callIncoming").hidden) return;
-    if(!$("callStage").querySelector(".peer:not(.audio)")) return; $("callUI").classList.toggle("bare"); });
+    if(!$("callStage").querySelector(".peer:not(.audio)")) return;
+    if($("callUI").classList.toggle("bare")) clearTimeout(_bareT); else callChrome(); });
+  $("callFs").addEventListener("click",()=>{ if(fsActive()) fsExit(); else fsEnter(); callChrome(); });
+  $("callCtl").addEventListener("click",()=>{ if(call && call.t1) callChrome(); });   // using a button keeps them on screen a little longer
+  document.addEventListener("fullscreenchange",()=>{ $("callFs").classList.toggle("on", fsActive()); });
   $("callBannerJoin").addEventListener("click",joinGroupCall);
   window.addEventListener("pagehide",()=>{ if(call) endCall("ended"); });
   const ginvLink=()=>{ const g=_ginvPending; if(!g) return ""; const o={rid:g.rid,gk:g.gk,name:g.name}; if(g.adm) o.adm=g.adm; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); };

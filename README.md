@@ -74,7 +74,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   nothing but ciphertext. Group calls are a mesh of up to 4 people. A contact who is offline is woken
   with a push ("📞 X is calling you", with a ringing-phone icon) that rings again every 7 seconds while the
   call rings and turns into "Missed call" if nobody picks up. A two-person video call fills the screen (HD
-  capture, your own picture small in a corner; tap to hide the buttons). A Cloudflare TURN relay (see
+  capture, your own picture small in a corner; the buttons fade after a few seconds and come back with a
+  tap; full screen including the system bars on Android, ⛶ on a computer). Switching between the front and
+  back cameras releases the current one first, which phones such as Samsung's require. A Cloudflare TURN relay (see
   SECURITY.md) only forwards ciphertext and takes over when both sides sit behind strict NATs.
 
 ## Security

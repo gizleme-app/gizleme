@@ -61,6 +61,8 @@ HOOK='''window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),
   merge:(x)=>JSON.parse(JSON.stringify(mergeContacts(x))), soundMode:()=>soundMode(), unreadTotal:()=>unreadTotal(), checkUpdate:()=>checkUpdate(true), openCk:(ck)=>openContact(ck,'x'), inbox:()=>inboxPull(true),
   editsFrom:(g,past)=>[...editsFrom({group:g},past)].map(([k,v])=>[k,v.x]), onEdit:(env,own,ts)=>{ const R=A(); onEditEnv(R,env,'x',ts||Date.now(),rid(),!!own); },
   rec:(on)=>on?startRec():stopRec(false), typLabel:(g,e)=>typingLabel({group:g, typing:new Map(e.map(([k,x])=>[k,{s:x,until:Date.now()+5000}]))}),
+  localCam:()=>{ const tr=call&&call.local&&call.local.getVideoTracks()[0]; if(!tr) return null; const P=[...call.peers.values()][0]; const sn=P&&P.pc.getSenders().find(x=>x.track&&x.track.kind==='video'); return {id:tr.getSettings().deviceId, same:!!(sn&&sn.track===tr), live:tr.readyState, n:call.local.getVideoTracks().length, mirror:document.getElementById('callLocal').style.transform}; },
+  tiles:(pid)=>{ if(pid) peerEl(pid,'x'); return document.querySelectorAll('#callStage .peer').length; },
   camSettings:()=>{ const tr=call&&call.local&&call.local.getVideoTracks()[0]; return tr?tr.getSettings():null; }, instState:()=>localStorage.getItem('gz-install') };
 '''
 _app=_app[:_app.rstrip().rfind("})();")]+HOOK+'})();\n'
@@ -189,6 +191,15 @@ SWJS48=r"""async ()=>{ const sw=await fetch('/sw.js').then(r=>r.text()); const H
 IPHONE="Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1"
 ANDROID="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36"
 MODAL="()=>document.getElementById('installModal').classList.contains('show')"
+SAMSUNG=r"""(()=>{ const md=navigator.mediaDevices, real=md.getUserMedia.bind(md), live=new Set(); window.__gumLog=[];
+  md.enumerateDevices=async()=>[{kind:'videoinput',deviceId:'front',label:'camera2 1, facing front',groupId:'a'},{kind:'videoinput',deviceId:'back',label:'camera2 0, facing back',groupId:'b'},{kind:'audioinput',deviceId:'mic',label:'mic',groupId:'c'}];
+  md.getUserMedia=async(c)=>{ const v=c&&c.video; let id=null;
+    if(v){ for(const t of [...live]) if(t.readyState==='live'){ window.__gumLog.push('busy'); throw new DOMException('Could not start video source','NotReadableError'); }
+      const fm=v.facingMode&&(v.facingMode.exact||v.facingMode); const di=v.deviceId&&(v.deviceId.exact||v.deviceId);
+      if(v.facingMode && v.facingMode.exact){ window.__gumLog.push('exact-fail'); throw new DOMException('','OverconstrainedError'); }
+      id= di || (fm==='environment'?'back':'front'); }
+    const s=await real(c); s.getVideoTracks().forEach(t=>{ live.add(t); const g=t.getSettings.bind(t); t.getSettings=()=>Object.assign(g(),{deviceId:id, facingMode:id==='back'?'environment':'user'}); });
+    window.__gumLog.push('ok:'+id); return s; }; })()"""
 try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream","--autoplay-policy=no-user-gesture-required"])
@@ -341,12 +352,13 @@ try:
     r["col_other_side_untouched"]= A.evaluate("()=>window.__gz.contacts().find(x=>!x.into).cl")=="teal"
     B.click(".ct"); B.wait_for_timeout(800)
     # ---------- 5. 1:1 video call: full screen ----------
+    B.evaluate(SAMSUNG)       # her phone behaves like a Samsung: one camera at a time, no exact facing
     A.click("#videoBtn")
     r["B_incoming"]= wait_for(B,"()=>!document.getElementById('callUI').hidden && !document.getElementById('callIncoming').hidden",10000)
     B.evaluate("()=>document.getElementById('callAccept').click()")
     r["video_connected"]= wait_for(A,"()=>{ const s=window.__gz.callState(); return s&&s.live&&s.peers[0]&&s.peers[0].tracks.includes('video') && !document.querySelector('#callStage .peer').classList.contains('audio'); }",15000)
     A.wait_for_timeout(1200)
-    FULL="()=>{ const v=document.querySelector('#callStage .peer video'); const r=v.getBoundingClientRect(); return {w:Math.round(r.width), h:Math.round(r.height), W:innerWidth, H:innerHeight, n1:document.getElementById('callStage').classList.contains('n1'), pos:getComputedStyle(v).position, fit:getComputedStyle(v).objectFit}; }"
+    FULL="()=>{ const v=document.querySelector('#callStage .peer video.mainv'); const r=v.getBoundingClientRect(); return {w:Math.round(r.width), h:Math.round(r.height), W:innerWidth, H:innerHeight, n1:document.getElementById('callStage').classList.contains('n1'), pos:getComputedStyle(v).position, fit:getComputedStyle(v).objectFit}; }"
     fa=A.evaluate(FULL); r["A_fullscreen"]= fa["n1"] and fa["w"]>=fa["W"]-1 and fa["h"]>=fa["H"]-1 and fa["pos"]=="absolute"
     r["A_full_v"]=fa
     wait_for(B,"()=>{ const s=window.__gz.callState(); return s&&s.peers[0]&&s.peers[0].tracks.includes('video'); }",8000); B.wait_for_timeout(800)
@@ -354,13 +366,30 @@ try:
     r["B_full_v"]=fb
     r["local_small"]= A.evaluate("()=>{ const v=document.getElementById('callLocal'); const r=v.getBoundingClientRect(); return !v.hidden && r.width>0 && r.width<innerWidth/3; }")
     cs=A.evaluate("()=>window.__gz.camSettings()"); r["hd_capture"]= bool(cs) and cs.get("width",0)>=1280; r["cam_v"]=cs and {k:cs.get(k) for k in ("width","height","frameRate")}
-    A.mouse.click(500,400); A.wait_for_timeout(350)
-    r["tap_hides_buttons"]= A.evaluate("()=>document.getElementById('callUI').classList.contains('bare') && getComputedStyle(document.getElementById('callCtl')).pointerEvents==='none'")
+    r["buttons_fade_by_themselves"]= wait_for(A,"()=>document.getElementById('callUI').classList.contains('bare') && getComputedStyle(document.getElementById('callCtl')).pointerEvents==='none'",6000)
     A.mouse.click(500,400); A.wait_for_timeout(350)
     r["tap_shows_buttons"]= not A.evaluate("()=>document.getElementById('callUI').classList.contains('bare')")
+    A.mouse.click(500,400); A.wait_for_timeout(350)
+    r["tap_hides_buttons"]= A.evaluate("()=>document.getElementById('callUI').classList.contains('bare')")
+    A.mouse.click(500,400); A.wait_for_timeout(300)
+    r["fs_button_shown"]= A.is_visible("#callFs")
+    A.click("#callFs"); A.wait_for_timeout(500)
+    r["fs_button_enters"]= A.evaluate("()=>!!document.fullscreenElement")
+    # switching camera on a "Samsung": the current camera is released first, then the back one opens
+    c0=B.evaluate("()=>window.__gz.localCam()")
+    B.evaluate("()=>document.getElementById('callFlip').click()"); B.wait_for_timeout(1500)
+    c1=B.evaluate("()=>window.__gz.localCam()"); lg=B.evaluate("()=>window.__gumLog")
+    r["flip_to_back"]= c0["id"]=="front" and c1["id"]=="back" and c1["same"] and c1["live"]=="live" and c1["n"]==1 and c1["mirror"]=="none" and "busy" not in lg
+    B.evaluate("()=>document.getElementById('callFlip').click()"); B.wait_for_timeout(1500)
+    c2=B.evaluate("()=>window.__gz.localCam()"); lg=B.evaluate("()=>window.__gumLog")
+    r["flip_back_to_front"]= c2["id"]=="front" and c2["same"] and c2["mirror"]=="scaleX(-1)" and "busy" not in lg
+    r["flip_v"]=[c0,c1,c2,lg]
+    r["A_still_sees_video"]= A.evaluate("()=>{ const s=window.__gz.callState(); return s.peers[0].tracks.includes('video') && !document.querySelector('#callStage .peer').classList.contains('audio'); }")
+    r["one_tile_in_1to1"]= A.evaluate("()=>window.__gz.tiles('other-device-id')")==1 and A.evaluate("()=>document.getElementById('callStage').classList.contains('n1')")
     A.click("#callEnd")
     r["video_closed"]= wait_for(A,"()=>document.getElementById('callUI').hidden",4000) and wait_for(B,"()=>document.getElementById('callUI').hidden",6000)
     r["no_bare_left"]= not A.evaluate("()=>document.getElementById('callUI').classList.contains('bare')")
+    r["fs_left_after_call"]= A.evaluate("()=>!document.fullscreenElement")
     r["no_missed_after_answer"]= not any(x.get("kind")=="missed" for x in A.evaluate("()=>window.__notify"))
     # ---------- 6. she's offline: her phone rings again and again, then "missed call" ----------
     ctxB.close()

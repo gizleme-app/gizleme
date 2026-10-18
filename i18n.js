@@ -619,7 +619,8 @@ window.GZ_I18N = {
     "Typing indicators": "Indicateur d'écriture",
     "Shows when the other person is typing or recording a voice message — and shows them when you are. Off: neither.": "Montre quand l'autre personne écrit ou enregistre un message vocal — et le lui montre quand c'est toi. Désactivé : ni l'un ni l'autre.",
     "Typing indicators on": "Indicateur d'écriture activé",
-    "Typing indicators off": "Indicateur d'écriture désactivé"
+    "Typing indicators off": "Indicateur d'écriture désactivé",
+    "Full screen": "Plein écran"
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1228,6 +1229,7 @@ window.GZ_I18N = {
     "Typing indicators": "Yazıyor göstergesi",
     "Shows when the other person is typing or recording a voice message — and shows them when you are. Off: neither.": "Karşındaki kişi yazarken ya da sesli mesaj kaydederken gösterir — sen yazarken de ona gösterir. Kapalı: hiçbiri.",
     "Typing indicators on": "Yazıyor göstergesi açık",
-    "Typing indicators off": "Yazıyor göstergesi kapalı"
+    "Typing indicators off": "Yazıyor göstergesi kapalı",
+    "Full screen": "Tam ekran"
   }
 };
