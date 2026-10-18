@@ -233,6 +233,26 @@
   .rx-pick button:active{transform:scale(1.18)}
   .rx-pick .rx-tool{font-size:1.15rem;opacity:.8}
   .rx-pick button[hidden]{display:none}
+  /* the chat's timer in the header: red and crossed out when off, blue with the time when on */
+  .bar .exp-btn{width:34px;height:34px;padding:3px;display:grid;place-items:center;color:#3b82f6;cursor:pointer;flex:none}
+  .bar .exp-btn[hidden]{display:none}
+  .exp-ico{width:26px;height:26px;overflow:visible}
+  .exp-ico .exp-num{font:800 9.5px/1 var(--ui);fill:currentColor;letter-spacing:-.3px}
+  .exp-btn .exp-slash{display:none}
+  .bar .exp-btn.off{color:var(--bad)} .exp-btn.off .exp-slash{display:inline} .exp-btn.off .exp-num{display:none}
+  .exp-menu{position:fixed;z-index:72;min-width:232px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 32px rgba(0,0,0,.3)}
+  .exp-menu[hidden]{display:none}
+  .exp-menu .exp-t{font-size:.76rem;font-weight:700;color:var(--muted);padding:4px 8px 6px}
+  .exp-menu button{display:flex;align-items:center;gap:12px;width:100%;padding:8px;border:0;border-radius:10px;background:transparent;color:var(--fg);font:inherit;font-size:.92rem;text-align:left;cursor:pointer}
+  .exp-menu button:hover,.exp-menu button:focus-visible{background:var(--surface-2)}
+  .exp-menu button.on{background:color-mix(in srgb,#3b82f6 14%,transparent)} .exp-menu button.on::after{content:"✓";margin-left:auto;color:#3b82f6;font-weight:800}
+  .exp-menu .xb{width:30px;height:30px;flex:none;border-radius:50%;border:2px dashed #3b82f6;color:#3b82f6;display:grid;place-items:center;font-weight:800;font-size:.8rem}
+  .exp-menu .xb.off{border:0;color:var(--bad)} .exp-menu .xb.off svg{width:30px;height:30px}
+  .exp-menu .xl{display:flex;flex-direction:column;line-height:1.2} .exp-menu .xl small{color:var(--muted);font-size:.72rem}
+  .exp-menu .exp-note{margin:6px 8px 2px;font-size:.72rem;color:var(--muted);line-height:1.35}
+  /* a kept photo, in the chat */
+  .bubble img.keep{display:block;max-width:min(240px,62vw);max-height:320px;width:auto;height:auto;border-radius:10px;cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  .imgph.gone{font-size:.8rem;opacity:.7;padding:10px;text-align:center}
   .bubble .edm{font-style:italic;opacity:.85;margin-right:2px}
   .reply-bar.editing .rb-q{border-left-color:var(--warn)} .reply-bar.editing .rb-n{color:var(--warn)}
   .logs .bubble{-webkit-touch-callout:none}
@@ -539,7 +559,7 @@
   /* home mode: show the chats placeholder, hide the conversation chrome */
   #app.home .tabs,#app.home .logs,#app.home .wire,#app.home .composer,#app.home #netBar,#app.home .reply-bar{display:none}
   #app.home #home{display:flex}
-  #app.home #peerAvatar,#app.home .meta,#app.home #verifyBtn,#app.home #menuBtn,#app.home #backHome,#app.home #callBtn,#app.home #videoBtn{display:none}
+  #app.home #expBtn,#app.home #peerAvatar,#app.home .meta,#app.home #verifyBtn,#app.home #menuBtn,#app.home #backHome,#app.home #callBtn,#app.home #videoBtn{display:none}
   #app.home #barTitle{display:flex}
   @media (max-width:720px){
     .tabs{display:none!important}   /* on a phone the chats list is the only switcher */
@@ -700,6 +720,9 @@
       <div class="status"><span class="led"></span><span id="statusText">connecting…</span></div>
     </div>
     <span class="chat-brand" id="chatBrand"><img src="/watermark.png" alt=""/><span>Gizleme</span></span>
+    <button class="icon exp-btn off" id="expBtn" type="button" title="Disappearing messages" aria-label="Disappearing messages" aria-haspopup="menu" hidden>
+      <svg class="exp-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-dasharray="3.4 2.1" transform="rotate(-90 12 12)"/><path d="M12 1.2v2.2" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><line class="exp-slash" x1="5.2" y1="18.8" x2="18.8" y2="5.2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><text class="exp-num" id="expNum" x="12" y="15.7" text-anchor="middle"></text></svg>
+    </button>
     <button class="icon" id="callBtn" title="Audio call" aria-label="Audio call" hidden><svg class="ico"><use href="#i-phone"/></svg></button>
     <button class="icon" id="videoBtn" title="Video call" aria-label="Video call" hidden><svg class="ico"><use href="#i-video"/></svg></button>
     <button class="icon" id="verifyBtn" title="Verify who you're talking to" aria-label="Verify identity" hidden><svg class="ico"><use href="#i-shield"/></svg></button>
@@ -753,6 +776,8 @@
     <button class="rx-tool" id="rxReply" type="button" aria-label="Reply" title="Reply">↩</button>
     <button class="rx-tool" id="rxEdit" type="button" aria-label="Edit" title="Edit" hidden>✏️</button>
     <button class="rx-tool" id="rxCopy" type="button" aria-label="Copy" title="Copy" hidden>⧉</button>
+    <button class="rx-tool" id="rxSave" type="button" aria-label="Save" title="Save" hidden>⬇</button>
+    <button class="rx-tool" id="rxFwd" type="button" aria-label="Forward" title="Forward" hidden>↪</button>
     <div class="rx-grid" id="rxGrid" hidden></div>
   </div>
   <div class="composer">
@@ -1021,6 +1046,22 @@
   </div>
 </div>
 
+<div class="exp-menu" id="expMenu" role="menu" aria-label="Disappearing messages" hidden>
+  <div class="exp-t">Disappearing messages</div>
+  <button type="button" role="menuitemradio" data-v="0"><span class="xb off"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-dasharray="3.4 2.1"/><line x1="5.2" y1="18.8" x2="18.8" y2="5.2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span><span class="xl">Off<small>messages and photos stay</small></span></button>
+  <button type="button" role="menuitemradio" data-v="300000"><span class="xb">5</span><span class="xl">5 minutes</span></button>
+  <button type="button" role="menuitemradio" data-v="1800000"><span class="xb">30</span><span class="xl">30 minutes</span></button>
+  <button type="button" role="menuitemradio" data-v="3600000"><span class="xb">60</span><span class="xl">60 minutes</span></button>
+  <button type="button" role="menuitemradio" data-v="86400000"><span class="xb">24</span><span class="xl">24 hours</span></button>
+  <p class="exp-note">For this chat, on both sides. While it runs, photos are view-once.</p>
+</div>
+<div class="modal" id="fwdModal">
+  <div class="card">
+    <div class="logo"><span class="lock" aria-hidden="true">↪</span><div><h1 style="font-size:1.05rem">Forward the photo</h1><p>Pick the chat to send it to.</p></div></div>
+    <div class="merge-list" id="fwdList"></div>
+    <button class="ghost" id="fwdCancel" type="button">Cancel</button>
+  </div>
+</div>
 <div class="col-pick" id="colPick" role="dialog" aria-label="Colour" hidden>
   <div class="col-t" id="colTitle">Colour</div>
   <div class="col-grid" id="colGrid"></div>

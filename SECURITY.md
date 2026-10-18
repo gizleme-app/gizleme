@@ -177,6 +177,14 @@ rate-limit counters.
   inside the message); the ciphertext blob stays on the relay for 14 days, so every member of a group and
   each of your devices can fetch it, and each device keeps its own encrypted copy for replay. A view-once
   photo in a two-person chat is deleted from the relay once it has been viewed.
+- **A chat's timer** is set from its header and applies to both sides: the choice travels as an encrypted
+  `{t:"exp", v}` envelope (quiet, like a reaction; signed in groups) and every device applies the newest one.
+  A photo is view-once while the timer runs; with the timer off it is sent as a kept photo (`once:false`):
+  each device fetches it once and keeps it in its local store, encrypted under the same master key as the
+  history, so it stays after the relay's 14-day sweep. A kept photo can be saved (to the gallery, through the
+  browser's download or the iPhone share sheet — outside Gizleme's encryption from then on) or forwarded,
+  which re-encrypts it under a new key for the other chat. Since either side can turn the timer off, "view
+  once" is a shared setting of the chat, not a promise the sender alone controls.
 - **Web delivery.** Code is delivered at each load; a compromised origin could serve malicious code. The
   CSP, HSTS and the absence of third-party scripts limit, but do not remove, this trust in the host.
 - **Screenshots and the operating system.** No web app can prevent screenshots or protect against a

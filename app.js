@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 30;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 31;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -805,7 +805,7 @@ async function onMsgGroup(R,{payload:p}){
     if(env.t==="gk2"){ await onGk2(R, env, vf, who); return; }
     if(env.t==="call"){ if(vf!=="bad") callSignal(R, env, who).catch(()=>{}); return; }
     onInbound(R, env, who, now, p.mid, false, true);
-    if(env.t!=="react" && env.t!=="edit"){ if(R.code===active) blinkEyes(); messageTone(R); }
+    if(!QUIET_T.has(env.t)){ if(R.code===active) blinkEyes(); messageTone(R); }
   }catch(e){ if(p.mid && R.seen) R.seen.delete(p.mid); addText(R.logEl,"fail",t("⚠ could not decrypt this message"),""); }
 }
 function groupInviteLink(R){ const g=groupsLoad().find(x=>x.rid===R.rid); const o={rid:R.rid,gk:b64(R.gk),name:(g&&g.name)||R.title}; if(g&&g.adm) o.adm=g.adm; if(g&&g.rot) o.rot=1; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); }
@@ -939,7 +939,7 @@ async function fetchMailboxId(R, id, key, ck){
         if(R.group && own && env.t==="hi") continue;
         if(!own) adoptNameFromMessage(R, env.n);
         onInbound(R, env, who, ts, it.mid, own, false);
-        if(!own && env.t!=="react" && env.t!=="edit") delivered++;
+        if(!own && !QUIET_T.has(env.t)) delivered++;
       }catch(e){ if(it.mid) R.seen.delete(it.mid);
         if(it.data && typeof it.data.ep==="number" && Date.now()-ts<48*3600*1000){ if(!hold || ts<hold) hold=ts; } }   // wrong chain on this device for now: keep it for a later pass
     }
@@ -952,9 +952,11 @@ async function fetchMailboxId(R, id, key, ck){
 }
 // One place where every inbound message lands (live, mailbox, background): render if the chat is open,
 // always save, count as unread when not being looked at, and tell the sender it arrived.
+const QUIET_T=new Set(["react","edit","exp"]);   // envelopes that change a chat without being a message: no sound, no unread
 function onInbound(R, env, who, ts, mid, own, animate){
   if(env && env.t==="react"){ onReactEnv(R, env, who, ts, mid, own); return; }
   if(env && env.t==="edit"){ onEditEnv(R, env, who, ts, mid, own); return; }
+  if(env && env.t==="exp"){ onExpEnv(R, env, who, ts, mid, own); return; }
   if(!own) typingClear(R, who);
   if(R.shadow){   // the inbox read it: show it in the open chat of that conversation (or of the chat it was merged into)
     let ck=R.fromContact; if(ck && !R.group){ const tg=mergedTarget(contactFind(ck)); if(tg) ck=tg.ck; }
@@ -967,7 +969,8 @@ function onInboundView(R, V, env, who, ts, mid, own, animate){
   const hk=histKeyOf(R); const open=!!V.logEl;
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
     if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name, env.adm);
-    if(open){ if(env.t==="img") addText(V.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)});
+    if(keptPhoto(env)) keepPhotoSoon(hk, mid, env, ts);
+    if(open){ if(env.t==="img"){ if(keptPhoto(env)) addImageKept(V.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); else addText(V.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)}); }
       else if(env.t==="aud"){ if(validAud(env)) addVoice(V.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
       else if(validLoc(env)) addCard(V.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
       else if(validGinv(env)) addCard(V.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
@@ -975,7 +978,8 @@ function onInboundView(R, V, env, who, ts, mid, own, animate){
     histSave(hk,{dir:"sent",env,ts,mid}); return;
   }
   const tag=R.group?(who||""):""; const vf=R.group?env.vf:undefined;
-  if(env.t==="img"){ if(open) addImageRecvOnce(V.logEl,env,tag,ts,mid,vf); }
+  if(env.t==="img"){ if(keptPhoto(env)){ keepPhotoSoon(hk, mid, env, ts); if(open) addImageKept(V.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
+    else if(open) addImageRecvOnce(V.logEl,env,tag,ts,mid,vf); }
   else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(V.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
   else if(env.t==="loc"){ if(!validLoc(env)) return; if(open) addCard(V.logEl,"recv",locCard(env,false),tag,ts,{mid,vf}); }
   else if(env.t==="ginv"){ if(!validGinv(env)) return; if(open) addCard(V.logEl,"recv",ginvCard(env,who||R.title,"recv"),tag,ts,{mid,vf}); }
@@ -1446,7 +1450,7 @@ async function histLast(room){
     const recs=await new Promise((res,rej)=>{ const out=[]; const idx=db.transaction("msgs").objectStore("msgs").index("room");
       const rq=idx.openCursor(IDBKeyRange.only(room),"prev"); rq.onsuccess=e=>{ const c=e.target.result; if(!c || out.length>=25){ res(out); return; } out.push(c.value); c.continue(); }; rq.onerror=()=>rej(rq.error); });
     const ed={};
-    for(const rec of recs){ const r=JSON.parse(dec.decode(await aesDec(gHistKey,rec.iv,rec.ct))); if(r && r.env && r.env.t==="react") continue;
+    for(const rec of recs){ const r=JSON.parse(dec.decode(await aesDec(gHistKey,rec.iv,rec.ct))); if(r && r.env && (r.env.t==="react" || r.env.t==="exp")) continue;
       if(r && r.env && r.env.t==="edit"){ if(editValid(r.env) && !ed[r.env.m]) ed[r.env.m]=r.env.x; continue; }   // newest first: the first edit seen is the latest
       r.ts=r.ts||rec.ts||0; if(r.mid && ed[r.mid] && r.env && (!r.env.t || r.env.t==="txt")) r.env=Object.assign({},r.env,{body:ed[r.mid]}); return r; }
     return null;
@@ -1532,7 +1536,9 @@ async function uploadImage(file){
   const small = await downscale(file);
   const mime = small.type || "image/jpeg";
   const bytes = new Uint8Array(await small.arrayBuffer());
-  const meta = await uploadBytes(bytes, "photo"); meta.mime = mime; return meta;
+  const meta = await uploadBytes(bytes, "photo"); meta.mime = mime;
+  Object.defineProperty(meta, "_bytes", {value:bytes, enumerable:false});   // kept on this device for a kept photo; never sent
+  return meta;
 }
 // Any media: encrypted on the device under a fresh random key that only ever travels inside the message.
 async function uploadBytes(bytes, what){
@@ -2068,6 +2074,46 @@ function expRoomsMap(){ try{ return JSON.parse(localStorage.getItem(EXP_R)||"{}"
 function expFor(code){ const m=expRoomsMap(); if(code&&Object.prototype.hasOwnProperty.call(m,code)){ const v=m[code]; return v===null?0:(+v||0); } return expGlobal(); }
 function setExpGlobal(ms){ try{ localStorage.setItem(EXP_G,String(ms||0)); }catch(e){} sweepEphemeral(); }
 function setExpRoom(code,val){ const m=expRoomsMap(); if(val==="") delete m[code]; else m[code]=(+val||0); try{ localStorage.setItem(EXP_R,JSON.stringify(m)); }catch(e){} sweepEphemeral(); }
+// The chat's timer, from the header (⏱): one tap opens Off / 5 / 30 / 60 minutes / 24 hours. A choice applies to
+// the chat for everyone in it — it travels as an encrypted {t:"exp", v} envelope (quiet, like a reaction) and each
+// device applies the newest one — so both sides agree on whether photos are view-once or kept (Off: kept).
+const EXP_CHOICES=[0,300000,1800000,3600000,86400000], EXP_TS="gz-exp-ts";
+function expTsMap(){ try{ return JSON.parse(localStorage.getItem(EXP_TS)||"{}")||{}; }catch(e){ return {}; } }
+function expLabel(ms){ return !ms ? t("Off") : ms>=86400000 ? t("24 hours") : t("{n} minutes",{n:Math.round(ms/60000)}); }
+function expBadge(ms){ return !ms ? "" : ms>=86400000 ? "24" : String(Math.round(ms/60000)); }
+function expLine(ms, who){ const l=expLabel(ms);
+  if(!ms) return who ? t("⏱ {name} turned off disappearing messages — messages and photos stay",{name:who}) : t("⏱ You turned off disappearing messages — messages and photos stay");
+  return who ? t("⏱ {name} set messages to disappear after {time}",{name:who,time:l}) : t("⏱ You set messages to disappear after {time}",{time:l}); }
+function applyChatExp(R, ms, ts){ const hk=histKeyOf(R); if(!hk) return false; const m=expTsMap();
+  if((m[hk]||0) > (ts||0)) return false;                              // an older change arriving late
+  m[hk]=ts||Date.now(); try{ localStorage.setItem(EXP_TS, JSON.stringify(m)); }catch(e){}
+  setExpRoom(hk, String(ms)); paintExpBtn(); return true; }
+async function chooseExp(ms){
+  const R=A(); closeExpMenu(); if(!R || !EXP_CHOICES.includes(ms)) return;
+  const hk=histKeyOf(R), now=Date.now(); const had=Object.prototype.hasOwnProperty.call(expRoomsMap(),hk);
+  if(had && expFor(hk)===ms) return;
+  applyChatExp(R, ms, now);
+  if(R.logEl) sysline(R.logEl, expLine(ms, null));
+  if(!R.group && !R.fromContact && !R.paired) return;
+  const env={t:"exp", v:ms, body:"⏱ "+t("Disappearing messages: {time}",{time:expLabel(ms)})}; const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  deliverOut(R, env, mid, null, now, true).catch(()=>{});
+}
+function onExpEnv(R, env, who, ts, mid, own){
+  if(!env || !EXP_CHOICES.includes(env.v)) return;
+  if(R.group && !own && env.vf==="bad") return;
+  histSave(histKeyOf(R),{dir:own?"sent":"recv",env,ts,who,mid,vf:env.vf});
+  if(!applyChatExp(R, env.v, ts)) return;
+  let V=R.logEl ? R : null; if(!V && !R.group && R.fromContact){ const tg=mergedTarget(contactFind(R.fromContact)); const ck=tg?tg.ck:R.fromContact; rooms.forEach(x=>{ if(x.logEl && x.fromContact===ck) V=x; }); }
+  if(V) sysline(V.logEl, expLine(env.v, own ? null : (R.group ? (who||t("Member")) : (R.peerName||dn(R.title)||t("Contact")))));
+}
+function paintExpBtn(){ const b=$("expBtn"); if(!b) return; const R=A(); if(!R){ b.hidden=true; return; }
+  const ms=expFor(histKeyOf(R)); b.hidden=false; b.classList.toggle("off", !ms); $("expNum").textContent=expBadge(ms);
+  b.title=t("Disappearing messages: {time}",{time:expLabel(ms)}); b.setAttribute("aria-label", b.title); }
+function openExpMenu(){ const m=$("expMenu"), b=$("expBtn"), R=A(); if(!R) return; closePicker();
+  const ms=expFor(histKeyOf(R)); m.querySelectorAll("button[data-v]").forEach(x=>x.classList.toggle("on", +x.dataset.v===ms));
+  m.hidden=false; const r=b.getBoundingClientRect(), w=m.offsetWidth; const ap=$("app"), dy=(ap && ap.style.transform) ? ap.getBoundingClientRect().top : 0;
+  m.style.top=Math.round(r.bottom+6-dy)+"px"; m.style.left=Math.round(Math.max(8, Math.min(r.right-w, window.innerWidth-w-8)))+"px"; }
+function closeExpMenu(){ const m=$("expMenu"); if(m) m.hidden=true; }
 function sweepEphemeral(){
   const now=Date.now();
   rooms.forEach(R=>{ const k=histKeyOf(R); const dur=expFor(k); if(!dur||!R.logEl) return; const cut=now-dur;
@@ -2312,6 +2358,7 @@ function openPicker(b){
   const mine=R.reacts && R.reacts.get(b.dataset.mid) && R.reacts.get(b.dataset.mid).get("me");
   pk.querySelectorAll("button[data-e]").forEach(x=>x.classList.toggle("on", !!(mine && mine.e===x.dataset.e)));
   $("rxEdit").hidden=!editableBubble(b); $("rxCopy").hidden=!b.querySelector(":scope > .txt");
+  const ph=!!b.dataset.photo; $("rxSave").hidden=!ph; $("rxFwd").hidden=!ph; if(ph) prefetchPhoto(b);
   g.hidden=true; pk.classList.remove("open-grid"); pk.hidden=false; placePicker(b);
 }
 function placePicker(b){
@@ -2390,10 +2437,11 @@ async function deleteBlob(path){ try{ await mboxFn("delblob",{path}); }catch(e){
 function addImageSent(logEl, meta, localUrl, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble img-wrap sent"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
-  const img=new Image(); img.src=localUrl; img.style.maxWidth="160px"; img.style.cursor="pointer";
+  const img=new Image(); img.src=localUrl; img.style.cursor="pointer";
+  if(opts.once===false){ img.className="keep"; } else img.style.maxWidth="160px";
   img.addEventListener("click",()=>openLightbox(localUrl,{}));
   d.appendChild(img);
-  const o=document.createElement("span"); o.className="once"; o.textContent=t("⦿ view once"); d.appendChild(o);
+  if(opts.once!==false){ const o=document.createElement("span"); o.className="once"; o.textContent=t("⦿ view once"); d.appendChild(o); }
   metaRow(d, ts, opts.st||"pending");
   d.addEventListener("click",e=>{ if(e.target===img) return; if(d.classList.contains("failed") && d._retry) d._retry(); });
   logEl.appendChild(d); scrollEl(logEl);
@@ -2426,9 +2474,11 @@ function renderHistory(R, past){
   const edits=editsFrom(R, past);
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
     if(r.env.t==="edit") continue;                                       // applied to the message it edits (above)
+    if(r.env.t==="exp"){ if(EXP_CHOICES.includes(r.env.v)) sysline(R.logEl, expLine(r.env.v, r.dir==="sent" ? null : (R.group ? (r.who||t("Member")) : (R.peerName||dn(R.title)||t("Contact"))))); continue; }
     if(r.env.t==="react"){ if(typeof r.env.m==="string" && MID_RE.test(r.env.m) && validRx(r.env.e) && !(R.group && r.dir!=="sent" && r.vf==="bad"))
         rxApply(R, r.env.m, r.dir==="sent" ? {k:"me",n:t("You")} : rxActor(R,false,r.env,r.who), r.env.e, r.ts); continue; }
     if(r.env.t==="img"){
+      if(keptPhoto(r.env)){ addImageKept(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
       if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid,r.vf); }
       else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
       continue; }
@@ -2687,7 +2737,7 @@ async function onMsg(R, {payload:p}){
     const now=Date.now();
     if(env.t==="call"){ callSignal(R, env, R.peerName).catch(()=>{}); return; }
     onInbound(R, env, "", now, p.mid, false, true);
-    if(env.t!=="react" && env.t!=="edit"){ if(R.code===active) blinkEyes(); messageTone(R); }
+    if(!QUIET_T.has(env.t)){ if(R.code===active) blinkEyes(); messageTone(R); }
   }catch(e){
     if(p.mid && R.seen) R.seen.delete(p.mid);            // not decrypted here: let the encrypted mailbox copy deliver it
     if(R.fromContact){ setTimeout(()=>fetchMailbox(R),1500); }   // e.g. we're paired with their other device — the mailbox has it
@@ -2767,18 +2817,81 @@ async function convertToGroup(){
   $("ginvTitle").textContent=t("Group “{name}” created",{name:gname}); $("ginvSub").textContent=t("{name} has been invited.",{name:other});
   $("ginvModal").classList.add("show");
 }
+// A photo is view-once while the chat's timer runs; with the timer off it is kept — in the chat, on both sides —
+// and this device keeps its own encrypted copy (the relay sweeps its ciphertext after 14 days).
 async function sendImage(file){
   const R=A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
-  const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid); const now=Date.now();
-  const purl=URL.createObjectURL(file); const el=addImageSent(R.logEl, null, purl, now, {mid, st:"pending"}); setTimeout(()=>{ try{ URL.revokeObjectURL(purl); }catch(e){} }, 60000);
-  try{
-    const meta=await uploadImage(file); meta.t="img"; meta.once=true;
-    await deliverOut(R, meta, mid, el, now);
-  }catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now); toast(t("Photo not sent — ")+(e&&e.message?e.message:t("check your connection"))); }
+  const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid); const now=Date.now(); const once=expFor(histKeyOf(R))>0;
+  const purl=URL.createObjectURL(file); const el=addImageSent(R.logEl, null, purl, now, {mid, st:"pending", once}); if(once) setTimeout(()=>{ try{ URL.revokeObjectURL(purl); }catch(e){} }, 60000);
+  try{ await sendImageMeta(R, file, el, mid, now, once); }
+  catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now,once); toast(t("Photo not sent — ")+(e&&e.message?e.message:t("check your connection"))); }
 }
-async function sendImageRetry(R,file,el,mid,now){ el._retry=null; setMsgState(el,"pending");
-  try{ const meta=await uploadImage(file); meta.t="img"; meta.once=true; await deliverOut(R, meta, mid, el, now); }
-  catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now); } }
+async function sendImageMeta(R, file, el, mid, now, once){
+  const meta=await uploadImage(file); meta.t="img"; meta.once=once;
+  if(!once){ el._meta=meta; el.dataset.mime=meta.mime||"image/jpeg"; el.dataset.photo="1"; await mediaPut(histKeyOf(R), mid, meta._bytes, now); }
+  await deliverOut(R, meta, mid, el, now);
+}
+async function sendImageRetry(R,file,el,mid,now,once){ el._retry=null; setMsgState(el,"pending");
+  try{ await sendImageMeta(R, file, el, mid, now, once!==false); }
+  catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now,once); } }
+// a kept photo: shown in the chat, from this device's copy (fetched once from the relay and kept, encrypted)
+function keptPhoto(env){ return !!(env && env.t==="img" && env.once===false && validImg(env)); }
+async function keptBytes(room, mid, meta, ts){ let b=mid ? await mediaGet(mid) : null; if(b) return b;
+  if(!validImg(meta)) throw new Error("bad"); b=await fetchBytes(meta); if(mid && room) await mediaPut(room, mid, b, ts); return b; }
+function keepPhotoSoon(room, mid, meta, ts){ keptBytes(room, mid, meta, ts).catch(()=>{}); }   // fetched on arrival, even with the chat closed
+function addImageKept(logEl, cls, meta, tag, ts, opts){
+  opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
+  const d=document.createElement("div"); d.className="bubble img-wrap "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
+  d._meta=meta; d.dataset.mime=meta.mime||"image/jpeg";
+  if(tag) d.appendChild(whoEl(tag, opts.vf));
+  const ph=document.createElement("div"); ph.className="imgph"; ph.textContent=t("📷 Photo"); d.appendChild(ph);
+  metaRow(d, ts, cls==="sent" ? (opts.st||"sent") : null);
+  logEl.appendChild(d); scrollEl(logEl);
+  keptBytes(opts.room, opts.mid, meta, ts).then(bytes=>{
+    const url=URL.createObjectURL(new Blob([bytes],{type:meta.mime||"image/jpeg"}));
+    const img=new Image(); img.className="keep"; img.alt=t("Photo"); img.src=url; img.addEventListener("click",()=>openLightbox(url,{}));
+    img.onload=()=>{ if(logEl.scrollHeight-logEl.scrollTop-logEl.clientHeight<480) scrollEl(logEl); };
+    ph.replaceWith(img); d.dataset.photo="1";
+  }).catch(()=>{ ph.textContent=t("📷 This photo is no longer available"); ph.classList.add("gone"); });
+  return d;
+}
+// ---- saving a kept photo, forwarding it ----
+async function photoFileOf(b){ const R=A(); const meta=b._meta; const bytes=await keptBytes(R?histKeyOf(R):"", b.dataset.mid, meta, +b.dataset.ts);
+  const mime=b.dataset.mime||"image/jpeg", ext= mime==="image/png" ? "png" : mime==="image/webp" ? "webp" : "jpg";
+  const d=new Date(+b.dataset.ts||Date.now()), p=n=>String(n).padStart(2,"0");
+  return new File([bytes], "gizleme-"+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+"-"+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+"."+ext, {type:mime}); }
+function prefetchPhoto(b){ if(!b || !b.dataset.photo || b._file) return; b._fileP=photoFileOf(b).then(f=>{ b._file=f; return f; }).catch(()=>null); }
+const IS_IOS=/iphone|ipad|ipod/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints>1);
+// iPhone: the share sheet ("Save Image" puts it in Photos). Elsewhere: a download (on Android it shows in the
+// gallery's Download album).
+async function savePhoto(b){
+  let f=b._file; if(!f){ f=await (b._fileP||photoFileOf(b).catch(()=>null)); if(!f){ toast(t("This photo is no longer available")); return; } }
+  if(IS_IOS && navigator.canShare && navigator.canShare({files:[f]})){ try{ await navigator.share({files:[f]}); }catch(e){} return; }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(f); a.download=f.name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ try{ URL.revokeObjectURL(a.href); }catch(e){} a.remove(); }, 5000); toast(t("Photo saved")); }
+let _fwdFile=null;
+function openForward(b){
+  const R=A(); if(!R || !b) return; _fwdFile=null; prefetchPhoto(b); const fp=b._fileP||Promise.resolve(b._file);
+  fp.then(f=>{ _fwdFile=f; }).catch(()=>{});
+  const here=typingRowId(R), list=$("fwdList"); list.innerHTML="";
+  const items=groupsLoad().filter(g=>!g.left).map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.alias||g.name,cl:g.cl}))
+    .concat(contactsLoad().filter(c=>!c.into && c.name!==INV_PLACEHOLDER).map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,name:c.alias||c.name,cl:c.cl})))
+    .filter(it=>it.id!==here);
+  if(!items.length){ const p=document.createElement("p"); p.className="hint"; p.textContent=t("No other chat to forward to yet."); list.appendChild(p); }
+  items.forEach(it=>{ const row=document.createElement("button"); row.type="button"; row.className="merge-row";
+    const av=document.createElement("span"); av.className="ava"; av.textContent=it.t==="g"?"👥":up((dn(it.name)||"?")[0]); if(AVA_COLORS[it.cl]) av.style.background=AVA_COLORS[it.cl];
+    const tx=document.createElement("span"); tx.className="mr-t"; const nm=document.createElement("b"); nm.textContent=dn(it.name)||(it.t==="g"?t("Group"):t("Contact")); tx.appendChild(nm);
+    row.appendChild(av); row.appendChild(tx); row.addEventListener("click",()=>forwardTo(it)); list.appendChild(row); });
+  $("fwdModal").classList.add("show");
+}
+async function forwardTo(it){
+  $("fwdModal").classList.remove("show");
+  const f=_fwdFile; if(!f){ toast(t("This photo is no longer available")); return; }
+  if(it.t==="g") openGroup(it.rid, it.gk, it.name); else await openContact(it.ck, it.name);
+  const t0=Date.now(); while(Date.now()-t0<6000){ const R=A(); if(R && typingRowId(R)===it.id && R.logEl) break; await new Promise(r=>setTimeout(r,120)); }
+  const R=A(); if(!R || typingRowId(R)!==it.id){ toast(t("Couldn't forward the photo")); return; }
+  await sendImage(f);
+}
 function showWire(R, ctB64){ if(R && R.code!==active) return; try{ $("wireCt").textContent=hex(unb64(ctB64)); }catch(e){} }
 let _blinkT=null;
 function blinkEyes(){ const l=$("logs"); if(!l) return; l.classList.remove("blink"); void l.offsetWidth; l.classList.add("blink"); clearTimeout(_blinkT); _blinkT=setTimeout(()=>l.classList.remove("blink"),2700); }
@@ -2827,7 +2940,7 @@ let _installChecked=false, _showInstallInvite=null;
 function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
-function goHome(){ typingTick(""); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
+function goHome(){ typingTick(""); closeExpMenu(); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 function showAuth(mode){
@@ -2888,12 +3001,13 @@ function ncSet(nc){
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
   if(code!==active) typingTick("");                       // leaving a chat: "stopped typing" there
+  closeExpMenu();
   if(!_reply || _reply.code!==code) cancelReply(); closePicker(); if(rec && code!==active) stopRec(false);
   active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
   { const hk=histKeyOf(R), n=(_meta.unread&&+_meta.unread[hk])||0; markNew(R, n); }
   clearUnread(R);
-  $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar; paintPeerAvatar();
+  $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar; paintPeerAvatar(); paintExpBtn();
   applyStatus(R);
   // Composer is usable whenever there's somewhere to deliver: a live pairing, a group,
   // or a saved contact (message goes to the encrypted mailbox and is delivered when they reconnect).
@@ -3429,7 +3543,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   // (computer). Replies: also a swipe to the right. Taps on a quote jump to the original.
   (function(){
     const logs=$("logs"); let lastTap=null, sw=null;
-    const interactive=el=>!!(el && el.closest && el.closest("button,a,input,textarea,select,.tapview,.vbar,.quote,.reacts,img,video"));
+    const interactive=el=>!!(el && el.closest && (el.closest("button,a,input,textarea,select,.tapview,.vbar,.quote,.reacts,video") || (el.closest("img") && !el.closest("img.keep"))));
     logs.addEventListener("dblclick",e=>{ const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b) || interactive(e.target)) return;
       try{ window.getSelection().removeAllRanges(); }catch(_){} openPicker(b); });
     // a long press (about half a second, finger still) opens the same menu: react, reply, edit, copy
@@ -3460,6 +3574,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       if(x.id==="rxMore"){ const g=$("rxGrid"); g.hidden=!g.hidden; $("rxPick").classList.toggle("open-grid",!g.hidden); const b=(f&&R)?bubbleOf(R,f.m):null; if(b) placePicker(b); return; }
       if(x.id==="rxReply"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) startReply(b); return; }
       if(x.id==="rxEdit"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) startEdit(b); return; }
+      if(x.id==="rxSave"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) savePhoto(b); return; }
+      if(x.id==="rxFwd"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) openForward(b); return; }
       if(x.id==="rxCopy"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); const tx=b && b.querySelector(":scope > .txt");
         if(tx){ (navigator.clipboard ? navigator.clipboard.writeText(tx.textContent) : Promise.reject()).then(()=>toast(t("Copied"))).catch(()=>{}); } return; }
       if(x.dataset.e && f && R && R.code===f.code){ closePicker(); sendReaction(R, f.m, x.dataset.e); } });
@@ -3623,7 +3739,14 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     _hiddenAt=0;
   });
   $("expGlobal").addEventListener("change",e=>{ setExpGlobal(+e.target.value||0); toast(t("Default updated")); });
-  $("expRoom").addEventListener("change",e=>{ const R=A(); if(R){ setExpRoom(histKeyOf(R),e.target.value); toast(t("Updated for this chat")); } });
+  $("expRoom").addEventListener("change",e=>{ const R=A(); if(!R) return; const v=e.target.value;
+    if(v===""){ setExpRoom(histKeyOf(R),""); paintExpBtn(); } else chooseExp(+v);   // a chosen time applies to the chat for both sides
+    toast(t("Updated for this chat")); });
+  $("expGlobal").addEventListener("change",()=>paintExpBtn());
+  $("expBtn").addEventListener("click",e=>{ e.stopPropagation(); if($("expMenu").hidden) openExpMenu(); else closeExpMenu(); });
+  $("expMenu").addEventListener("click",e=>{ const b=e.target.closest && e.target.closest("button[data-v]"); if(b) chooseExp(+b.dataset.v); });
+  document.addEventListener("pointerdown",e=>{ const m=$("expMenu"); if(m && !m.hidden && !m.contains(e.target) && !$("expBtn").contains(e.target)) closeExpMenu(); },true);
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape") closeExpMenu(); });
   setInterval(sweepEphemeral, 15000);
   setInterval(()=>{ if(gHistKey) advanceChains().catch(()=>{}); }, 6*3600*1000);   // weekly chains: check a few times a day
   // poll the encrypted mailbox for every open chat so offline-sent messages arrive (and count as unread) even without a push
@@ -3718,6 +3841,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     if(deferredPrompt){ deferredPrompt.prompt(); try{ await deferredPrompt.userChoice; }catch(e){} deferredPrompt=null; showInstall(false); }
   });
   $("installLater").addEventListener("click",closeInstallModal);
+  $("fwdCancel").addEventListener("click",()=>$("fwdModal").classList.remove("show"));
+  $("fwdModal").addEventListener("click",e=>{ if(e.target.id==="fwdModal") $("fwdModal").classList.remove("show"); });
   $("installNever").addEventListener("click",()=>{ const o=instState(); o.never=true; instSave(o); closeInstallModal(); });
   $("installModal").addEventListener("click",e=>{ if(e.target.id==="installModal") closeInstallModal(); });
 

@@ -620,7 +620,25 @@ window.GZ_I18N = {
     "Shows when the other person is typing or recording a voice message — and shows them when you are. Off: neither.": "Montre quand l'autre personne écrit ou enregistre un message vocal — et le lui montre quand c'est toi. Désactivé : ni l'un ni l'autre.",
     "Typing indicators on": "Indicateur d'écriture activé",
     "Typing indicators off": "Indicateur d'écriture désactivé",
-    "Full screen": "Plein écran"
+    "Full screen": "Plein écran",
+    "{n} minutes": "{n} minutes",
+    "⏱ {name} turned off disappearing messages — messages and photos stay": "⏱ {name} a désactivé les messages éphémères — messages et photos restent",
+    "⏱ You turned off disappearing messages — messages and photos stay": "⏱ Tu as désactivé les messages éphémères — messages et photos restent",
+    "⏱ {name} set messages to disappear after {time}": "⏱ {name} a réglé les messages pour disparaître après {time}",
+    "⏱ You set messages to disappear after {time}": "⏱ Tu as réglé les messages pour disparaître après {time}",
+    "Disappearing messages: {time}": "Messages éphémères : {time}",
+    "messages and photos stay": "messages et photos restent",
+    "60 minutes": "60 minutes",
+    "For this chat, on both sides. While it runs, photos are view-once.": "Pour cette discussion, des deux côtés. Tant qu'il est actif, les photos ne se voient qu'une fois.",
+    "Save": "Enregistrer",
+    "Forward": "Transférer",
+    "Photo": "Photo",
+    "📷 This photo is no longer available": "📷 Cette photo n'est plus disponible",
+    "Photo saved": "Photo enregistrée",
+    "Forward the photo": "Transférer la photo",
+    "Pick the chat to send it to.": "Choisis la discussion où l'envoyer.",
+    "No other chat to forward to yet.": "Pas encore d'autre discussion où la transférer.",
+    "Couldn't forward the photo": "Impossible de transférer la photo"
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1230,6 +1248,24 @@ window.GZ_I18N = {
     "Shows when the other person is typing or recording a voice message — and shows them when you are. Off: neither.": "Karşındaki kişi yazarken ya da sesli mesaj kaydederken gösterir — sen yazarken de ona gösterir. Kapalı: hiçbiri.",
     "Typing indicators on": "Yazıyor göstergesi açık",
     "Typing indicators off": "Yazıyor göstergesi kapalı",
-    "Full screen": "Tam ekran"
+    "Full screen": "Tam ekran",
+    "{n} minutes": "{n} dakika",
+    "⏱ {name} turned off disappearing messages — messages and photos stay": "⏱ {name} kaybolan mesajları kapattı — mesajlar ve fotoğraflar kalır",
+    "⏱ You turned off disappearing messages — messages and photos stay": "⏱ Kaybolan mesajları kapattın — mesajlar ve fotoğraflar kalır",
+    "⏱ {name} set messages to disappear after {time}": "⏱ {name} mesajların {time} sonra kaybolmasını ayarladı",
+    "⏱ You set messages to disappear after {time}": "⏱ Mesajların {time} sonra kaybolmasını ayarladın",
+    "Disappearing messages: {time}": "Kaybolan mesajlar: {time}",
+    "messages and photos stay": "mesajlar ve fotoğraflar kalır",
+    "60 minutes": "60 dakika",
+    "For this chat, on both sides. While it runs, photos are view-once.": "Bu sohbet için, iki tarafta da. Açıkken fotoğraflar bir kez görüntülenir.",
+    "Save": "Kaydet",
+    "Forward": "İlet",
+    "Photo": "Fotoğraf",
+    "📷 This photo is no longer available": "📷 Bu fotoğraf artık mevcut değil",
+    "Photo saved": "Fotoğraf kaydedildi",
+    "Forward the photo": "Fotoğrafı ilet",
+    "Pick the chat to send it to.": "Göndermek istediğin sohbeti seç.",
+    "No other chat to forward to yet.": "Henüz iletebileceğin başka sohbet yok.",
+    "Couldn't forward the photo": "Fotoğraf iletilemedi"
   }
 };

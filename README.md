@@ -28,7 +28,11 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   so a later compromise cannot read earlier weeks (see SECURITY.md); real inbox with unread counts and
   previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
-- View-once photos, disappearing messages (24 h by default), auto-lock, privacy screen, hidden previews.
+- Disappearing messages (24 h by default), set per chat from the timer in its header — red and crossed out
+  when off, blue with 5 / 30 / 60 (minutes) or 24 (hours) when on — and applied to both sides. While the
+  timer runs, photos are view-once; with it off they stay in the chat on both phones, and a long press on one
+  offers Save (to the gallery / Photos) and Forward (to another chat). Auto-lock, privacy screen, hidden
+  previews.
 - A long press on a message (right click or double click on a computer) opens its menu: react, reply, edit,
   copy. Reactions: one per person, tap it again to take it back. Replies: also a swipe to the right; the
   quote jumps to the original. Your own text messages can be edited for 24 hours ("edited" shows on the
