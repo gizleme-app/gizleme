@@ -162,7 +162,7 @@ try:
         ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US"); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     def open_link(P, link):
         P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
@@ -181,9 +181,9 @@ try:
     send(A,"new1"); r["new_exchanged"]= wait_for(B,"()=>("+RECV+")('new1')",8000)
     r["two_rows"]= A.evaluate("()=>document.querySelectorAll('.ct').length")==2
     # merge from the new chat's menu
-    A.click("#menuBtn"); A.wait_for_timeout(150)
-    r["menu_merge"]= A.is_visible("#mi-merge")
-    A.click("#mi-merge"); A.wait_for_timeout(300)
+    A.click("#peerMeta"); A.wait_for_timeout(250)     # v37: in Chat info
+    r["menu_merge"]= A.is_visible("#ciMerge")
+    A.click("#ciMerge"); A.wait_for_timeout(300)
     r["picker_one_row"]= A.is_visible("#mergeModal") and A.evaluate("()=>document.querySelectorAll('#mergeList .merge-row').length")==1
     A.click("#mergeList .merge-row"); A.wait_for_timeout(1500)
     r["toast"]= "merged" in A.eval_on_selector("#toast","e=>e.textContent")
@@ -200,7 +200,7 @@ try:
     A.evaluate("()=>window.__gz.inbox()")
     r["old_key_lands_here"]= wait_for(A,"()=>("+RECV+")('still old')",15000)
     # lock / unlock: one chat, everything in it
-    A.evaluate("()=>document.querySelector('#barMenu [data-act=lock]').click()"); A.wait_for_timeout(800)
+    A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800)
     A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
     r["after_unlock_one_row"]= A.evaluate("()=>document.querySelectorAll('.ct').length")==1
     A.click(".ct"); A.wait_for_timeout(1500)

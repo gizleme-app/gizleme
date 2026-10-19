@@ -134,7 +134,7 @@ try:
         ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         p.evaluate("([rid,gk])=>localStorage.setItem('gz-groups',JSON.stringify([{rid,gk,name:'Les potes',ts:Date.now()}]))",[RID,GK])
         p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(300); unlock(p)
         p.evaluate("()=>{ const rows=[...document.querySelectorAll('.ct')]; rows.find(x=>x.querySelector('.cn').textContent.trim()==='Les potes').click(); }"); p.wait_for_timeout(800)
@@ -188,7 +188,7 @@ try:
     v=B.evaluate("()=>window.__vault.contacts"); r["ident_inVault"]= bool(v)   # encrypted blob exists (content is checked by the next device below)
     # a second device of florian restores the same identity from the vault
     ctxB2=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); B2=ctxB2.new_page(); B2.goto(f"http://127.0.0.1:{port}/?r=9"); B2.wait_for_timeout(300)
-    B2.fill("#userInput","flo2"); B2.fill("#pwInput","password123"); B2.fill("#pw2Input","password123"); B2.click("#joinBtn"); B2.wait_for_timeout(2500)
+    B2.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); B2.fill("#userInput","flo2"); B2.fill("#pwInput","password123"); B2.fill("#pw2Input","password123"); B2.click("#joinBtn"); B2.wait_for_timeout(2500)
     # the vault merge converges every device on the oldest identity: an older remote replaces ours, a newer one does not
     newer=B2.evaluate("async()=>{ const kp=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']); const b=x=>btoa(String.fromCharCode(...new Uint8Array(x))); return {pk:b(await crypto.subtle.exportKey('raw',kp.publicKey)), sk:b(await crypto.subtle.exportKey('pkcs8',kp.privateKey)), ts:Date.now()+100000}; }")
     older=dict(newer); older["ts"]=1

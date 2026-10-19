@@ -56,7 +56,7 @@ with sync_playwright() as pw:
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Florian',ck:ck,ts:Date.now()}]))",[CK])
-    p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
     p.click(".ct"); p.wait_for_timeout(700)
     # header: logo right beside the name
     r["nameStandsAlone"]= p.evaluate("()=>{ const n=document.getElementById('peerName'); return !n.nextElementSibling && !document.querySelector('.peer-logo') && getComputedStyle(document.getElementById('chatBrand')).display==='none'; }")   # v36: no logo or brand in a chat's header
@@ -65,8 +65,9 @@ with sync_playwright() as pw:
     r["offline_short"]= p.eval_on_selector("#statusText","e=>e.textContent")
     r["offline_fullKept"]= "delivered when they reconnect" in p.eval_on_selector("#peerMeta","e=>e.title")
     r["offline_dotRed"]= p.evaluate("()=>{ const c=getComputedStyle(document.querySelector('#bar .led')).backgroundColor; const bad=getComputedStyle(document.documentElement).getPropertyValue('--bad').trim(); const d=document.createElement('div'); d.style.color=bad; document.body.appendChild(d); const want=getComputedStyle(d).color; d.remove(); return c===want; }")
-    p.click("#peerMeta"); p.wait_for_timeout(250)
-    r["tap_showsFull"]= "delivered when they reconnect" in p.eval_on_selector("#toast","e=>e.textContent") and p.eval_on_selector("#toast","e=>e.classList.contains('show')")
+    p.click("#peerMeta"); p.wait_for_timeout(250)      # v37: the name opens Chat info, which shows the full status
+    r["tap_showsFull"]= "delivered when they reconnect" in p.eval_on_selector("#ciStatus","e=>e.textContent") and p.is_visible("#infoModal")
+    p.click("#ciBack"); p.wait_for_timeout(150)
     # a tap anywhere unlocked audio → the connection sound can play when Florian comes online
     p.evaluate("()=>{ window.__beeps.length=0; }")
     pub=p.evaluate("()=>window.__pub()"); tag=p.evaluate("([ck,pub])=>window.__tag(ck,pub)",[CK,pub])
@@ -84,7 +85,7 @@ with sync_playwright() as pw:
     r["back_online"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-online')")
     r["connLineStillOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('End-to-end encrypted with')).length")==1
     # French
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.select_option("#langSel","fr"); p.wait_for_timeout(500)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); p.select_option("#langSel","fr"); p.wait_for_timeout(500)
     p.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
     p.evaluate("()=>window.__sync({})"); p.wait_for_timeout(400)
     r["fr_offline"]= p.eval_on_selector("#statusText","e=>e.textContent")

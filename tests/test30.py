@@ -69,11 +69,11 @@ with sync_playwright() as pw:
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Florian',ck:ck,ts:Date.now()}]))",[CK])
-    p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
     p.click(".ct"); p.wait_for_timeout(700)
     # --- menu entries ---
     p.click("#menuBtn"); p.wait_for_timeout(150)
-    r["menu_loc_togroup"]= p.is_visible("#mi-loc") and p.is_visible("#mi-togroup")
+    r["menu_loc_togroup"]= p.is_visible("#mi-loc") and p.is_visible("#mi-info") and not p.is_visible("#mi-togroup")   # v37: "turn into a group" lives in Chat info
     # --- share my location ---
     p.evaluate("()=>{ window.__puts.length=0; }")
     p.click("#mi-loc"); p.wait_for_timeout(1500)
@@ -105,7 +105,8 @@ with sync_playwright() as pw:
     r["ginv_noRename"]= p.evaluate("()=>window.__gz.groups().map(g=>g.name)")==["Les potes"]
     # --- turn the 1:1 chat into a group ---
     p.evaluate("()=>{ window.__puts.length=0; }")
-    p.click("#menuBtn"); p.wait_for_timeout(150); p.click("#mi-togroup"); p.wait_for_timeout(2000)
+    p.click("#peerMeta"); p.wait_for_timeout(250); r["info_togroup"]= p.is_visible("#ciToGroup") and p.is_visible("#ciLoc")
+    p.click("#ciToGroup"); p.wait_for_timeout(2000)
     r["togroup_prompted"]= any(d[0]=="prompt" and d[1]=="oguz & Florian" for d in dlg)
     r["togroup_modal"]= p.evaluate("()=>document.getElementById('ginvModal').classList.contains('show')") and "oguz & Florian" in p.eval_on_selector("#ginvTitle","e=>e.textContent") and "Florian has been invited" in p.eval_on_selector("#ginvSub","e=>e.textContent")
     r["togroup_groupCreated"]= p.evaluate("()=>window.__gz.groups().map(g=>g.name)")==["Les potes","oguz & Florian"]
@@ -122,8 +123,10 @@ with sync_playwright() as pw:
     # in a group chat: location available, "turn into a group" not offered
     p.evaluate("()=>{ const rows=[...document.querySelectorAll('.ct')]; rows.find(x=>x.textContent.includes('Les potes')).click(); }"); p.wait_for_timeout(700)
     p.click("#menuBtn"); p.wait_for_timeout(150)
-    r["group_menu"]= p.is_visible("#mi-loc") and not p.is_visible("#mi-togroup")
-    p.keyboard.press("Escape")
+    r["group_menu"]= p.is_visible("#mi-loc") and p.is_visible("#mi-invite")
+    p.keyboard.press("Escape"); p.click("#peerMeta"); p.wait_for_timeout(250)
+    r["group_info"]= p.is_visible("#ciLoc") and p.is_visible("#ciMembers") and not p.is_visible("#ciToGroup") and p.eval_on_selector("#ciRemove .il","e=>e.textContent")=="Leave group"
+    p.click("#ciBack"); p.wait_for_timeout(150)
     # history survives lock/unlock (cards re-rendered)
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
     p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.evaluate(FLO); p.wait_for_timeout(900)

@@ -60,7 +60,7 @@ with sync_playwright() as pw:
     r["join_bodyScrollable"]= not p.evaluate("()=>document.body.classList.contains('in-app')")
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Oz77',ck:ck,ts:Date.now()}]))",[CK])
-    p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(3200)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(3200)
     p.evaluate("()=>document.getElementById('installModal').classList.remove('show')")   # the iOS 'add to Home Screen' invite
     r["app_bodyFixed"]= p.evaluate("()=>document.body.classList.contains('in-app') && getComputedStyle(document.body).position==='fixed'")
     r["app_fillsViewport"]= p.evaluate("()=>Math.abs(document.getElementById('app').getBoundingClientRect().height-window.innerHeight)<2")
@@ -101,7 +101,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>{ const ta=document.getElementById('msgInput'); ta.value=''; ta.dispatchEvent(new Event('input',{bubbles:true})); }")
     r["kb_closed_restored"]= p.evaluate("()=>document.getElementById('app').style.transform==='' && !document.body.classList.contains('kb') && document.getElementById('app').style.height===window.innerHeight+'px'")
     # tone chips: a tap selects, previews (audio unlocked in the gesture), persists; iOS hint shown
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=notif]').click()"); p.wait_for_timeout(100)
     r["chips"]= p.eval_on_selector_all("#toneSel .tone","els=>els.map(e=>e.dataset.tone)")
     r["hintOnIOS"]= p.is_visible("#toneHint")
     p.evaluate("()=>{ window.__beeps.length=0; }"); p.click("#toneSel .tone[data-tone=chime]"); p.wait_for_timeout(400)
@@ -111,7 +111,7 @@ with sync_playwright() as pw:
     p.wait_for_timeout(1500); r["session_backToAuto"]= p.evaluate("()=>navigator.audioSession.type")=="auto"
     r["onlyOneChecked"]= p.eval_on_selector_all("#toneSel .tone[aria-checked=true]","els=>els.length")==1
     # log out: the body scrolls again
-    p.click("#logoutBtn"); p.wait_for_timeout(1200)
+    p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.click("#logoutBtn"); p.wait_for_timeout(1200)
     r["logout_bodyFree"]= p.evaluate("()=>!document.body.classList.contains('in-app') && document.getElementById('app').style.height===''")
     r["errors"]= errs[:3]
     print("RESULTS")

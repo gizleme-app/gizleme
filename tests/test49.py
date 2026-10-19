@@ -174,7 +174,7 @@ try:
         ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     def open_link(P, link):
         P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
@@ -205,10 +205,10 @@ try:
     r["no_view_once_left"]= B.evaluate("()=>document.querySelectorAll('"+OPEN+" .tapview').length")==0
     with RLOCK: nb=len(BLOBS); BLOBS.clear()      # the relay sweeps it: the phone still has its own copy
     r["relay_had_blob"]= nb==1
-    B.evaluate("()=>document.querySelector('#barMenu [data-act=lock]').click()"); B.wait_for_timeout(800)
+    B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(800)
     B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(2000)
     r["kept_after_relock_without_relay"]= wait_for(B,"()=>{ const i=document.querySelector('"+OPEN+" .bubble.recv img.keep'); return !!(i && i.naturalWidth>0); }",6000)
-    A.evaluate("()=>document.querySelector('#barMenu [data-act=lock]').click()"); A.wait_for_timeout(800)
+    A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800)
     A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500); A.click(".ct"); A.wait_for_timeout(2000)
     r["sender_keeps_too"]= wait_for(A,"()=>{ const i=document.querySelector('"+OPEN+" .bubble.sent img.keep'); return !!(i && i.naturalWidth>0); }",6000)
     r["timer_kept_after_relock"]= A.evaluate(EXPST)["off"] and B.evaluate(EXPST)["off"]

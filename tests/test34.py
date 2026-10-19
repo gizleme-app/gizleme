@@ -153,7 +153,7 @@ try:
     ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); A=ctx.new_page(); errs=[]
     A.on("pageerror",lambda e:errs.append(str(e))); A.on("dialog",lambda d:d.accept())
     A.goto(f"http://127.0.0.1:{port}/"); A.wait_for_timeout(300)
-    A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
     # the first two joins fail (cold relay): the app must not stay on "reconnecting…"
     A.evaluate("()=>{ window.__failJoins=2; }")
     A.click("#sbNew"); A.wait_for_timeout(300); A.click("#joinBtn"); A.wait_for_timeout(600)

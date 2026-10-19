@@ -172,7 +172,7 @@ try:
         ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     def open_link(P, link):
         P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
@@ -216,7 +216,7 @@ try:
     tapOpt(B,"poll",0)      # changes her mind: single choice, the newest vote counts
     r["poll_change_vote"]= wait_for(A,"()=>{ const p=("+POLL+")(); return p.o[0][1]===2 && p.o[1][1]===0 && p.o[0][2]; }",8000)
     r["poll_no_unread"]= A.evaluate("()=>window.__gz.unreadTotal()")==0
-    B.evaluate("()=>document.querySelector('#barMenu [data-act=lock]').click()"); B.wait_for_timeout(800)
+    B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(800)
     B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(2000)
     p=B.evaluate(POLL); r["poll_after_relock"]= bool(p) and p["o"][0]==["Pizza",2,True] and p["o"][1]==["Sushi",0,False]
     r["poll_v"]=p

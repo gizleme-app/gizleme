@@ -135,7 +135,7 @@ try:
         ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     def join_link(p, link):
         p.goto(f"http://127.0.0.1:{port}/?r={os.urandom(2).hex()}"+link[link.index("#"):]); p.wait_for_timeout(400); unlock(p); p.wait_for_timeout(1500)
@@ -152,9 +152,9 @@ try:
     r["hi_registersKeys"]= wait_for(A,"()=>{ const g=window.__gz.group(); const m=g.mem||{}; return Object.values(m).filter(x=>x.ek).length>=2; }",8000)
     idB=B.evaluate("()=>window.__gz.ident()"); idC=C.evaluate("()=>window.__gz.ident()")
     # members dialog: creator sees Remove buttons, a member does not
-    A.click("#menuBtn"); A.wait_for_timeout(200); A.click("#mi-members"); A.wait_for_timeout(800)
+    A.click("#peerMeta"); A.wait_for_timeout(250); A.click("#ciMembers"); A.wait_for_timeout(800)
     r["dialog_creator"]= A.evaluate("()=>document.getElementById('memModal').classList.contains('show') && document.querySelectorAll('#memList .mem-row').length===3 && document.querySelectorAll('#memList .mx').length===2 && !document.getElementById('memRenew').hidden")
-    B.click("#menuBtn"); B.wait_for_timeout(200); B.click("#mi-members"); B.wait_for_timeout(800)
+    B.click("#peerMeta"); B.wait_for_timeout(250); B.click("#ciMembers"); B.wait_for_timeout(800)
     r["dialog_member"]= B.evaluate("()=>document.querySelectorAll('#memList .mem-row').length===3 && document.querySelectorAll('#memList .mx').length===0 && document.getElementById('memRenew').hidden")
     B.click("#memClose")
     # a member cannot rotate; a forged key change is ignored and called out
@@ -190,7 +190,7 @@ try:
     r["E_reads"]= wait_for(E,"()=>[...document.querySelectorAll('.bubble.recv .txt')].some(e=>e.textContent==='bienvenue emma')",8000)
     # ---- B offline during a renewal: picks the new key up from the mailbox on return ----
     B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(600)
-    A.click("#menuBtn"); A.wait_for_timeout(200); A.click("#mi-members"); A.wait_for_timeout(600); A.click("#memRenew"); A.wait_for_timeout(2500); A.click("#memClose")
+    A.click("#peerMeta"); A.wait_for_timeout(250); A.click("#ciMembers"); A.wait_for_timeout(600); A.click("#memRenew"); A.wait_for_timeout(2500); A.click("#memClose")
     gA2=A.evaluate("()=>window.__gz.group()"); r["renew_rot2"]= gA2.get("rot")==2 and gA2["gk"]!=gA["gk"]
     A.fill("#msgInput","après renouvellement"); A.press("#msgInput","Enter"); A.wait_for_timeout(1000)
     unlock(B); B.evaluate("()=>{ const rows=[...document.querySelectorAll('.ct')]; rows.find(x=>x.querySelector('.cn').textContent.trim()==='Les potes').click(); }"); B.wait_for_timeout(3000)

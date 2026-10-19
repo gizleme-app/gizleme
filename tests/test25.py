@@ -66,7 +66,7 @@ with sync_playwright() as pw:
     # 2) a 14 MB photo and a 5.7 MB PNG are re-encoded under the relay cap; a small jpeg passes untouched
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Oz77',ck:ck,ts:Date.now()}]))",[CK])
-    p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
     p.click(".ct"); p.wait_for_timeout(500)
     for name,f in [("big",TMP+"img/big.jpg"),("midpng",TMP+"img/mid.png"),("small",TMP+"img/small.jpg")]:
         before=p.evaluate("()=>window.__blobs.length")

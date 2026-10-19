@@ -211,7 +211,7 @@ try:
         p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     def open_link(P, link):
         P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
@@ -315,7 +315,7 @@ try:
     r["group_rules"]= A.evaluate("([p])=>window.__gz.editsFrom(true,p)",[past])==[[M("a"),"good"]]
     r["onetoone_rules"]= A.evaluate("([p])=>window.__gz.editsFrom(false,p)",[past])==[[M("a"),"good"]]
     # ---------- 4. history: survives a lock / unlock ----------
-    A.evaluate("()=>document.querySelector('#barMenu [data-act=lock]').click()"); A.wait_for_timeout(800)
+    A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800)
     A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
     A.click(".ct"); A.wait_for_timeout(1500)
     tx=A.evaluate(TEXTS); a2=A.evaluate(BUB,[SENTS])

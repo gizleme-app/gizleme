@@ -57,12 +57,12 @@ with sync_playwright() as pw:
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Oz77',ck:ck,ts:Date.now()}]))",[CK])
-    p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
     p.click(".ct"); p.wait_for_timeout(600)
     r["before_header"]= p.eval_on_selector("#peerName","e=>e.textContent")
     # ⋮ → Rename for me → "Baba"
-    p.click("#menuBtn"); p.wait_for_timeout(150); r["menuHasRename"]= p.is_visible("#mi-rename")
-    p.click("#mi-rename"); p.wait_for_timeout(400)
+    p.click("#peerMeta"); p.wait_for_timeout(200); r["menuHasRename"]= p.is_visible("#ciRename")   # v37: in Chat info (tap the name)
+    p.click("#ciRename"); p.wait_for_timeout(400); r["info_shows_nick"]= p.eval_on_selector("#ciName","e=>e.textContent")=="Baba"; p.click("#ciBack"); p.wait_for_timeout(150)
     r["header_nick"]= p.eval_on_selector("#peerName","e=>e.textContent")
     r["list_nick"]= p.eval_on_selector(".ct .cn","e=>e.textContent.trim()")
     r["list_avatar"]= p.eval_on_selector(".ct .ava","e=>e.textContent")
@@ -79,10 +79,10 @@ with sync_playwright() as pw:
     m2=p.evaluate("([ck])=>window.__gz.merge({contacts:[{name:'Oz77',ck:ck,ts:Date.now(),alias:'Old',ats:1}],groups:[]})",[CK])
     r["merge_olderIgnored"]= m2["contacts"][0].get("alias")=="Baba"
     # empty name restores his own name
-    nick[0]=""; p.click("#menuBtn"); p.wait_for_timeout(150); p.click("#mi-rename"); p.wait_for_timeout(400)
+    nick[0]=""; p.click("#peerMeta"); p.wait_for_timeout(200); p.click("#ciRename"); p.wait_for_timeout(400); p.click("#ciBack"); p.wait_for_timeout(150)
     r["cleared_header"]= p.eval_on_selector("#peerName","e=>e.textContent"); r["cleared_record"]= "alias" not in p.evaluate("()=>window.__gz.contacts()[0]")
     # message tones: select → persisted + previewed; receive uses it
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=notif]').click()"); p.wait_for_timeout(100)
     r["toneOptions"]= p.eval_on_selector_all("#toneSel .tone","els=>els.map(e=>e.dataset.tone)")
     p.evaluate("()=>{ window.__beeps.length=0; }"); p.click("#toneSel .tone[data-tone=chime]"); p.wait_for_timeout(400)
     r["tonePersisted"]= p.evaluate("()=>localStorage.getItem('gz-tone')")

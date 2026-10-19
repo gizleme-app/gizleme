@@ -170,7 +170,7 @@ rate-limit counters.
   `{t:"typ", s}`, never left in the mailbox: in a two-person chat under the contact's mailbox key and on the
   same relay event as delivery receipts, in a group under the group key. The relay can neither read them nor
   tell them from receipts, but it does see small encrypted events every few seconds while someone types —
-  timing metadata that Settings → Typing indicators (off: neither sent nor shown) removes. In a group the
+  timing metadata that Settings → Privacy → Typing indicators (off: neither sent nor shown) removes. In a group the
   name shown comes from the signal itself, which only members can produce; it is not signed.
 - **View-once and disappearing messages are best effort.** They are enforced by the recipient's device;
   nothing stops a screenshot or a modified client. Voice messages are encrypted like a photo (a random key

@@ -173,7 +173,7 @@ try:
         ctx=b.new_context(viewport={"width":w,"height":h},locale="en-US",color_scheme=scheme); ctx.add_init_script(NOINST); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     errsA=[]; errsB=[]
     ctxA,A=boot("oguz",errsA)
@@ -200,7 +200,7 @@ try:
     st=A.evaluate("()=>{ const e=document.querySelector('"+OPEN+" .sys'), cs=getComputedStyle(e); return {f:cs.fontFamily, bg:cs.backgroundColor, rad:cs.borderTopLeftRadius}; }")
     r["sys_pill_ui_font"]= "IBM Plex Sans" in st["f"] and "mono" not in st["f"].lower() and st["bg"] not in ("rgba(0, 0, 0, 0)","transparent") and st["rad"]=="12px"
     # ---- 3. the chat header: name, status, no brand / shield / logo ----
-    h3=A.evaluate("()=>({brand:getComputedStyle(document.getElementById('chatBrand')).display, shield:getComputedStyle(document.getElementById('verifyBtn')).display, logo:!!document.querySelector('.peer-logo'), sf:getComputedStyle(document.querySelector('.bar .status')).fontFamily, verifyInMenu:!!document.getElementById('mi-verify')})")
+    h3=A.evaluate("()=>({brand:getComputedStyle(document.getElementById('chatBrand')).display, shield:getComputedStyle(document.getElementById('verifyBtn')).display, logo:!!document.querySelector('.peer-logo'), sf:getComputedStyle(document.querySelector('.bar .status')).fontFamily, verifyInMenu:!!document.getElementById('ciVerify')})")
     r["header_calm"]= h3["brand"]=="none" and h3["shield"]=="none" and not h3["logo"] and "IBM Plex Sans" in h3["sf"] and h3["verifyInMenu"]
     # ---- 11a. bubbles from the same side are grouped ----
     r["grouped"]= A.evaluate("()=>{ const l=[...document.querySelectorAll('"+OPEN+" .bubble.sent')]; const cs=getComputedStyle(l[l.length-1]); return cs.marginTop==='-5px' && cs.borderTopRightRadius==='6px'; }")

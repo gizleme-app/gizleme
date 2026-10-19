@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 36;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 37;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -531,6 +531,77 @@ function openColorPick(row){
   pk.style.top=Math.round(top)+"px"; pk.style.left=Math.round(left)+"px";
 }
 function closeColorPick(){ const pk=$("colPick"); if(pk) pk.hidden=true; _colFor=null; }
+// ---------- Chat info: everything about one chat in one place, from a tap on its name (v37) ----------
+function infoId(R){ return !R ? null : R.group ? "g:"+R.rid : R.fromContact ? "c:"+R.fromContact : null; }
+function infoShown(){ const m=$("infoModal"); return !!(m && m.classList.contains("show")); }
+function openInfo(){ const R=A(); if(!R) return; closePicker(); closeExpMenu(); closeColorPick(); $("barMenu").hidden=true;
+  refreshInfo(); $("infoModal").classList.add("show"); const c=$("infoModal").querySelector(".info-card"); if(c) c.scrollTop=0;
+  if(!TOUCH_UI) try{ $("ciBack").focus({preventScroll:true}); }catch(e){} }
+function closeInfo(){ const m=$("infoModal"); if(m) m.classList.remove("show"); }
+const MUTE_OPTS=[["0","Off"],["3600000","For 1 hour"],["28800000","For 8 hours"],["always","Until I turn it back on"]];
+function refreshInfo(){ const R=A(); if(!R || !$("infoModal")) return;
+  const grp=!!R.group, id=infoId(R), rec=recOfId(id), c=(!grp && R.fromContact) ? contactFind(R.fromContact) : null;
+  const name=(rec && (rec.alias || dn(rec.name))) || dn(R.peerName) || dn(R.title) || t("Chat");
+  $("ciName").textContent=name;
+  const ava=$("ciAva"); ava.textContent=grp ? "👥" : up((name||"?")[0]); ava.style.background=roomColor(R)||"";
+  const real=c ? dn(c.name) : "", sub=grp ? t("Group") : (rec && rec.alias && real && real!==rec.alias ? real : "");
+  $("ciSub").textContent=sub; $("ciSub").hidden=!sub;
+  $("ciStatus").textContent=R.statusText||"";
+  $("ciCall").hidden=$("callBtn").hidden; $("ciVideo").hidden=$("videoBtn").hidden;
+  $("ciLoc").hidden=!(grp||R.fromContact||R.paired); $("ciInvite").hidden=!grp;
+  $("ciRename").hidden=!(R.fromContact||grp); $("ciRenameV").textContent=(rec && rec.alias) || t("None");
+  $("ciColorRow").hidden=!rec;
+  if(rec){ const g=$("ciColors");
+    if(!g.childElementCount){
+      const d=document.createElement("button"); d.type="button"; d.className="auto"; d.dataset.c=""; d.textContent="↺"; d.title=t("Default colour"); d.setAttribute("aria-label",d.title); d.setAttribute("role","radio"); g.appendChild(d);
+      for(const k in AVA_COLORS){ const b=document.createElement("button"); b.type="button"; b.dataset.c=k; b.style.background=AVA_COLORS[k]; b.setAttribute("aria-label",k); b.setAttribute("role","radio"); g.appendChild(b); } }
+    const cur=AVA_COLORS[rec.cl] ? rec.cl : ""; g.querySelectorAll("button").forEach(b=>{ const on=(b.dataset.c||"")===cur; b.classList.toggle("on",on); b.setAttribute("aria-checked",on?"true":"false"); });
+    const a=g.querySelector(".auto"); if(a) a.style.background=chatColor(Object.assign({},rec,{cl:""}), grp)||""; }
+  { const es=$("ciExp"); if(!es.options.length) EXP_CHOICES.forEach(v=>{ const o=document.createElement("option"); o.value=String(v); o.textContent=expLabel(v); es.appendChild(o); });
+    else [...es.options].forEach(o=>o.textContent=expLabel(+o.value));
+    es.value=String(expFor(histKeyOf(R))); $("ciExpRow").hidden=$("expBtn").hidden; }
+  { const ms=$("ciMute"), mu=mutedUntil(rec); ms.innerHTML="";
+    for(const [v,l] of MUTE_OPTS){ const o=document.createElement("option"); o.value=v; o.textContent=t(l); ms.appendChild(o); }
+    if(mu && mu<MUTE_ALWAYS){ const o=document.createElement("option"); o.value="cur"; o.textContent=t("Until {time}",{time:fmtUntil(mu)}); ms.appendChild(o); }
+    ms.value= !mu ? "0" : mu>=MUTE_ALWAYS ? "always" : "cur"; $("ciMuteRow").hidden=!rec; }
+  $("ciVerify").hidden=!((R.fromContact && R.paired) || grp);
+  $("ciVerifyV").textContent= grp ? t("Safety code") : (c && c.v ? t("Verified ✓") : t("Not verified"));
+  $("ciMembers").hidden=!grp; $("ciNotify").hidden=!(R.fromContact && !grp); $("ciToGroup").hidden=!(R.fromContact && !grp);
+  $("ciMerge").hidden=!(R.fromContact && !grp && mergeCandidates(R).length);
+  $("ciRekey").hidden=!(R.paired && !grp);
+  $("ciRemove").hidden=!(R.fromContact || grp); $("ciRemove").querySelector(".il").textContent= grp ? t("Leave group") : t("Remove contact");
+  $("infoModal").querySelectorAll(".info-sec").forEach(x=>{ x.hidden=![...x.querySelectorAll(".info-row")].some(r=>!r.hidden); });   // nothing to show: no empty box
+}
+function wireInfo(){ const m=$("infoModal"); if(!m) return;
+  const then=(f)=>()=>{ closeInfo(); f(); };
+  $("ciBack").addEventListener("click",closeInfo);
+  m.addEventListener("click",e=>{ if(e.target===m) closeInfo(); });
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape" && infoShown()) closeInfo(); });
+  $("ciCall").addEventListener("click",then(()=>$("callBtn").click()));
+  $("ciVideo").addEventListener("click",then(()=>$("videoBtn").click()));
+  $("ciLoc").addEventListener("click",then(sendLocation));
+  $("ciInvite").addEventListener("click",()=>inviteToGroup());
+  $("ciRename").addEventListener("click",()=>{ renameChat(); refreshInfo(); });
+  $("ciColors").addEventListener("click",e=>{ const b=e.target.closest && e.target.closest("button"); const R=A(); const id=infoId(R); if(!b || !id) return;
+    setAvaColor(id, b.dataset.c||""); renderContacts(); refreshInfo(); });
+  $("ciExp").addEventListener("change",async e=>{ await chooseExp(+e.target.value); refreshInfo(); });
+  $("ciMute").addEventListener("change",e=>{ const v=e.target.value, R=A(); if(!R || v==="cur") return;
+    setMute(R, v==="always" ? MUTE_ALWAYS : +v); refreshInfo(); });
+  $("ciVerify").addEventListener("click",then(openVerify));
+  $("ciMembers").addEventListener("click",then(openMembers));
+  $("ciNotify").addEventListener("click",()=>nudgeContact());
+  $("ciToGroup").addEventListener("click",then(convertToGroup));
+  $("ciMerge").addEventListener("click",then(openMerge));
+  $("ciRekey").addEventListener("click",then(rekey));
+  $("ciWire").addEventListener("click",then(()=>$("wire").classList.add("show")));
+  $("ciRemove").addEventListener("click",()=>{ const R=A(); if(!R) return;
+    if(R.group){ const g=groupsLoad().find(x=>x.rid===R.rid);
+      if(!confirm(t("Leave the group “{name}”?\n\nYou'll need a new invite link to come back.",{name:dn(g&&(g.alias||g.name))||t("Group")}))) return;
+      closeInfo(); groupRemove(R.rid); goHome(); return; }
+    if(!R.fromContact) return; const c=contactFind(R.fromContact);
+    if(!confirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(c&&(c.alias||c.name))||t("this contact")}))) return;
+    closeInfo(); contactRemove(R.fromContact); goHome(); });
+}
 function renderContacts(fromPreview){
   const el=$("contactList"); if(!el) return; el.innerHTML="";
   const lastTs=it=>Math.max(it.ts||0, (_prev[previewKeyOf(it)]||{}).ts||0);
@@ -3147,19 +3218,23 @@ let _installChecked=false, _showInstallInvite=null;
 function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
-function goHome(){ typingTick(""); closeExpMenu(); closePanel(false); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
+function goHome(){ closeInfo(); typingTick(""); closeExpMenu(); closePanel(false); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
+// a first visit opens on a short welcome (logo, one sentence, "Create my account"); an invite or group link goes
+// straight to the form, since the person already knows why they are here
+function firstAuthMode(){ const P=window.__pending||{}; return (P.invite||P.group||P.room) ? "register" : "welcome"; }
 function showAuth(mode){
   $("app").style.display="none"; $("join").style.display="flex"; $("join").dataset.mode=mode;
   document.body.classList.remove("in-app","kb"); document.body.classList.add("in-auth"); const ap=$("app"); ap.style.height=""; ap.style.transform=""; try{ window.scrollTo(0,0); }catch(e){}
   $("join").scrollTop=0; fitViewport();
-  const reg=mode==="register", login=mode==="login", unlock=mode==="unlock", nw=mode==="newchat";
+  const reg=mode==="register", login=mode==="login", unlock=mode==="unlock", nw=mode==="newchat", wel=mode==="welcome";
   $("userField").style.display=(reg||login)?"block":"none";
-  if($("promises")) $("promises").style.display=reg?"grid":"none";   // the pitch belongs on the first screen only
+  if($("promises")) $("promises").style.display=wel?"grid":"none";   // the pitch belongs on the first screen only, under its button
   $("pwField").style.display=(reg||login||unlock)?"block":"none";
   $("pw2Field").style.display=reg?"block":"none";
   if($("dispField")) $("dispField").style.display=reg?"block":"none";
+  if(reg && !$("dispInput").value) delete $("dispInput").dataset.own;
   try{ $("pwInput").setAttribute("autocomplete", reg?"new-password":"current-password"); }catch(e){}
   $("ncTabs").style.display=nw?"flex":"none";
   $("bioOptWrap").style.display=((reg||login)&&bioSupported()&&!bioSet())?"flex":"none";
@@ -3167,18 +3242,19 @@ function showAuth(mode){
   $("bioBtn").textContent=t("🙂 Unlock with {bio}",{bio:bioLabel()});
   if($("lockHead")) $("lockHead").style.display=unlock?"block":"none";
   if($("forgotLink")) $("forgotLink").style.display=(login||unlock)?"block":"none";
-  if($("iabNote")){ const iab=(typeof _isInApp==="function") && _isInApp() && (reg||login);
+  if($("iabNote")){ const iab=(typeof _isInApp==="function") && _isInApp() && (reg||login||wel);
     $("iabNote").style.display=iab?"block":"none";
     if(iab) $("iabNote").textContent=(/iPhone|iPad|iPod/i.test(navigator.userAgent)
       ? t("You're inside WhatsApp's built-in browser. To stay logged in and get notifications, open this page in Safari first: tap ⋯ then “Open in Safari”.")
       : t("You're inside an app's built-in browser. To stay logged in and get notifications, open this page in your browser first (⋯ → Open in browser).")); }
   $("backBtn").style.display=nw?"block":"none";
   if(!nw){ $("roomField").style.display="none"; $("invLinkField").style.display="none"; $("gnameField").style.display="none"; $("invField").style.display="none"; $("shareRow").style.display="none"; }
-  $("joinBtn").textContent=reg?t("Create account"):login?t("Log in"):unlock?t("Unlock"):t("Connect");
+  $("joinBtn").textContent=wel?t("Create my account"):reg?t("Create account"):login?t("Log in"):unlock?t("Unlock"):t("Connect");
   authMsg(""); if($("userHint")){ $("userHint").textContent=""; $("userHint").className=""; }
   const sl=$("switchLink");
   if(reg){ const inv=window.__pending&&window.__pending.invite&&realName(window.__pending.invite.n)?window.__pending.invite.n:"";
     $("joinHint").textContent=(inv?t("{inviter} invited you to a private chat. Pick a name to reply.",{inviter:inv})+" ":"")+t("Pick any name — no phone number or email needed — and a strong password (8+ characters). There is no password reset: save it in your password manager."); sl.style.display="block"; sl.textContent=t("Already have an account? Log in"); }
+  else if(wel){ $("joinHint").textContent=""; sl.style.display="block"; sl.textContent=t("I already have an account"); }
   else if(login){ $("joinHint").textContent=t("Log in to your Gizleme account from any device."); sl.style.display="block"; sl.textContent=t("New here? Create an account"); }
   else if(unlock){ const s=sessLoad(); $("joinHint").textContent=""; if($("lockSub")) $("lockSub").textContent=(s&&s.display)?t("Welcome back, {name}.",{name:s.display}):t("Welcome back."); sl.style.display="block"; sl.textContent=t("Log out / switch account"); }
   else { sl.style.display="none"; $("roomInput").value=""; _pendingInvite=null; $("join").dataset.adv="0";
@@ -3620,6 +3696,7 @@ async function joinFromInviteInput(){ initAudio(); const raw=$("invInput").value
   if(!inv){ authMsg(t("That link doesn't look like a Gizleme invite")); return; }
   try{ $("invInput").value=""; await doJoinGroup(inv.rid, unb64(inv.gk), inv.name, inv.adm, inv.rot); }catch(e){ authMsg(t("Couldn't join — try again")); } }
 async function join(){ const m=($("join").dataset.mode)||"register";
+  if(m==="welcome"){ showAuth("register"); if(!TOUCH_UI) try{ $("userInput").focus(); }catch(e){} return; }   // step 2: the form alone (focused at once, never later: a late focus would steal the next field)
   if(m==="register") return doRegister();
   if(m==="login") return doLoginAccount();
   if(m==="unlock") return doUnlockPw();
@@ -3723,7 +3800,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
 
   $("bioBtn").addEventListener("click",doUnlockBio);
   $("switchLink").addEventListener("click",()=>{ const m=$("join").dataset.mode;
-    if(m==="register") showAuth("login"); else if(m==="login") showAuth("register");
+    if(m==="register" || m==="welcome") showAuth("login"); else if(m==="login") showAuth("register");
     else if(m==="unlock"){ if(confirm(String(LOGOUT_MSG))) logoutAccount(); } });
   $("backBtn").addEventListener("click",()=>{ enterApp(); if(active) switchTo(active); else goHome(); });
   $("homeNew").addEventListener("click",showAddRoom);
@@ -3739,7 +3816,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("advRoom").addEventListener("click",()=>{ $("join").dataset.adv="1"; ncSet("direct"); });
   $("joinBtn").addEventListener("click",join);
   let _ucT=null;
-  $("userInput").addEventListener("input",()=>{ if($("join").dataset.mode!=="register") return; clearTimeout(_ucT); _ucT=setTimeout(checkUsername,350); });
+  $("dispInput").addEventListener("input",()=>{ $("dispInput").dataset.own="1"; });
+  $("userInput").addEventListener("input",()=>{ if($("join").dataset.mode!=="register") return;
+    if($("dispInput").dataset.own!=="1") $("dispInput").value=$("userInput").value.trim();   // the first name starts as the username until they change it
+    clearTimeout(_ucT); _ucT=setTimeout(checkUsername,350); });
   ["userInput","pwInput","pw2Input","roomInput","gnameInput","invInput"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("keydown",e=>{ if(e.key==="Enter") join(); }); });
   [...document.querySelectorAll(".nctab")].forEach(b=>b.addEventListener("click",()=>ncSet(b.dataset.nc)));
   $("copyLink").addEventListener("click",shareInvite);
@@ -3826,9 +3906,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); } $("ginvModal").classList.remove("show"); });
   $("ginvCopy").addEventListener("click",async()=>{ const url=ginvLink(); if(!url) return; try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); } $("ginvModal").classList.remove("show"); });
   $("ginvLater").addEventListener("click",()=>$("ginvModal").classList.remove("show"));
-  const showStatusDetail=()=>{ const R=A(); if(R&&R.statusText) toast(R.statusText); };
-  $("peerMeta").addEventListener("click",showStatusDetail);
-  $("peerMeta").addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); showStatusDetail(); } });
+  $("peerMeta").addEventListener("click",openInfo);       // the name (and the avatar) open Chat info, as in any messenger
+  $("peerAvatar").addEventListener("click",openInfo);
+  $("peerMeta").addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openInfo(); } });
+  wireInfo();
   // iOS only lets audio start inside a user gesture: unlock at the first tap so the connection / message sounds
   // that follow (which are not user-initiated) can be heard.
   document.addEventListener("pointerdown",()=>{ if(soundMode()!=="none") initAudio(); },{passive:true});
@@ -3892,7 +3973,16 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("themeToggle").addEventListener("click",toggleTheme);
 
   // ----- Settings modal -----
-  function openSettings(){
+  function setPage(pg){ const m=$("settingsModal"); let shown=null;
+    m.querySelectorAll(".set-page").forEach(x=>{ const on=x.dataset.page===pg; x.hidden=!on; if(on) shown=x; });
+    if(!shown){ m.querySelector('.set-page[data-page="root"]').hidden=false; pg="root"; }
+    m.dataset.page=pg; const c=m.querySelector(".card"); if(c) c.scrollTop=0;
+    const f=shown && (shown.querySelector(".set-back") || shown.querySelector(".set-me")); if(f && !TOUCH_UI) try{ f.focus({preventScroll:true}); }catch(e){} }
+  function openSettings(pg){
+    setPage(typeof pg==="string" ? pg : "root");
+    { const s=sessLoad(), nm=(s&&(s.display||s.username))||"—";
+      $("setMeName").textContent=nm; $("setMeSub").textContent=s&&s.username ? "@"+s.username : t("Display name");
+      $("setAva").textContent=up((nm||"?")[0]); $("setAva").style.background=s&&s.username ? autoColor(s.username) : ""; }
     $("expGlobal").value=String(expGlobal());
     const hasRoom=!!active;
     $("expRoomRow").style.display=hasRoom?"flex":"none";
@@ -3928,12 +4018,16 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     const pw=$("delPw").value; const m=$("delMsg"); if(!pw){ m.textContent=t("Enter your password"); return; }
     if(!confirm(t("Delete your account now? This cannot be undone."))) return;
     $("delConfirm").disabled=true; m.textContent=t("Deleting…");
-    try{ await deleteAccount(pw); closeModal("delModal"); showAuth("register"); toast(t("Your account has been deleted")); }
+    try{ await deleteAccount(pw); closeModal("delModal"); showAuth("welcome"); toast(t("Your account has been deleted")); }
     catch(e){ m.textContent=(e&&e.message)||t("Couldn't delete the account"); }
     $("delConfirm").disabled=false;
   });
   ["forgotModal","pwModal","delModal"].forEach(id=>$(id).addEventListener("click",e=>{ if(e.target.id===id) closeModal(id); }));
   $("settingsClose").addEventListener("click",()=>$("settingsModal").classList.remove("show"));
+  $("settingsModal").addEventListener("click",e=>{ const g=e.target.closest && e.target.closest("[data-go]"); if(g){ setPage(g.dataset.go); return; }
+    if(e.target.closest && e.target.closest(".set-back")) setPage("root"); });
+  document.addEventListener("keydown",e=>{ if(e.key!=="Escape") return; const m=$("settingsModal");
+    if(m.classList.contains("show")){ if(m.dataset.page && m.dataset.page!=="root") setPage("root"); else m.classList.remove("show"); } });
   $("settingsModal").addEventListener("click",e=>{ if(e.target.id==="settingsModal") $("settingsModal").classList.remove("show"); });
   // ----- privacy & lock, and the "why Gizleme" comparison -----
   $("autoLock").addEventListener("change",e=>{ setAutoLock(+e.target.value||0); toast(+e.target.value?t("Auto-lock on"):t("Auto-lock off")); });
@@ -4004,7 +4098,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   const isMacSafari = !isIOS && /Macintosh/.test(navigator.userAgent) && /Safari\//.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Edg|Firefox|OPR/.test(navigator.userAgent);
   if(isStandalone){ try{ localStorage.setItem("gz-installed", String(Date.now())); }catch(e){} }   // opened as the installed app
   if(isIOS && $("toneHint")) $("toneHint").hidden=false;
-  function showInstall(on){ if($("installGroup")) $("installGroup").style.display=on?"block":"none"; }
+  function showInstall(on){ if($("installGroup")) $("installGroup").style.display=on?"block":"none"; if($("installNav")) $("installNav").hidden=!on; }
   window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; if(!isStandalone) showInstall(true);
     if(installModalPending){ installModalPending=false; clearTimeout(_instWait); openInstallModal(); } });
   window.addEventListener("appinstalled",()=>{ showInstall(false); deferredPrompt=null; closeInstallModal(); try{ localStorage.setItem("gz-installed", String(Date.now())); }catch(e){} toast(t("Gizleme installed 🎉")); });
@@ -4135,14 +4229,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   function closeMenu(){ $("barMenu").hidden=true; }
   function toggleMenu(){ const m=$("barMenu");
     if(m.hidden){ const R=A(); const grp=!!(R&&R.group);
-      $("mi-invite").hidden=!grp; $("mi-members").hidden=!grp;
-      $("mi-verify").hidden=!(R&&((R.fromContact&&R.paired)||grp));
-      $("mi-notify").hidden=!(R&&R.fromContact&&!grp);
-      $("mi-rekey").hidden=!(R&&R.paired&&!grp);
-      $("mi-rename").hidden=!(R&&(R.fromContact||grp));
+      $("mi-invite").hidden=!grp; $("mi-info").hidden=!R;
       $("mi-loc").hidden=!(R&&(grp||R.fromContact||R.paired));
-      $("mi-togroup").hidden=!(R&&R.fromContact&&!grp);
-      $("mi-merge").hidden=!(R&&R.fromContact&&!grp&&mergeCandidates(R).length);
       { const rec=muteRecOf(R), mu=mutedUntil(rec);
         $("mi-mute").hidden=!rec || !!mu; $("mi-unmute").hidden=!mu; $("mi-mute-opts").hidden=true;
         $("mi-mute-until").textContent = mu && mu<MUTE_ALWAYS ? t("until {time}",{time:fmtUntil(mu)}) : ""; }
@@ -4156,17 +4244,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     closeMenu();
     const act=b.dataset.act;
     if(act==="invite") inviteToGroup();
-    else if(act==="members") openMembers();
-    else if(act==="verify") openVerify();
-    else if(act==="notify") nudgeContact();
-    else if(act==="rekey") rekey();
-    else if(act==="rename") renameChat();
-    else if(act==="merge") openMerge();
+    else if(act==="info") openInfo();
     else if(act==="loc") sendLocation();
-    else if(act==="togroup") convertToGroup();
-    else if(act==="wire") $("wire").classList.toggle("show");
-    else if(act==="settings") openSettings();
-    else if(act==="lock") lockApp();
     else if(act==="mute1h") setMute(A(), 3600000);
     else if(act==="mute8h") setMute(A(), 28800000);
     else if(act==="muteall") setMute(A(), MUTE_ALWAYS);
@@ -4204,6 +4283,6 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     else { showAuth("login"); }                           // session without a local lock (shouldn't happen): log in again
   }
   else if(pinSet()){ showAuth("login"); }               // account exists on device, session cleared → log in
-  else { showAuth("register"); }                        // brand new → create account
+  else { showAuth(firstAuthMode()); }                   // brand new → the welcome screen (or the form, when a link brought them)
 })();
 })();

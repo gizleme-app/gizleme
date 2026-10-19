@@ -58,23 +58,31 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 - Quiet by design, with its own sound: "Gizleme", a three-note glass chime (one note per syllable), for a
   message in a chat you are not looking at — at most once every few seconds — and a small echo of it in the
   chat you have open; nothing when you send, when someone comes online or for a reaction. That chat's row
-  glows briefly in the list. Settings → Sounds: messages and calls / calls only / no sound. Mute a chat for
+  glows briefly in the list. Settings → Notifications and sounds: messages and calls / calls only / no sound. Mute a chat for
   1 hour, 8 hours or until you turn it back on (it follows your account; its notifications arrive silently).
 - Unread count in the tab title and on the app icon (a number, never a name), and a "New messages" line
   where you left off when you open a chat. Scrolled up in a chat, you stay where you are when messages
   arrive: a round ↓ shows how many came in and takes you back down.
 - Two chats with the same person (say, a new invite after the old chat broke) can be merged from the chat
-  menu (⋮ → Merge with another chat…): the earlier chat's messages show in this one in time order, it leaves
+  info (tap its name → Merge with another chat…): the earlier chat's messages show in this one in time order, it leaves
   the list, and anything still sent on its key lands here. Never automatic — a name proves nothing — and only
   on your devices.
 - "Typing…" and "recording a voice message…": in the chat's header, as three dots (or a microphone) at the
   end of the chat and in the chats list — live-only encrypted signals that stop when the message is sent and
-  fade after a few seconds of nothing. Settings → Typing indicators: off means you neither send nor see them.
-- Settings → Appearance → Text size: five sizes, from small to largest, for the whole app (typing fields
+  fade after a few seconds of nothing. Settings → Privacy → Typing indicators: off means you neither send nor see them.
+- Settings → Chats → Text size: five sizes, from small to largest, for the whole app (typing fields
   never go below 16 px, so an iPhone doesn't zoom into them).
 - iPhone / iPad: the installed app uses the "Compatibility" display by default (the page laid out inside
   the safe area, under an opaque status bar), which avoids the band iOS 26 can paint over the bottom of the
-  screen; Settings → Appearance → iPhone display switches back to "Standard".
+  screen; Settings → Chats → iPhone display switches back to "Standard".
+- Chat info: a tap on a chat's name (or its avatar) opens everything about that chat in one place — audio,
+  video, location, nickname, colour, disappearing messages, mute, identity check, notify, turn into a group,
+  merge, new keys, what the relay sees, remove or leave. The ⋮ menu keeps the quick ones: Chat info, mute,
+  share my location (and invite, in a group).
+- Settings in pages: your name at the top (Profile), then Privacy, Chats, Notifications and sounds, Install
+  the app and Account, where "Delete account" sits at the very bottom, apart.
+- A first visit opens on a short welcome — the logo, one sentence, "Create my account" and "I already have
+  an account", the three promises underneath — then the form alone. An invite link goes straight to the form.
 - A colour for each chat: every contact has its own colour from the start (worked out from the contact key,
   so it is the same on both phones), and a long press (right click on a computer) on a chat in the list opens
   a palette of twelve colours for its round avatar — in the list, at the top of the chat and on the call screen. Saved

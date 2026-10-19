@@ -67,7 +67,7 @@ with sync_playwright() as pw:
     r["short_buttonReachable"]= p.evaluate("()=>{ const j=document.getElementById('join'); j.scrollTop=j.scrollHeight; const b=document.getElementById('joinBtn').getBoundingClientRect(); return b.top>=0 && b.bottom<=window.innerHeight+1; }")
     p.set_viewport_size({"width":390,"height":780}); p.evaluate("()=>{ window.__vv.height=window.innerHeight; window.__vv.fire('resize'); }"); p.wait_for_timeout(300)
     # register, then lock → the unlock screen
-    p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(3200)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(3200)
     p.evaluate("()=>document.getElementById('installModal').classList.remove('show')")
     r["app_bodyNotAuth"]= p.evaluate("()=>!document.body.classList.contains('in-auth') && document.body.classList.contains('in-app')")
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(500)

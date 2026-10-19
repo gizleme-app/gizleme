@@ -170,7 +170,7 @@ try:
         if init: ctx.add_init_script(init)
         p=ctx.new_page(); p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     errs=[]
     ctxI,I=boot("ines",errs,init=IOS26)
@@ -193,7 +193,7 @@ try:
     g=B.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, ih:innerHeight, gap:document.documentElement.classList.contains('ios-gap')})")
     r["browser_unchanged"]= g["app"]==g["ih"] and not g["gap"]
     # ---- text size ----
-    B.evaluate("()=>document.getElementById('sbSettings').click()"); B.wait_for_timeout(300)
+    B.evaluate("()=>document.getElementById('sbSettings').click()"); B.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); B.wait_for_timeout(300)
     r["text_default"]= B.evaluate("()=>document.getElementById('textSize').value")=="1" and B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="16px"
     B.select_option("#textSize","1.25"); B.wait_for_timeout(200)
     r["text_larger"]= B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="20px" and B.evaluate("()=>localStorage.getItem('gz-textsize')")=="1.25"
@@ -212,9 +212,9 @@ try:
     r["sb_link_turns_on"]= m["cls"] and "viewport-fit" not in m["vp"] and m["sb"]=="black" and m["ls"]=="compat"
     P.goto(f"http://127.0.0.1:{port}/"); P.wait_for_timeout(400)
     r["sb_kept"]= P.evaluate("()=>document.documentElement.classList.contains('sb-compat')")
-    P.fill("#userInput","ipek"); P.fill("#pwInput","password123"); P.fill("#pw2Input","password123"); P.click("#joinBtn"); P.wait_for_timeout(1500)
+    P.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); P.fill("#userInput","ipek"); P.fill("#pwInput","password123"); P.fill("#pw2Input","password123"); P.click("#joinBtn"); P.wait_for_timeout(1500)
     P.evaluate("()=>document.querySelectorAll('.modal.show').forEach(x=>x.classList.remove('show'))")
-    P.evaluate("()=>document.getElementById('sbSettings').click()"); P.wait_for_timeout(300)
+    P.evaluate("()=>document.getElementById('sbSettings').click()"); P.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); P.wait_for_timeout(300)
     r["sb_setting_on_iphone"]= P.is_visible("#sbRow") and P.evaluate("()=>document.getElementById('sbSel').value")=="compat" and "iOS 26.5" in P.eval_on_selector("#sbInfo","e=>e.textContent")
     r["sb_info_v"]= P.eval_on_selector("#sbInfo","e=>e.textContent")
     P.select_option("#sbSel","std"); P.wait_for_timeout(2600)

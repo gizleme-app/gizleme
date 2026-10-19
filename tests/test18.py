@@ -77,7 +77,7 @@ with sync_playwright() as pw:
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Majins',ck:ck,ts:Date.now()}]))",[CK])   # legacy plaintext from an older build
-    p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
     # --- contacts at rest ---
     r["legacyPlaintextRemoved"]= p.evaluate("()=>localStorage.getItem('gz-contacts')===null && localStorage.getItem('gz-groups')===null")
     r["encryptedBlobPresent"]= p.evaluate("()=>{const r=JSON.parse(localStorage.getItem('gz-local')||'null'); return !!(r&&r.ct&&r.iv);}")
@@ -135,7 +135,7 @@ with sync_playwright() as pw:
     p.click("#sbNew"); p.wait_for_timeout(300); p.click("#advRoom"); p.wait_for_timeout(150); p.fill("#roomInput","QRST23"); p.click("#joinBtn"); p.wait_for_timeout(600)
     r["roomInFragment"]= p.evaluate("()=>location.hash==='#room=QRST23' && location.search===''")
     # --- logout erases everything ---
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(150); p.click("#logoutBtn"); p.wait_for_timeout(1500)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.wait_for_timeout(150); p.click("#logoutBtn"); p.wait_for_timeout(1500)
     r["logoutLocalGone"]= p.evaluate("()=>localStorage.getItem('gz-local')===null && localStorage.getItem('gz-mkpin')===null && localStorage.getItem('gz-abk')===null")
     r["logoutIdbGone"]= p.evaluate("async()=>!(await indexedDB.databases()).some(d=>d.name==='vesper')")
     r["cspViolations"]= csp_viol[:3]

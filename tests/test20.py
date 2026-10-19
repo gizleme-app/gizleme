@@ -59,9 +59,12 @@ with sync_playwright() as pw:
     dialogs=[]; accept=[True]
     p.on("dialog",lambda d:(dialogs.append(d.message), d.accept() if accept[0] else d.dismiss()))
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
+    p.wait_for_function("()=>!!document.getElementById('join').dataset.mode")
+    r["welcome_first"]= p.get_attribute("#join","data-mode")=="welcome" and p.is_visible("#joinBtn") and not p.is_visible("#userInput")   # v37
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.wait_for_timeout(150)
     r["register_noResetWarning"]= "no password reset" in p.eval_on_selector("#joinHint","e=>e.textContent")
     p.evaluate("()=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Bob',ck:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))),ts:Date.now()}]))")
-    p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
     r["defaultAutoLock15"]= p.evaluate("()=>localStorage.getItem('gz-autolock')")=="900000"
     # --- contact removal asks first; dismiss keeps it ---
     accept[0]=False; p.evaluate("()=>document.querySelector('.ct .cx').click()"); p.wait_for_timeout(300)
@@ -74,7 +77,7 @@ with sync_playwright() as pw:
     p.click("#forgotLink"); p.wait_for_timeout(200); r["forgot_modal"]= p.is_visible("#forgotModal"); p.click("#forgotClose"); p.wait_for_timeout(100)
     p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
     # --- change password ---
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100); p.click("#chpwBtn"); p.wait_for_timeout(200)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.wait_for_timeout(100); p.click("#chpwBtn"); p.wait_for_timeout(200)
     p.fill("#pwCur","wrongpass"); p.fill("#pwNew","newpass456"); p.fill("#pwNew2","newpass456"); p.click("#pwSave"); p.wait_for_timeout(1200)
     r["chpw_wrongCurrentRefused"]= p.eval_on_selector("#pwMsg","e=>e.textContent")
     p.fill("#pwCur","password123"); p.click("#pwSave"); p.wait_for_timeout(2500)
@@ -86,10 +89,10 @@ with sync_playwright() as pw:
     p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(800); r["chpw_oldPwFails"]= p.eval_on_selector("#authMsg","e=>e.textContent")=="Wrong password"
     p.fill("#pwInput","newpass456"); p.click("#joinBtn"); p.wait_for_timeout(1500); r["chpw_newPwUnlocks"]= p.evaluate("()=>window.__gz.contacts().map(c=>c.name)")==["Bob"]
     # --- delete account ---
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100); p.click("#delAcctBtn"); p.wait_for_timeout(200)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.wait_for_timeout(100); p.click("#delAcctBtn"); p.wait_for_timeout(200)
     p.fill("#delPw","newpass456"); p.click("#delConfirm"); p.wait_for_timeout(2500)
     r["delete_serverCalled"]= p.evaluate("()=>window.__calls.some(c=>c[0]==='gizleme-auth'&&c[1].action==='delete'&&Array.isArray(c[1].owners))")
-    r["delete_backToRegister"]= p.get_attribute("#join","data-mode")=="register"
+    r["delete_backToRegister"]= p.get_attribute("#join","data-mode")=="welcome"
     r["delete_localWiped"]= p.evaluate("()=>Object.keys(localStorage).filter(k=>['gz-session','gz-local','gz-mkpin','gz-abk','gz-contacts'].includes(k)).length")==0
     r["delete_idbGone"]= p.evaluate("async()=>!(await indexedDB.databases()).some(d=>d.name==='vesper')")
     # --- WhatsApp iOS in-app browser: note on the register screen; Safari: none ---

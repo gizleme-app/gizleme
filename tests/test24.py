@@ -62,21 +62,21 @@ with sync_playwright() as pw:
     NKH=_h(NK); NK2H=_h(NK2)
     # one real contact, one invite not yet opened (placeholder name)
     p.evaluate("([ck,ck2])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Oz77',ck:ck,ts:Date.now()},{name:'Invited friend',ck:ck2,is:'x',ts:Date.now()}]))",[CK,CK2])
-    p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
     r["sw_active"]= p.evaluate("()=>navigator.serviceWorker.ready.then(r=>!!r.active)")
     n=p.evaluate("()=>window.__names()")
     r["names_afterLogin"]= n and n["names"].get(NKH)=="Oz77" and NK2H not in n["names"] and NK not in n["names"]
     r["tmpl_en"]= n and n["tmpl"].get("msg")=="New message from {name}" and n["tmpl"].get("anyMsg")=="New message"
     # rename for me → "Baba" reaches the worker
-    p.click(".ct"); p.wait_for_timeout(500); p.click("#menuBtn"); p.wait_for_timeout(150); p.click("#mi-rename"); p.wait_for_timeout(1200)
+    p.click(".ct"); p.wait_for_timeout(500); p.click("#peerMeta"); p.wait_for_timeout(200); p.click("#ciRename"); p.wait_for_timeout(1200); p.click("#ciBack"); p.wait_for_timeout(150)
     n=p.evaluate("()=>window.__names()"); r["names_afterRename"]= n and n["names"].get(NKH)=="Baba"
     # the sender side now says what kind of push it is
-    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100)
+    p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); p.wait_for_timeout(100)
     p.select_option("#langSel","fr"); p.wait_for_timeout(1200)
     n=p.evaluate("()=>window.__names()"); r["tmpl_fr"]= n and n["tmpl"].get("msg")=="Nouveau message de {name}" and n["names"].get(NKH)=="Baba"
     r["errors"]= errs[:3]
     # logout clears the names
-    p.click("#logoutBtn"); p.wait_for_timeout(1500)
+    p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.click("#logoutBtn"); p.wait_for_timeout(1500)
     n=p.evaluate("()=>window.__names()"); r["cleared_onLogout"]= n is not None and n["names"]=={}
     b.close()
 srv.shutdown()

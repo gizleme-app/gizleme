@@ -660,6 +660,82 @@
   .callui.ringing .call-stage .pav{animation:pavPulse 1.6s ease-in-out infinite}
   @keyframes pavPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.18)}50%{box-shadow:0 0 0 22px rgba(255,255,255,0)}}
   @media (prefers-reduced-motion:reduce){.callui.ringing .call-stage .pav{animation:none}}
+  /* ---- v37: Chat info, Settings in pages, the welcome step ---- */
+  .set-page[hidden]{display:none}
+  .set-head{display:flex;align-items:center;gap:4px;margin:-6px 0 6px}
+  .set-head h2{font-size:1.1rem;font-weight:700;margin:0}
+  .set-back{width:40px;height:40px;border-radius:12px;border:none;background:transparent;color:var(--fg);display:grid;place-items:center;margin-left:-10px;cursor:pointer}
+  .set-back:hover{background:var(--surface-2)}
+  .set-back .ico{width:20px;height:20px}
+  .set-me{display:flex;align-items:center;gap:12px;width:100%;padding:12px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);color:var(--fg);text-align:left;margin:6px 0 14px;cursor:pointer;font:inherit}
+  .set-ava{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:1.15rem;background:var(--accent-bg);flex:none}
+  .set-me-t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+  .set-me-t b{font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .set-navs{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .set-nav{display:flex;align-items:center;gap:12px;width:100%;min-height:50px;padding:12px;border:none;border-top:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:.95rem;text-align:left;cursor:pointer}
+  .set-nav:first-child{border-top:none}
+  .set-nav[hidden]{display:none}
+  .set-nav>span{flex:1;min-width:0}
+  .set-nav>.ico:first-child{width:20px;height:20px;color:var(--accent)}
+  .set-nav:hover,.set-me:hover{background:var(--surface-2)}
+  .ico.chev{width:16px;height:16px;opacity:.45;flex:none}
+  .set-danger{margin-top:26px}
+  .set-card #settingsClose{margin-top:18px}
+  .set-card .logo .lock .ico{width:22px;height:22px}
+  /* Chat info */
+  .info-modal .info-card{max-width:440px;width:100%;padding:0 0 16px;max-height:92vh;display:block}
+  .info-top .icon{width:40px;height:40px;border:none;border-radius:12px;background:transparent;color:var(--fg);display:grid;place-items:center;cursor:pointer}
+  .info-top .icon:hover{background:var(--surface-2)}
+  .info-top .icon .ico{width:20px;height:20px}
+  @media (max-width:720px){
+    .info-modal{padding:0;align-items:stretch;justify-content:stretch}
+    .info-modal .info-card{max-width:none;width:100%;height:100%;max-height:none;border-radius:0;border:none;padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+  }
+  .info-top{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:4px;padding:8px 10px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .info-h{font-weight:700;font-size:1rem}
+  .info-hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:3px;padding:22px 18px 6px}
+  .info-ava{width:92px;height:92px;border-radius:50%;display:grid;place-items:center;font-size:2.3rem;font-weight:700;color:#fff;background:var(--peer);margin-bottom:8px}
+  .info-name{font-size:1.4rem;font-weight:800;margin:0;line-height:1.25;word-break:break-word}
+  .info-sub{color:var(--muted);font-size:.9rem}
+  .info-sub[hidden]{display:none}
+  .info-status{color:var(--muted);font-size:.8rem;line-height:1.4;max-width:36ch}
+  .info-quick{display:flex;justify-content:center;gap:10px;padding:12px 16px 4px}
+  .info-quick button{flex:1;max-width:100px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 6px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2);color:var(--accent);font:inherit;font-size:.8rem;font-weight:600;cursor:pointer}
+  .info-quick button[hidden]{display:none}
+  .info-quick .ico{width:22px;height:22px}
+  .info-sec{margin:12px 14px 0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
+  .info-sec[hidden]{display:none}
+  .info-sec-t{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:10px 12px 0}
+  .info-row{display:flex;align-items:center;gap:12px;width:100%;min-height:50px;padding:11px 12px;border:none;border-top:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:.95rem;text-align:left;cursor:pointer}
+  .info-sec>.info-row:first-child,.info-sec-t+.info-row{border-top:none}
+  .info-row[hidden]{display:none}
+  .info-row>.ico,.info-rt>.ico{width:20px;height:20px;flex:none;color:var(--accent)}
+  .info-row .il{flex:1;min-width:0}
+  .info-row .iv{color:var(--muted);font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}
+  .info-row .set-sel{flex:none;max-width:9.5rem}
+  .info-row.danger,.info-row.danger>.ico{color:var(--bad)}
+  .info-row:hover{background:var(--surface-2)}
+  .info-col{flex-direction:column;align-items:stretch;gap:10px;cursor:default}
+  .info-col:hover{background:transparent}
+  .info-rt{display:flex;align-items:center;gap:12px}
+  .info-sw{display:flex;flex-wrap:wrap;gap:9px;padding-left:32px}
+  .info-sw button{width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;color:#fff;font-size:.85rem;font-weight:700}
+  .info-sw button.on{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--fg)}
+  .info-sw .auto{background:var(--surface-2)}
+  .bar #peerAvatar,.bar #peerMeta{cursor:pointer}
+  /* the welcome step: logo, one sentence, one button — the form comes next, alone */
+  #join .intro-line{display:none;text-align:center;color:#d6d2e6;font-size:1.02rem;line-height:1.45;margin:2px 4px 8px}
+  #join[data-mode="welcome"] .authmsg:empty,#join[data-mode="welcome"] #joinHint{display:none}
+  #join:not([data-mode]) .card{visibility:hidden}   /* until the app knows which first screen to show: no flash of the form */
+  #join[data-mode="welcome"] .intro-line{display:block}
+  #join[data-mode="welcome"] .logo-anim{width:min(190px,58%)}
+  #join[data-mode="register"] .logo-anim,#join[data-mode="login"] .logo-anim{width:min(128px,40%)}
+  #join[data-mode="register"] .hero-tag,#join[data-mode="login"] .hero-tag{display:none}
+  #join[data-mode="welcome"] #switchLink{text-align:center;width:100%;font-weight:600}
+  #join[data-mode="welcome"] .promises{margin:22px 0 0;padding-top:16px;border-top:1px solid rgba(255,255,255,.08);gap:8px}
+  #join[data-mode="welcome"] .promise{font-size:.8rem}
+  #join[data-mode="welcome"] .promise b{font-size:.84rem}
+  #join[data-mode="welcome"] .promise .ps{font-size:.74rem}
   .composer textarea,.field input,.poll-opts input{font-size:max(16px,1rem)}   /* 16 px at least: no zoom-in on iPhone, whatever the text size */
   /* iOS 26 installed apps: a system band covers the bottom of the screen (see iosGap() in app.js) — no home-indicator
      space is kept above it, and the band takes the message bar's colour */
@@ -678,6 +754,13 @@
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.4-5.6A8.5 8.5 0 1 1 21 12Z"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></symbol>
+  <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.9-.6-1.3-.6-2.1 0-.9.7-1.6 1.6-1.6H17a4 4 0 0 0 4-4C21 6.9 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10.5" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></symbol>
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 15.5h8"/></symbol>
@@ -716,24 +799,18 @@
         <img class="lg-head" src="/logo-head.png" alt=""/><img class="lg-word" src="/logo-word.png" alt=""/><img class="lg-dot" src="/logo-dot.png" alt=""/>
       </div>
       <div class="hero-tag">Message secure. Mood unfiltered.</div></div>
+    <p class="intro-line" id="introLine">Private chats, encrypted end to end on your devices. No phone number, no email.</p>
     <div id="lockHead" style="display:none">
       <div class="logo"><span class="lock" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><div><h1 style="font-size:1.05rem">Gizleme is locked</h1><p id="lockSub">Unlock to read your chats</p></div></div>
     </div>
     <p id="iabNote" class="hint" style="display:none"></p>
-    <div class="promises" id="promises" style="display:none">
-      <div class="promise"><span class="pi">📵</span><div><b>No phone number</b><span class="ps">Just a name you invent. Nothing to look you up by.</span></div></div>
-      <div class="promise"><span class="pi">👻</span><div><b>No app on your phone</b><span class="ps">It's a website — nothing in your app list. Install only if you want to.</span></div></div>
-      <div class="promise"><span class="pi">🙈</span><div><b>Never reads your contacts</b><span class="ps">You connect by a link you choose to share. Your contact list is stored encrypted — the server can't read it.</span></div></div>
-      <button class="linkbtn" id="whyLink" type="button">How is this different from WhatsApp or Signal? →</button>
-      <a class="linkbtn" href="/privacy.html" target="_blank" rel="noopener" style="text-align:center;display:block;margin-top:-4px">Privacy</a>
-    </div>
     <div class="field" id="userField">
-      <label for="userInput">Username <span id="userHint" style="font-weight:400"></span></label>
+      <label for="userInput">Username <span class="lbl-sub" id="userSub">to log in</span> <span id="userHint" style="font-weight:400"></span></label>
       <input id="userInput" placeholder="e.g. alex" maxlength="20" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"/>
     </div>
     <button class="ghost bio" id="bioBtn" type="button" hidden>🙂 Unlock with Face ID</button>
     <div class="field" id="dispField" style="display:none">
-      <label for="dispInput">Display name <span class="lbl-sub">optional · what your friends see</span></label>
+      <label for="dispInput">Your first name <span class="lbl-sub">what your friends see</span></label>
       <input id="dispInput" placeholder="e.g. Alex" maxlength="24" autocomplete="nickname"/>
     </div>
     <div class="field" id="pwField">
@@ -792,6 +869,13 @@
     <p class="hint" id="joinHint"></p>
     <button class="linkbtn" id="forgotLink" type="button" style="display:none">Forgot your password?</button>
     <button class="linkbtn" id="switchLink" type="button" style="display:none"></button>
+    <div class="promises" id="promises" style="display:none">
+      <div class="promise"><span class="pi">📵</span><div><b>No phone number</b><span class="ps">Just a name you invent. Nothing to look you up by.</span></div></div>
+      <div class="promise"><span class="pi">👻</span><div><b>No app on your phone</b><span class="ps">It's a website — nothing in your app list. Install only if you want to.</span></div></div>
+      <div class="promise"><span class="pi">🙈</span><div><b>Never reads your contacts</b><span class="ps">You connect by a link you choose to share. Your contact list is stored encrypted — the server can't read it.</span></div></div>
+      <button class="linkbtn" id="whyLink" type="button">How is this different from WhatsApp or Signal? →</button>
+      <a class="linkbtn" href="/privacy.html" target="_blank" rel="noopener" style="text-align:center;display:block;margin-top:-4px">Privacy</a>
+    </div>
   </div>
 </div>
 
@@ -814,7 +898,7 @@
     <button class="icon navback" id="backHome" title="Chats" aria-label="Back to chats"><svg class="ico"><use href="#i-back"/></svg></button>
     <span class="bartitle" id="barTitle"><img class="bartitle-logo" src="/watermark.png" alt=""/>Gizleme</span>
     <span class="avatar" id="peerAvatar">?</span>
-    <div class="meta" id="peerMeta" role="button" tabindex="0" aria-label="Connection details">
+    <div class="meta" id="peerMeta" role="button" tabindex="0" aria-label="Chat info">
       <div class="peer-row"><div class="peer-name" id="peerName">Waiting for peer…</div></div>
       <div class="status"><span class="led"></span><span id="statusText">connecting…</span></div>
     </div>
@@ -827,10 +911,8 @@
     <button class="icon" id="verifyBtn" title="Verify who you're talking to" aria-label="Verify identity" hidden><svg class="ico"><use href="#i-shield"/></svg></button>
     <button class="icon" id="menuBtn" title="More" aria-label="More options"><svg class="ico"><use href="#i-more"/></svg></button>
     <div class="menu" id="barMenu" hidden>
+      <button class="menu-item" data-act="info" id="mi-info"><svg class="ico"><use href="#i-info"/></svg><span>Chat info</span></button>
       <button class="menu-item" data-act="invite" id="mi-invite" hidden><svg class="ico"><use href="#i-user-plus"/></svg><span>Invite people</span></button>
-      <button class="menu-item" data-act="members" id="mi-members" hidden><svg class="ico"><use href="#i-users"/></svg><span>Members &amp; keys</span></button>
-      <button class="menu-item" data-act="verify" id="mi-verify"><svg class="ico"><use href="#i-shield-check"/></svg><span>Verify identity</span></button>
-      <button class="menu-item" data-act="notify" id="mi-notify"><svg class="ico"><use href="#i-bell"/></svg><span>Notify contact</span></button>
       <button class="menu-item" data-act="mute" id="mi-mute"><svg class="ico"><use href="#i-bell-off"/></svg><span>Mute notifications</span></button>
       <div class="menu-sub" id="mi-mute-opts" hidden>
         <button class="menu-item" data-act="mute1h"><span>For 1 hour</span></button>
@@ -839,13 +921,6 @@
       </div>
       <button class="menu-item" data-act="unmute" id="mi-unmute" hidden><svg class="ico"><use href="#i-bell"/></svg><span>Turn sound back on <span class="lbl-sub" id="mi-mute-until"></span></span></button>
       <button class="menu-item" data-act="loc" id="mi-loc"><svg class="ico"><use href="#i-pin"/></svg><span>Share my location</span></button>
-      <button class="menu-item" data-act="togroup" id="mi-togroup"><svg class="ico"><use href="#i-users"/></svg><span>Turn into a group</span></button>
-      <button class="menu-item" data-act="rename" id="mi-rename"><svg class="ico"><use href="#i-edit"/></svg><span>Rename for me</span></button>
-      <button class="menu-item" data-act="merge" id="mi-merge" hidden><svg class="ico"><use href="#i-merge"/></svg><span>Merge with another chat…</span></button>
-      <button class="menu-item" data-act="rekey" id="mi-rekey"><svg class="ico"><use href="#i-refresh"/></svg><span>New keys</span></button>
-      <button class="menu-item" data-act="wire"><svg class="ico"><use href="#i-eye"/></svg><span>What the relay sees</span></button>
-      <button class="menu-item" data-act="lock"><svg class="ico"><use href="#i-lock"/></svg><span>Lock now</span></button>
-      <button class="menu-item" data-act="settings"><svg class="ico"><use href="#i-gear"/></svg><span>Settings</span></button>
     </div>
   </div>
 
@@ -912,28 +987,63 @@
 </div>
 
 <!-- Settings modal -->
+<!-- Chat info: everything about one chat, from a tap on its name -->
+<div class="modal info-modal" id="infoModal" role="dialog" aria-modal="true" aria-labelledby="ciName">
+  <div class="card info-card">
+    <div class="info-top"><button class="icon" id="ciBack" type="button" aria-label="Back" title="Back"><svg class="ico"><use href="#i-back"/></svg></button><span class="info-h">Chat info</span></div>
+    <div class="info-hero"><span class="info-ava" id="ciAva">?</span><h2 class="info-name" id="ciName">—</h2><div class="info-sub" id="ciSub"></div><div class="info-status" id="ciStatus"></div></div>
+    <div class="info-quick">
+      <button type="button" id="ciCall"><svg class="ico"><use href="#i-phone"/></svg><span>Audio</span></button>
+      <button type="button" id="ciVideo"><svg class="ico"><use href="#i-video"/></svg><span>Video</span></button>
+      <button type="button" id="ciLoc"><svg class="ico"><use href="#i-pin"/></svg><span>Location</span></button>
+      <button type="button" id="ciInvite"><svg class="ico"><use href="#i-user-plus"/></svg><span>Invite</span></button>
+    </div>
+    <div class="info-sec">
+      <button class="info-row" type="button" id="ciRename"><svg class="ico"><use href="#i-edit"/></svg><span class="il">Nickname</span><span class="iv" id="ciRenameV"></span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <div class="info-row info-col" id="ciColorRow"><div class="info-rt"><svg class="ico"><use href="#i-palette"/></svg><span class="il">Colour</span></div><div class="info-sw" id="ciColors" role="radiogroup" aria-label="Colour"></div></div>
+      <label class="info-row" id="ciExpRow"><svg class="ico"><use href="#i-timer"/></svg><span class="il">Disappearing messages</span><select id="ciExp" class="set-sel"></select></label>
+      <label class="info-row" id="ciMuteRow"><svg class="ico"><use href="#i-bell-off"/></svg><span class="il">Mute notifications</span><select id="ciMute" class="set-sel"></select></label>
+    </div>
+    <div class="info-sec">
+      <button class="info-row" type="button" id="ciVerify"><svg class="ico"><use href="#i-shield-check"/></svg><span class="il">Verify identity</span><span class="iv" id="ciVerifyV"></span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="info-row" type="button" id="ciMembers"><svg class="ico"><use href="#i-users"/></svg><span class="il">Members &amp; keys</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="info-row" type="button" id="ciNotify"><svg class="ico"><use href="#i-bell"/></svg><span class="il">Notify contact</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="info-row" type="button" id="ciToGroup"><svg class="ico"><use href="#i-users"/></svg><span class="il">Turn into a group</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="info-row" type="button" id="ciMerge"><svg class="ico"><use href="#i-merge"/></svg><span class="il">Merge with another chat…</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+    </div>
+    <div class="info-sec" id="ciAdv">
+      <div class="info-sec-t">Advanced</div>
+      <button class="info-row" type="button" id="ciRekey"><svg class="ico"><use href="#i-refresh"/></svg><span class="il">New keys</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="info-row" type="button" id="ciWire"><svg class="ico"><use href="#i-eye"/></svg><span class="il">What the relay sees</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+    </div>
+    <div class="info-sec">
+      <button class="info-row danger" type="button" id="ciRemove"><svg class="ico"><use href="#i-trash"/></svg><span class="il">Remove contact</span></button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="settingsModal">
-  <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">⚙</span><div><h1 style="font-size:1.05rem">Settings</h1><p>Preferences for this device</p></div></div>
-
-    <div class="set-group first">
-      <div class="sect-t2">Account</div>
-      <div class="set-row"><span>Signed in as <b id="acctUser">—</b></span>
-        <button class="pill off" id="logoutBtn" type="button">Log out</button>
-      </div>
-      <div class="set-row"><span>Display name <b id="dispNow">—</b></span>
+  <div class="card set-card">
+  <section class="set-page" data-page="root">
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-gear"/></svg></span><div><h1 style="font-size:1.05rem">Settings</h1><p>Preferences for this device</p></div></div>
+    <button class="set-me" type="button" data-go="profile"><span class="set-ava" id="setAva">?</span><span class="set-me-t"><b id="setMeName">—</b><span class="lbl-sub" id="setMeSub">Display name</span></span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+    <div class="set-navs">
+      <button class="set-nav" type="button" data-go="privacy"><svg class="ico"><use href="#i-lock"/></svg><span>Privacy</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="set-nav" type="button" data-go="chats"><svg class="ico"><use href="#i-chat"/></svg><span>Chats</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="set-nav" type="button" data-go="notif"><svg class="ico"><use href="#i-bell"/></svg><span>Notifications and sounds</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="set-nav" type="button" data-go="install" id="installNav" hidden><svg class="ico"><use href="#i-download"/></svg><span>Install the app</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="set-nav" type="button" data-go="account"><svg class="ico"><use href="#i-user"/></svg><span>Account</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+    </div>
+  </section>
+  <section class="set-page" data-page="profile" hidden>
+    <div class="set-head"><button class="set-back" type="button" aria-label="Back" title="Back"><svg class="ico"><use href="#i-back"/></svg></button><h2>Profile</h2></div>
+<div class="set-row"><span>Display name <b id="dispNow">—</b></span>
         <button class="pill off" id="dispEdit" type="button">Edit</button>
       </div>
-      <div class="set-row"><span>Password <br><span class="lbl-sub">There is no reset: Gizleme has no email or number for you.</span></span>
-        <button class="pill off" id="chpwBtn" type="button">Change</button>
-      </div>
-      <div class="set-row"><span>Delete account <br><span class="lbl-sub">Removes your account, contacts backup and sessions from the server.</span></span>
-        <button class="pill danger" id="delAcctBtn" type="button">Delete</button>
-      </div>
-    </div>
+      <p class="set-note">What your friends see next to your messages. Your username stays the same.</p>
+  </section>
+  <section class="set-page" data-page="privacy" hidden>
+    <div class="set-head"><button class="set-back" type="button" aria-label="Back" title="Back"><svg class="ico"><use href="#i-back"/></svg></button><h2>Privacy</h2></div>
 
-    <div class="set-group">
-      <div class="sect-t2">Privacy &amp; lock</div>
       <p class="set-note">Gizleme locks itself after a pause, so someone picking up your device sees nothing. Unlock with Face ID / fingerprint, or your password.</p>
       <label class="set-row"><span>Auto-lock after</span>
         <select id="autoLock" class="set-sel">
@@ -955,10 +1065,31 @@
       </div>
       <div class="set-row"><span>Lock now</span><button class="pill off" id="lockNowBtn" type="button">Lock</button></div>
       <div class="set-row"><span>Why Gizleme?</span><button class="pill off" id="whyBtn" type="button">Compare</button></div>
-    </div>
-
-    <div class="set-group">
-      <div class="sect-t2">Appearance</div>
+  </section>
+  <section class="set-page" data-page="chats" hidden>
+    <div class="set-head"><button class="set-back" type="button" aria-label="Back" title="Back"><svg class="ico"><use href="#i-back"/></svg></button><h2>Chats</h2></div>
+    <div class="sect-t2">Disappearing messages</div>
+      <p class="set-note">Messages auto-delete from this device after the chosen time. The relay only ever holds ciphertext it cannot read, kept up to 14 days so offline devices can collect it, then deleted.</p>
+      <label class="set-row"><span>All chats (default)</span>
+        <select id="expGlobal" class="set-sel">
+          <option value="0">Off</option>
+          <option value="300000">After 5 minutes</option>
+          <option value="1800000">After 30 minutes</option>
+          <option value="3600000">After 60 minutes</option>
+          <option value="86400000">After 24 hours</option>
+        </select>
+      </label>
+      <label class="set-row" id="expRoomRow"><span id="expRoomLabel">This chat</span>
+        <select id="expRoom" class="set-sel">
+          <option value="">Use default</option>
+          <option value="0">Off</option>
+          <option value="300000">After 5 minutes</option>
+          <option value="1800000">After 30 minutes</option>
+          <option value="3600000">After 60 minutes</option>
+          <option value="86400000">After 24 hours</option>
+        </select>
+      </label>
+    <div class="sect-t2">Appearance</div>
       <div class="set-row"><span id="themeState">Dark</span>
         <button class="pill off" id="themeToggle" type="button">Switch</button>
       </div>
@@ -986,10 +1117,16 @@
           <option value="1.4">Largest</option>
         </select>
       </div>
-    </div>
-
-    <div class="set-group">
-      <div class="sect-t2">Sounds</div>
+  </section>
+  <section class="set-page" data-page="notif" hidden>
+    <div class="set-head"><button class="set-back" type="button" aria-label="Back" title="Back"><svg class="ico"><use href="#i-back"/></svg></button><h2>Notifications and sounds</h2></div>
+<div class="sect-t2">Notifications</div>
+      <p class="set-note">Get alerted when a contact reconnects to reach you — even when Gizleme is closed. <span id="notifyHint"></span></p>
+      <div class="set-row">
+        <span id="notifyState">Off</span>
+        <button class="pill" id="notifyToggle" type="button">Enable</button>
+      </div>
+    <div class="sect-t2">Sounds</div>
       <div class="set-row"><label for="soundSel">Play sounds for</label>
         <select id="soundSel" class="set-sel" aria-label="Play sounds for">
           <option value="all">Messages and calls</option>
@@ -1008,49 +1145,29 @@
         </div>
         <div class="hint" id="toneHint" hidden>Sounds follow your phone's silent switch.</div>
       </div>
-    </div>
-
-    <div class="set-group">
-      <div class="sect-t2">Notifications</div>
-      <p class="set-note">Get alerted when a contact reconnects to reach you — even when Gizleme is closed. <span id="notifyHint"></span></p>
-      <div class="set-row">
-        <span id="notifyState">Off</span>
-        <button class="pill" id="notifyToggle" type="button">Enable</button>
-      </div>
-    </div>
-
-    <div class="set-group">
-      <div class="sect-t2">Disappearing messages</div>
-      <p class="set-note">Messages auto-delete from this device after the chosen time. The relay only ever holds ciphertext it cannot read, kept up to 14 days so offline devices can collect it, then deleted.</p>
-      <label class="set-row"><span>All chats (default)</span>
-        <select id="expGlobal" class="set-sel">
-          <option value="0">Off</option>
-          <option value="300000">After 5 minutes</option>
-          <option value="1800000">After 30 minutes</option>
-          <option value="3600000">After 60 minutes</option>
-          <option value="86400000">After 24 hours</option>
-        </select>
-      </label>
-      <label class="set-row" id="expRoomRow"><span id="expRoomLabel">This chat</span>
-        <select id="expRoom" class="set-sel">
-          <option value="">Use default</option>
-          <option value="0">Off</option>
-          <option value="300000">After 5 minutes</option>
-          <option value="1800000">After 30 minutes</option>
-          <option value="3600000">After 60 minutes</option>
-          <option value="86400000">After 24 hours</option>
-        </select>
-      </label>
-    </div>
-
-    <div class="set-group" id="installGroup" style="display:none">
-      <div class="sect-t2">App</div>
+  </section>
+  <section class="set-page" data-page="install" hidden>
+    <div class="set-head"><button class="set-back" type="button" aria-label="Back" title="Back"><svg class="ico"><use href="#i-back"/></svg></button><h2>Install the app</h2></div>
+    <div id="installGroup" style="display:none">
+      
       <div class="set-row"><span>Install Gizleme on this device</span>
         <button class="pill" id="installPill" type="button">Install</button>
       </div>
     </div>
-
-    <button class="btn" id="settingsClose" type="button">Done</button>
+  </section>
+  <section class="set-page" data-page="account" hidden>
+    <div class="set-head"><button class="set-back" type="button" aria-label="Back" title="Back"><svg class="ico"><use href="#i-back"/></svg></button><h2>Account</h2></div>
+<div class="set-row"><span>Signed in as <b id="acctUser">—</b></span>
+        <button class="pill off" id="logoutBtn" type="button">Log out</button>
+      </div>
+      <div class="set-row"><span>Password <br><span class="lbl-sub">There is no reset: Gizleme has no email or number for you.</span></span>
+        <button class="pill off" id="chpwBtn" type="button">Change</button>
+      </div>
+      <div class="set-danger"><div class="set-row"><span>Delete account <br><span class="lbl-sub">Removes your account, contacts backup and sessions from the server.</span></span>
+        <button class="pill danger" id="delAcctBtn" type="button">Delete</button>
+      </div></div>
+  </section>
+  <button class="btn" id="settingsClose" type="button">Done</button>
   </div>
 </div>
 

@@ -164,20 +164,20 @@ try:
     errsA=[]; errsB=[]
     ctxA=b.new_context(viewport={"width":1000,"height":820},locale="en-US"); A=ctxA.new_page(); A.on("pageerror",lambda e:errsA.append(str(e))); A.on("dialog",lambda d:d.accept())
     A.goto(f"http://127.0.0.1:{port}/"); A.wait_for_timeout(300)
-    A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
     A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(300)     # the inviter is not in the chat: the opener's first words go to the mailbox
     # she already has an account (made on another phone) and logs in on this one FROM the link
     import os as _o; MODE=_o.environ.get("GZ45","login")
     if MODE=="login":
         c0=b.new_context(viewport={"width":390,"height":820},locale="en-US"); P0=c0.new_page(); P0.goto(f"http://127.0.0.1:{port}/"); P0.wait_for_timeout(300)
-        P0.fill("#userInput","serap"); P0.fill("#pwInput","password123"); P0.fill("#pw2Input","password123"); P0.click("#joinBtn"); P0.wait_for_timeout(1800); c0.close()
+        P0.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); P0.fill("#userInput","serap"); P0.fill("#pwInput","password123"); P0.fill("#pw2Input","password123"); P0.click("#joinBtn"); P0.wait_for_timeout(1800); c0.close()
     ctxB=b.new_context(viewport={"width":390,"height":820},locale="en-US"); B=ctxB.new_page(); B.on("pageerror",lambda e:errsB.append(str(e))); B.on("dialog",lambda d:d.accept())
     B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(500)
     if MODE=="login":
-        B.click("#switchLink"); B.wait_for_timeout(200); B.fill("#userInput","serap"); B.fill("#pwInput","password123"); B.click("#joinBtn")
+        B.click("#switchLink"); B.wait_for_timeout(200); B.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); B.fill("#userInput","serap"); B.fill("#pwInput","password123"); B.click("#joinBtn")
     else:
-        B.fill("#userInput","serap"); B.fill("#pwInput","password123"); B.fill("#pw2Input","password123"); B.click("#joinBtn")
+        B.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); B.fill("#userInput","serap"); B.fill("#pwInput","password123"); B.fill("#pw2Input","password123"); B.click("#joinBtn")
     r["B_inChat"]= wait_for(B,"()=>{ const x=window.__gz.room(); return !!(x && x.ck); }",10000)
     B.wait_for_timeout(1500); send(B,"selam")
     B.wait_for_timeout(9000)     # several mailbox passes on both sides, the link mailbox included

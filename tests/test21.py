@@ -57,7 +57,7 @@ with sync_playwright() as pw:
     r["fr_inviteHeadline"]= p.eval_on_selector("#joinHint","e=>e.textContent").startswith("Camille t'invite")
     r["fr_lockTitle"]= p.get_attribute("#sbLock","title")
     r["dispFieldShown"]= p.is_visible("#dispField")
-    p.fill("#userInput","oguz"); p.fill("#dispInput","Oğuz İ."); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#dispInput","Oğuz İ."); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
     r["displayNameSent"]= p.evaluate("()=>window.__reg.display")
     r["fr_peerName"]= p.eval_on_selector("#peerName","e=>e.textContent")          # the invite contact: "Camille"
     r["fr_status"]= p.eval_on_selector("#statusText","e=>e.textContent")
@@ -78,12 +78,12 @@ with sync_playwright() as pw:
     # rename from settings (prompt accepted with "Élodie Ç") → server + presence
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100)
     r["fr_settingsTitle"]= p.eval_on_selector("#settingsModal h1","e=>e.textContent")
-    p.click("#dispEdit"); p.wait_for_timeout(800)
+    p.evaluate("()=>document.querySelector('#settingsModal [data-go=profile]').click()"); p.click("#dispEdit"); p.wait_for_timeout(800)
     r["renamed"]= p.evaluate("()=>window.__renamed")
     r["presenceUsesNewName"]= p.evaluate("()=>window.__chan._me && window.__chan._me.name")
     # switch to English live
     r["fr_selShowsFr"]= p.evaluate("()=>document.getElementById('langSel').value")=="fr"
-    p.select_option("#langSel","en"); p.wait_for_timeout(300)
+    p.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); p.select_option("#langSel","en"); p.wait_for_timeout(300)
     r["en_htmlLang"]= p.evaluate("()=>document.documentElement.lang")
     r["en_settingsTitle"]= p.eval_on_selector("#settingsModal h1","e=>e.textContent")
     r["en_lockTitle"]= p.get_attribute("#sbLock","title")

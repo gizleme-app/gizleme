@@ -72,7 +72,7 @@ with sync_playwright() as pw:
     # two messages wait in Camille's mailbox before we even log in (one from yesterday)
     p.evaluate("([ck])=>window.__drop(ck,{t:'txt',body:'Coucou, tu es là ?',n:'Camille'},'cam-acct',-82800000)",[CKC])
     p.evaluate("([ck])=>window.__drop(ck,{t:'txt',body:'Rappelle-moi stp',n:'Camille'},'cam-acct',-1000)",[CKC])
-    p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
     def rows(): return p.eval_on_selector_all(".ct","els=>els.map(e=>({name:e.querySelector('.cn').textContent.trim(),prev:e.querySelector('.cm').textContent,badge:(e.querySelector('.ubadge')||{}).textContent||''}))")
     rw=rows()
     r["inbox_badgeWithoutOpening"]= [x for x in rw if x["name"]=="Camille"][0]["badge"]=="2"

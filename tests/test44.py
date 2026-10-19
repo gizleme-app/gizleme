@@ -181,7 +181,7 @@ try:
         ctx=b.new_context(**kw); ctx.add_init_script(COUNT); ctx.add_init_script(STUB+extra); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
         return ctx,p
     errsA=[]; errsB=[]; errsC=[]
     ctxA,A=boot("oguz",errsA)
@@ -206,7 +206,7 @@ try:
     B.click("#backHome"); B.wait_for_timeout(300); B.click(".ct"); B.wait_for_timeout(400)
     r["divider_gone_on_reopen"]= B.evaluate("()=>!document.querySelector('.newsep')")
     # a chat opened from scratch (after unlocking): the line is placed once its history is on screen
-    B.evaluate("()=>document.querySelector('#barMenu [data-act=lock]').click()"); B.wait_for_timeout(2600)
+    B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(2600)
     send(A,"n1"); send(A,"n2"); A.wait_for_timeout(800)
     B.fill("#pwInput","password123"); B.click("#joinBtn")
     r["unlock_counted"]= wait_for(B,"()=>document.title==='(2) Gizleme'",10000)
@@ -215,11 +215,11 @@ try:
     wait_for(A,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000); wait_for(B,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000)
     # --- Settings → Sounds
     B.click("#backHome"); B.wait_for_timeout(300)
-    B.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); B.select_option("#soundSel","calls"); B.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
+    B.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); B.evaluate("()=>document.querySelector('#settingsModal [data-go=notif]').click()"); B.select_option("#soundSel","calls"); B.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
     r["mode_saved"]= B.evaluate("()=>localStorage.getItem('gz-sounds')")=="calls"
     B.wait_for_timeout(4200); b0=osc(B); send(A,"silence"); wait_for(B,"()=>!!document.querySelector('.ct .ubadge')",8000); B.wait_for_timeout(1200)
     r["callsOnly_msgSilent"]= osc(B)==b0
-    B.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); B.select_option("#soundSel","all"); B.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
+    B.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); B.evaluate("()=>document.querySelector('#settingsModal [data-go=notif]').click()"); B.select_option("#soundSel","all"); B.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
     B.wait_for_timeout(4200); b1=osc(B); send(A,"ding")
     r["all_rings"]= wait_for(B,"()=>(window.__osc||0)>"+str(b1),8000)
     r["migration_offMeansCalls"]= B.evaluate("()=>{ localStorage.removeItem('gz-sounds'); localStorage.setItem('vesper-sound','off'); const m=window.__gz.soundMode(); localStorage.setItem('gz-sounds','all'); return m; }")=="calls"

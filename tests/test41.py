@@ -63,7 +63,7 @@ with sync_playwright() as pw:
     r["tr_button"]= p.eval_on_selector("#joinBtn","e=>e.textContent")
     r["tr_buttonOk"]= r["tr_button"] in ("Hesap oluştur","Devam","Bağlan")
     r["tr_inviteHeadline"]= "Camille seni özel bir sohbete davet etti" in p.evaluate("()=>document.body.innerText")
-    p.fill("#userInput","ilker"); p.fill("#dispInput","ilker"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","ilker"); p.fill("#dispInput","ilker"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
     p.click("#backHome"); p.wait_for_timeout(300)
     r["tr_listHeader"]= p.eval_on_selector(".sb-head > span:first-child","e=>e.textContent.trim()")=="Sohbetler"
     r["tr_initialDotted"]= p.evaluate("()=>window.__gz.up('i')")=="İ" and p.evaluate("()=>window.__gz.up('ı')")=="I"
@@ -80,6 +80,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.wait_for_timeout(100)
     r["tr_settingsTitle"]= p.eval_on_selector("#settingsModal h1","e=>e.textContent")=="Ayarlar"
     r["sel_showsTr"]= p.evaluate("()=>document.getElementById('langSel').value")=="tr"
+    p.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); p.wait_for_timeout(100)
     r["sel_options"]= p.evaluate("()=>[...document.getElementById('langSel').options].map(o=>o.value+':'+o.textContent).join('|')")=="en:English|fr:Français|tr:Türkçe"
     p.select_option("#langSel","fr"); p.wait_for_timeout(250)
     r["switch_fr"]= p.eval_on_selector("#settingsModal h1","e=>e.textContent")=="Réglages" and p.evaluate("()=>document.documentElement.lang")=="fr"

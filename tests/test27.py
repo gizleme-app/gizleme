@@ -67,7 +67,7 @@ with sync_playwright() as pw:
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     # Oguz invites; the friend has opened the link → both hold the LINK key
-    p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
     p.click("#sbNew"); p.wait_for_timeout(300); link=p.eval_on_selector("#invLinkOut","e=>e.value"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.evaluate("()=>window.__gz.legacyPending()")
     secret=json.loads(base64.urlsafe_b64decode(link.split("#i=")[1]+"=="))["s"]
     CK0=p.evaluate("([s])=>window.__ckFromSecret(s)",[secret])
