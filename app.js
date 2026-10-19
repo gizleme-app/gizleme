@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 34;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 35;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -3865,6 +3865,15 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     previewTone(btn.dataset.tone); refreshSoundUI(); }));
   function refreshLangUI(){ const s=$("langSel"); if(s) s.value=LANG; }
   $("langSel").addEventListener("change",e=>{ const v=e.target.value; if(LANGS.includes(v)) setLang(v); });
+  // iPhone display (see sb.js): shown on iPhone / iPad only, with the numbers that tell what the screen does
+  { const IOSDEV=/iphone|ipad|ipod/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints>1);
+    if(IOSDEV && $("sbRow")){ $("sbRow").hidden=false; $("sbNote").hidden=false; $("sbInfo").hidden=false;
+      let mode="std"; try{ mode=localStorage.getItem("gz-sbmode")==="compat" ? "compat" : "std"; }catch(e){} $("sbSel").value=mode;
+      const diag=()=>{ const v=(/OS (\d+)[._](\d+)/.exec(navigator.userAgent)||[]).slice(1).join("."), si=safeInsets(), sw=Math.min(screen.width,screen.height), sh=Math.max(screen.width,screen.height);
+        $("sbInfo").textContent="iOS "+(v||"?")+" · "+(STANDALONE?"app":"Safari")+" · "+t("screen")+" "+sw+"×"+sh+" · "+t("view")+" "+window.innerWidth+"×"+viewH()+" · safe "+si.top+"/"+si.bottom+" · "+(document.documentElement.classList.contains("ios-gap")?"gap":"no gap")+" · "+mode; };
+      diag(); $("sbRow").closest(".modal") && $("sbRow").closest(".modal").addEventListener("transitionend",diag);
+      $("sbSel").addEventListener("change",e=>{ const v=e.target.value; try{ if(v==="compat") localStorage.setItem("gz-sbmode","compat"); else localStorage.removeItem("gz-sbmode"); }catch(_){}
+        toast(t("Close the app completely, then open it again")); setTimeout(()=>location.reload(), 1800); }); } }
   { const ts=$("textSize"); if(ts){ ts.value=String(textScale());
     ts.addEventListener("change",e=>{ const v=+e.target.value; if(!TEXT_SIZES.includes(v)) return; try{ localStorage.setItem(LS_TEXT,String(v)); }catch(_){} applyTextScale(v); stickLog(); toast(t("Text size updated")); }); } }
   refreshLangUI();   // the selector shows the language in use from the start (detected or saved)

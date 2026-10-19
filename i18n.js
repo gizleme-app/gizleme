@@ -696,7 +696,14 @@ window.GZ_I18N = {
     "Large": "Grande",
     "Larger": "Plus grande",
     "Largest": "Très grande",
-    "Text size updated": "Taille du texte modifiée"
+    "Text size updated": "Taille du texte modifiée",
+    "iPhone display": "Affichage iPhone",
+    "Standard": "Standard",
+    "Compatibility": "Compatibilité",
+    "A black band at the bottom of the screen? Choose “Compatibility”, then close the app completely and open it again.": "Une bande noire en bas de l'écran ? Choisis « Compatibilité », puis ferme complètement l'app et rouvre-la.",
+    "Close the app completely, then open it again": "Ferme complètement l'app, puis rouvre-la",
+    "screen": "écran",
+    "view": "vue"
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1382,6 +1389,13 @@ window.GZ_I18N = {
     "Large": "Büyük",
     "Larger": "Daha büyük",
     "Largest": "En büyük",
-    "Text size updated": "Yazı boyutu güncellendi"
+    "Text size updated": "Yazı boyutu güncellendi",
+    "iPhone display": "iPhone ekranı",
+    "Standard": "Standart",
+    "Compatibility": "Uyumluluk",
+    "A black band at the bottom of the screen? Choose “Compatibility”, then close the app completely and open it again.": "Ekranın altında siyah bir bant mı var? « Uyumluluk »u seç, sonra uygulamayı tamamen kapatıp yeniden aç.",
+    "Close the app completely, then open it again": "Uygulamayı tamamen kapat, sonra yeniden aç",
+    "screen": "ekran",
+    "view": "görünüm"
   }
 };

@@ -23,6 +23,7 @@
 <meta name="apple-mobile-web-app-title" content="Gizleme"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="theme-color" content="#040509"/>
+<script src="/sb.js"></script>
 <style>
   :root{
     --bg:#f3f4f6; --surface:#ffffff; --surface-2:#eef0f3;
@@ -634,6 +635,7 @@
   html{background:var(--surface)}
   html.ios-gap .composer{padding-bottom:10px} html.ios-gap .cmp-panel{padding-bottom:14px} html.ios-gap .call-ctl{padding-bottom:28px}
   html.ios-gap .fab{bottom:20px} html.ios-gap .toast{bottom:84px} html.ios-gap .lightbox .lb-timer{bottom:22px} html.ios-gap .pad{padding-bottom:0}
+  .sb-diag{font-family:var(--mono);font-size:.68rem;opacity:.75;word-break:break-word}
 </style>
 </head>
 <body>
@@ -927,6 +929,14 @@
           <option value="tr" lang="tr">Türkçe</option>
         </select>
       </div>
+      <div class="set-row" id="sbRow" hidden><label for="sbSel">iPhone display</label>
+        <select id="sbSel" class="set-sel" aria-label="iPhone display">
+          <option value="std">Standard</option>
+          <option value="compat">Compatibility</option>
+        </select>
+      </div>
+      <p class="set-note" id="sbNote" hidden>A black band at the bottom of the screen? Choose “Compatibility”, then close the app completely and open it again.</p>
+      <p class="set-note sb-diag" id="sbInfo" hidden></p>
       <div class="set-row"><label for="textSize">Text size</label>
         <select id="textSize" class="set-sel" aria-label="Text size">
           <option value="0.9">Small</option>

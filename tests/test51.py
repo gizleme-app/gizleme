@@ -62,7 +62,7 @@ HOOK='''window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),
 '''
 _app=_app[:_app.rstrip().rfind("})();")]+HOOK+'})();\n'
 (site/"app.js").write_text(_app)
-for f in ["watermark.png","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg","logo-head.png","logo-word.png","logo-dot.png","call-icon.png","call-badge.png"]:
+for f in ["watermark.png","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg","logo-head.png","logo-word.png","logo-dot.png","call-icon.png","call-badge.png","sb.js"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())
 (site/"vendor").mkdir(exist_ok=True)
 for _v in _os.listdir(SRC+"vendor"):
@@ -204,6 +204,23 @@ try:
     r["small_fields_stay_16"]= B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="14.4px" and B.evaluate("()=>parseFloat(getComputedStyle(document.getElementById('msgInput')).fontSize)")>=16
     B.evaluate("()=>{ localStorage.setItem('gz-textsize','7'); }"); B.reload(); B.wait_for_timeout(500)
     r["bad_value_ignored"]= B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="16px"
+    # ---- iPhone display: compatibility mode (sb.js) ----
+    IPHONE="Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
+    cP=b.new_context(viewport={"width":390,"height":780},locale="en-US",user_agent=IPHONE,color_scheme="dark"); P=cP.new_page(); P.on("pageerror",lambda e:errs.append(str(e)))
+    P.goto(f"http://127.0.0.1:{port}/?sbtest=1"); P.wait_for_timeout(500)
+    m=P.evaluate("()=>({cls:document.documentElement.classList.contains('sb-compat'), vp:document.querySelector('meta[name=viewport]').content, sb:document.querySelector('meta[name=apple-mobile-web-app-status-bar-style]').content, ls:localStorage.getItem('gz-sbmode')})")
+    r["sb_link_turns_on"]= m["cls"] and "viewport-fit" not in m["vp"] and m["sb"]=="black" and m["ls"]=="compat"
+    P.goto(f"http://127.0.0.1:{port}/"); P.wait_for_timeout(400)
+    r["sb_kept"]= P.evaluate("()=>document.documentElement.classList.contains('sb-compat')")
+    P.fill("#userInput","ipek"); P.fill("#pwInput","password123"); P.fill("#pw2Input","password123"); P.click("#joinBtn"); P.wait_for_timeout(1500)
+    P.evaluate("()=>document.querySelectorAll('.modal.show').forEach(x=>x.classList.remove('show'))")
+    P.evaluate("()=>document.getElementById('sbSettings').click()"); P.wait_for_timeout(300)
+    r["sb_setting_on_iphone"]= P.is_visible("#sbRow") and P.evaluate("()=>document.getElementById('sbSel').value")=="compat" and "iOS 26.5" in P.eval_on_selector("#sbInfo","e=>e.textContent")
+    r["sb_info_v"]= P.eval_on_selector("#sbInfo","e=>e.textContent")
+    P.select_option("#sbSel","std"); P.wait_for_timeout(2600)
+    r["sb_setting_turns_off"]= P.evaluate("()=>!document.documentElement.classList.contains('sb-compat') && /viewport-fit=cover/.test(document.querySelector('meta[name=viewport]').content) && localStorage.getItem('gz-sbmode')===null")
+    cP.close()
+    r["sb_row_hidden_elsewhere"]= not B.evaluate("()=>{ const e=document.getElementById('sbRow'); return !!e && !e.hidden; }")
     r["errors"]= errs[:4]
     b.close()
 except Exception as e:
