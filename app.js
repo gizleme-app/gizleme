@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 37;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 38;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -222,7 +222,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   let c=[], g=[];
   let meta=null;
   try{ const r=JSON.parse(localStorage.getItem(LS_LOCAL)||"null"); if(r&&r.ct&&gHistKey){ const o=JSON.parse(dec.decode(await aesDec(gHistKey,r.iv,r.ct))); c=o.contacts||[]; g=o.groups||[]; meta=o.meta||null; } }catch(e){}
-  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}, outq:(meta&&meta.outq)||{}, mbts:(meta&&meta.mbts)||{}, notified:(meta&&meta.notified)||{}, ident:(meta&&meta.ident)||null, gone:(meta&&meta.gone)||{}};
+  _meta={unread:(meta&&meta.unread)||{}, rcpt:(meta&&meta.rcpt)||{}, viewed:(meta&&meta.viewed)||{}, outq:(meta&&meta.outq)||{}, mbts:(meta&&meta.mbts)||{}, notified:(meta&&meta.notified)||{}, ident:(meta&&meta.ident)||null, gone:(meta&&meta.gone)||{}, delm:(meta&&meta.delm)||{}};
   _identKeys=null;
   // older builds kept mailbox cursors and nudge times in localStorage: take them in, then remove them
   try{ const o=JSON.parse(localStorage.getItem(LS_MBTS)||"null"); if(o){ for(const k in o) if(!(k in _meta.mbts)) _meta.mbts[k]=o[k]; localStorage.removeItem(LS_MBTS); } }catch(e){}
@@ -505,7 +505,7 @@ function chatColor(rec, isGroup){ if(rec && AVA_COLORS[rec.cl]) return AVA_COLOR
 function recOfId(id){ id=String(id||""); if(id.startsWith("g:")) return _groups.find(g=>g.rid===id.slice(2))||null;
   if(id.startsWith("c:")) return _contacts.find(c=>c.ck===id.slice(2))||null; return null; }
 function roomColor(R){ const rec=muteRecOf(R); return chatColor(rec, !!(R && R.group)); }
-function paintPeerAvatar(){ const e=$("peerAvatar"); if(!e) return; const R=A(); e.style.background=R ? roomColor(R) : ""; }
+function paintPeerAvatar(){ const e=$("peerAvatar"); if(!e) return; const R=A(); e.style.background=R ? roomColor(R) : ""; e.classList.toggle("grp", !!(R && R.group)); }
 function setAvaColor(id, key){ const now=Date.now(); id=String(id||"");
   const apply=rec=>{ if(key && AVA_COLORS[key]) rec.cl=key; else delete rec.cl; rec.cts=now; };
   if(id.startsWith("g:")){ const l=groupsLoad(); const g=l.find(x=>x.rid===id.slice(2)); if(!g) return false; apply(g); groupsSave(l); }
@@ -531,6 +531,87 @@ function openColorPick(row){
   pk.style.top=Math.round(top)+"px"; pk.style.left=Math.round(left)+"px";
 }
 function closeColorPick(){ const pk=$("colPick"); if(pk) pk.hidden=true; _colFor=null; }
+
+// ---------- search (v38): chats by name, then messages from this device's history ----------
+function fold(s){ return String(s||"").toLocaleLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/ı/g,"i"); }
+function foldMap(s){ let out=""; const map=[]; for(let i=0;i<s.length;i++){ const f=fold(s[i]); for(let k=0;k<f.length;k++){ out+=f[k]; map.push(i); } } map.push(s.length); return {out, map}; }
+let _sq="", _sRes=null, _sCache=null, _sCacheAt=0, _sGen=0, _sT=null;
+function searchStale(){ _sCache=null; if(_sq) { clearTimeout(_sT); _sT=setTimeout(runSearch, 300); } }
+function chatMatches(it){ return !_sq || fold((it.alias||"")+" "+dn(it.name||"")).includes(_sq); }
+// put the matching part of text in <mark>, around a short window
+function markText(el, text, q, win){ const {out, map}=foldMap(text); const i=out.indexOf(q); el.textContent="";
+  if(i<0){ el.textContent=text; return; }
+  let a=map[i], z=map[Math.min(i+q.length, map.length-1)]; if(i+q.length>=out.length) z=text.length;
+  let s0=0, s1=text.length; if(win && text.length>win*2){ s0=Math.max(0, a-win); s1=Math.min(text.length, z+win); }
+  el.append((s0>0?"…":"")+text.slice(s0, a)); const mk=document.createElement("mark"); mk.textContent=text.slice(a, z); el.append(mk, text.slice(z, s1)+(s1<text.length?"…":"")); }
+function searchable(past, k){
+  const dur=expFor(k), cut=dur?Date.now()-dur:0, ed=new Map(), gone=new Set();
+  for(const r of past){ if(!r || !r.env) continue;
+    if(r.env.t==="edit" && editValid(r.env)){ const c=ed.get(r.env.m); if(!c || c.ts<=(r.ts||0)) ed.set(r.env.m, {x:r.env.x, ts:r.ts||0}); }
+    if(r.env.t==="gone") gone.add(r.mid); }
+  const out=[];
+  for(const r of past){ if(!r || !r.env || !r.mid || gone.has(r.mid)) continue; if(dur && (r.ts||0)<=cut) continue;
+    const e=r.env; let x="";
+    if(!e.t || e.t==="txt") x=(ed.get(r.mid)||{}).x || e.body || "";
+    else if(e.t==="doc") x=e.name||""; else if(e.t==="poll") x=[e.q].concat(e.o||[]).join(" · "); else if(e.t==="evt") x=[e.ti, e.loc, e.note].filter(Boolean).join(" · ");
+    else continue;
+    if(x) out.push({mid:r.mid, ts:r.ts||0, dir:r.dir, who:r.who||"", x, f:fold(x)}); }
+  return out; }
+async function runSearch(){
+  const q=_sq, gen=++_sGen, box=_sRes; if(!box) return;
+  if(!q){ box.hidden=true; box.innerHTML=""; return; }
+  if(!_sCache || Date.now()-_sCacheAt>60000){ _sCache=new Map(); _sCacheAt=Date.now(); }
+  const chats=groupsLoad().map(g=>({t:"g", id:"g:"+g.rid, rid:g.rid, gk:g.gk, name:g.name, alias:g.alias, cl:g.cl}))
+    .concat(contactsLoad().filter(c=>!c.into && c.name!==INV_PLACEHOLDER).map(c=>({t:"c", id:"c:"+c.ck, ck:c.ck, name:c.name, alias:c.alias, cl:c.cl})));
+  const hits=[];
+  for(const it of chats){ const k=previewKeyOf(it); let recs=_sCache.get(k);
+    if(!recs){ recs=searchable(await histLoad(k), k); _sCache.set(k, recs); if(gen!==_sGen) return; }   // a newer search took over
+    for(const r of recs) if(r.f.includes(q)) hits.push({it, r}); }
+  if(gen!==_sGen) return;
+  hits.sort((a,b)=>b.r.ts-a.r.ts);
+  box.innerHTML=""; box.hidden=false;
+  const h=document.createElement("div"); h.className="sr-h"; h.textContent=t("Messages"); box.appendChild(h);
+  if(!hits.length){ const n=document.createElement("div"); n.className="sr-none"; n.textContent=t("No messages found"); box.appendChild(n); return; }
+  for(const {it, r} of hits.slice(0, 60)){
+    const b=document.createElement("button"); b.type="button"; b.className="sr"; b.dataset.mid=r.mid;
+    const av=document.createElement("span"); av.className="ava"+(it.t==="g"?" grp":""); av.textContent=it.t==="g"?"👥":up(((it.alias||dn(it.name))||"?")[0]); { const c=chatColor(it, it.t==="g"); if(c) av.style.background=c; }
+    const bd=document.createElement("span"); bd.className="sr-b";
+    const tl=document.createElement("span"); tl.className="sr-t"; const nm=document.createElement("span"); nm.className="sr-n"; nm.textContent=it.alias||dn(it.name)||t("Chat");
+    const dt=document.createElement("span"); dt.className="sr-d"; dt.textContent=fmtListTime(r.ts); tl.append(nm, dt);
+    const sn=document.createElement("span"); sn.className="sr-s"; const pre=r.dir==="sent" ? t("You: ") : (it.t==="g" && r.who ? r.who+": " : "");
+    const inner=document.createElement("span"); markText(inner, r.x, q, 40); sn.append(pre, inner);
+    bd.append(tl, sn); b.append(av, bd);
+    b.addEventListener("click",()=>openSearchHit(it, r.mid)); box.appendChild(b); }
+}
+// open the chat, then bring the message into view once it's drawn
+function openSearchHit(it, mid){ closeSidebar();
+  it.t==="g" ? openGroup(it.rid, it.gk, it.name) : openContact(it.ck, it.alias||it.name);
+  const t0=Date.now(); const tick=()=>{ const R=A(); const b=R && bubbleOf(R, mid); if(b){ jumpToQuoted(R, mid); return; } if(Date.now()-t0<4000) setTimeout(tick, 100); }; setTimeout(tick, 60); }
+function setSearch(v){ const q=fold(String(v||"").trim()); $("listSearchX").hidden=!v; if(q===_sq) return; _sq=q;
+  if(!q){ _sCache=null; }
+  renderContacts(); clearTimeout(_sT); _sT=setTimeout(runSearch, q ? 180 : 0); }
+
+// ---------- search inside a chat (⋮ → Search) ----------
+let _find={q:"", hits:[], i:-1};
+function findTextEls(b){ return [...b.querySelectorAll(":scope > .txt, .doc-n, .pq, .po .pt, .et, .el, .en")]; }
+function clearFind(){ (_find.hits||[]).forEach(b=>b.classList.remove("find-hit","find-cur")); try{ if(window.CSS && CSS.highlights) CSS.highlights.delete("gz-find"); }catch(e){} _find.hits=[]; _find.i=-1; }
+function openFind(){ const R=A(); if(!R || !R.logEl) return; $("findBar").hidden=false; $("findInput").value=""; clearFind(); $("findCount").textContent=""; try{ $("findInput").focus(); }catch(e){} }
+function closeFind(){ const fb=$("findBar"); if(!fb || fb.hidden) return; fb.hidden=true; clearFind(); }
+function runFind(){ const R=A(); clearFind(); const q=fold($("findInput").value.trim()); _find.q=q;
+  if(!q || !R || !R.logEl){ $("findCount").textContent=""; return; }
+  const ranges=[], HL=typeof Highlight==="function" && window.CSS && CSS.highlights;
+  R.logEl.querySelectorAll(".bubble").forEach(b=>{ let hit=false;
+    for(const el of findTextEls(b)){ const w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n;
+      while((n=w.nextNode())){ const {out, map}=foldMap(n.nodeValue); let from=0, i;
+        while((i=out.indexOf(q, from))>=0){ hit=true; if(HL){ try{ const rg=new Range(); rg.setStart(n, map[i]); rg.setEnd(n, Math.min(n.nodeValue.length, map[i+q.length-1]+1)); ranges.push(rg); }catch(e){} } from=i+q.length; } } }
+    if(hit){ b.classList.add("find-hit"); _find.hits.push(b); } });
+  if(HL && ranges.length){ try{ CSS.highlights.set("gz-find", new Highlight(...ranges)); }catch(e){} }
+  _find.i=_find.hits.length-1; showFindCur(); }
+function showFindCur(){ _find.hits.forEach(x=>x.classList.remove("find-cur")); const b=_find.hits[_find.i];
+  if(b){ b.classList.add("find-cur"); try{ b.scrollIntoView({block:"center"}); }catch(e){} }
+  $("findCount").textContent= !_find.q ? "" : _find.hits.length ? t("{i} of {n}",{i:_find.i+1, n:_find.hits.length}) : t("No results");
+  $("findUp").disabled=_find.i<=0; $("findDown").disabled=_find.i<0 || _find.i>=_find.hits.length-1; }
+function findStep(d){ if(!_find.hits.length) return; _find.i=Math.max(0, Math.min(_find.hits.length-1, _find.i+d)); showFindCur(); }
 // ---------- Chat info: everything about one chat in one place, from a tap on its name (v37) ----------
 function infoId(R){ return !R ? null : R.group ? "g:"+R.rid : R.fromContact ? "c:"+R.fromContact : null; }
 function infoShown(){ const m=$("infoModal"); return !!(m && m.classList.contains("show")); }
@@ -543,7 +624,7 @@ function refreshInfo(){ const R=A(); if(!R || !$("infoModal")) return;
   const grp=!!R.group, id=infoId(R), rec=recOfId(id), c=(!grp && R.fromContact) ? contactFind(R.fromContact) : null;
   const name=(rec && (rec.alias || dn(rec.name))) || dn(R.peerName) || dn(R.title) || t("Chat");
   $("ciName").textContent=name;
-  const ava=$("ciAva"); ava.textContent=grp ? "👥" : up((name||"?")[0]); ava.style.background=roomColor(R)||"";
+  const ava=$("ciAva"); ava.textContent=grp ? "👥" : up((name||"?")[0]); ava.style.background=roomColor(R)||""; ava.classList.toggle("grp", grp);
   const real=c ? dn(c.name) : "", sub=grp ? t("Group") : (rec && rec.alias && real && real!==rec.alias ? real : "");
   $("ciSub").textContent=sub; $("ciSub").hidden=!sub;
   $("ciStatus").textContent=R.statusText||"";
@@ -617,10 +698,13 @@ function renderContacts(fromPreview){
     const e2=document.createElement("p"); e2.className="sb-empty-sub"; e2.textContent=t("Got a link from a friend? Just open it.");
     wrap.appendChild(e); wrap.appendChild(btn); wrap.appendChild(e2); el.appendChild(wrap); return; }
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
-  items.forEach(it=>{
+  if(!_sRes) _sRes=$("searchResults");
+  const shownItems=_sq ? items.filter(chatMatches) : items;
+  if(_sq && !shownItems.length){ const n=document.createElement("div"); n.className="sr-none"; n.textContent=t("No chats found"); el.appendChild(n); }
+  shownItems.forEach(it=>{
     const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":""); row.dataset.id=it.id;
     { const pk=previewKeyOf(it), age=pulseAge(_pulse.get(pk)); if(age>=0 && it.id!==activeId){ row.classList.add("pulse"); row.style.setProperty("--pd","-"+age+"ms"); } else if(age<0) _pulse.delete(pk); }
-    const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.textContent=it.t==="g"?"👥":(up((it.alias||it.name)&&(it.alias||it.name)[0]||"?"));
+    const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.setAttribute("aria-hidden","true"); ava.textContent=it.t==="g"?"👥":(up((it.alias||it.name)&&(it.alias||it.name)[0]||"?"));
     if(AVA_COLORS[it.cl]){ ava.style.background=AVA_COLORS[it.cl]; ava.dataset.cl=it.cl; }   // the colour chosen for this chat (long press)
     else if(it.t==="c") ava.style.background=autoColor(it.ck);                                  // else its own colour, from its key
     const ci=document.createElement("div"); ci.className="ci";
@@ -642,9 +726,10 @@ function renderContacts(fromPreview){
     const pc = pendingInv ? (contactFind(it.ck)||{}) : null;
     const placeholder = pendingInv ? (pc.dead ? t("Invite cancelled · make a new link") : inviteExpired(pc.x) ? t("Invite expired · make a new link") : t("Invite sent · waiting for them to open it")) : (it.t==="g" ? t("Group · say hello") : t("Tap to start chatting"));
     // "Hide previews": nothing readable over your shoulder — only whether there's something new
-    cm.textContent= previewsHidden()
-      ? (unread ? t(unread>1?"{n} new messages":"{n} new message",{n:unread}) : (pv ? t("🔒 Encrypted message") : placeholder))
-      : (pv ? pv.text : placeholder);
+    { const txt= previewsHidden()
+        ? (unread ? t(unread>1?"{n} new messages":"{n} new message",{n:unread}) : (pv ? t("🔒 Encrypted message") : placeholder))
+        : (pv ? pv.text : placeholder);
+      if(pv && (pv.ui || previewsHidden())) iconText(cm, txt); else cm.textContent=txt; }
     if(unread) cm.classList.add("unread");
     { let TR=null; rooms.forEach(x=>{ if(!TR && x.typing && typingRowId(x)===it.id) TR=x; }); const tl=TR ? typingLabel(TR) : "";
       if(tl){ cm.dataset.was=cm.textContent; cm.textContent=tl; cm.classList.add("typing"); } }
@@ -658,8 +743,10 @@ function renderContacts(fromPreview){
     row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
     row.addEventListener("click",()=>{ if(row._lp){ row._lp=false; return; }   // that was a long press: the colour menu is open
       it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.alias||it.name); });
+    if(_sq){ const row1=row.querySelector(".cn"), tn=row1 && row1.firstChild; if(tn && tn.nodeType===3){ const sp=document.createElement("span"); markText(sp, tn.nodeValue, _sq, 0); row1.replaceChild(sp, tn); } }
     el.appendChild(row);
   });
+  if(_sRes){ if(_sq) el.appendChild(_sRes); else _sRes.hidden=true; }
   updateBadge(); scheduleMuteRefresh(); paintPeerAvatar();
 }
 
@@ -1033,12 +1120,14 @@ async function fetchMailboxId(R, id, key, ck){
 }
 // One place where every inbound message lands (live, mailbox, background): render if the chat is open,
 // always save, count as unread when not being looked at, and tell the sender it arrived.
-const QUIET_T=new Set(["react","edit","exp","vote"]);   // envelopes that change a chat without being a message: no sound, no unread
+const QUIET_T=new Set(["react","edit","exp","vote","del"]);   // envelopes that change a chat without being a message: no sound, no unread
 function onInbound(R, env, who, ts, mid, own, animate){
   if(env && env.t==="react"){ onReactEnv(R, env, who, ts, mid, own); return; }
   if(env && env.t==="edit"){ onEditEnv(R, env, who, ts, mid, own); return; }
   if(env && env.t==="exp"){ onExpEnv(R, env, who, ts, mid, own); return; }
   if(env && env.t==="vote"){ onVoteEnv(R, env, who, ts, mid, own); return; }
+  if(env && env.t==="del"){ onDelEnv(R, env, who, ts, mid, own); return; }
+  if(mid && _meta.delm && _meta.delm[mid]){ if(goneOnArrival(R, env, who, ts, mid, own)) return; }
   if(!own) typingClear(R, who);
   if(R.shadow){   // the inbox read it: show it in the open chat of that conversation (or of the chat it was merged into)
     let ck=R.fromContact; if(ck && !R.group){ const tg=mergedTarget(contactFind(ck)); if(tg) ck=tg.ck; }
@@ -1052,7 +1141,7 @@ function onInboundView(R, V, env, who, ts, mid, own, animate){
   if(own){   // sent from another of our devices: appears on this one as our own message, no sound, no badge
     if(validGinv(env)) groupAddIfNew(env.rid, env.gk, env.name, env.adm);
     if(keptPhoto(env)) keepPhotoSoon(hk, mid, env, ts);
-    if(open){ if(env.t==="img"){ if(keptPhoto(env)) addImageKept(V.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); else addText(V.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid)}); }
+    if(open){ if(env.t==="img"){ if(keptPhoto(env)) addImageKept(V.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); else addText(V.logEl,"sent",t("📷 Photo"),"",false,ts,{mid,st:stateFor(mid),ui:1}); }
       else if(env.t==="aud"){ if(validAud(env)) addVoice(V.logEl,"sent",env,"",ts,{mid,st:stateFor(mid),room:hk}); }
       else if(validLoc(env)) addCard(V.logEl,"sent",locCard(env,true),"",ts,{mid,st:stateFor(mid)});
       else if(validGinv(env)) addCard(V.logEl,"sent",ginvCard(env,"","sent"),"",ts,{mid,st:stateFor(mid)});
@@ -1063,6 +1152,7 @@ function onInboundView(R, V, env, who, ts, mid, own, animate){
   }
   const tag=R.group?(who||""):""; const vf=R.group?env.vf:undefined;
   if(open && V.code===active && V.logEl._stick===false){ V._below=(V._below||0)+1; setTimeout(jumpUpdate,0); }
+  if(open && R.group && mid && env.pk) setTimeout(()=>{ const b=bubbleOf(V, mid); if(b && !b.dataset.pk) b.dataset.pk=env.pk; }, 0);   // its signer: only they may delete it for everyone
   if(env.t==="img"){ if(keptPhoto(env)){ keepPhotoSoon(hk, mid, env, ts); if(open) addImageKept(V.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
     else if(open) addImageRecvOnce(V.logEl,env,tag,ts,mid,vf); }
   else if(env.t==="aud"){ if(!validAud(env)) return; if(open) addVoice(V.logEl,"recv",env,tag,ts,{mid,room:hk,vf}); }
@@ -1547,6 +1637,7 @@ const _prev={}; let _prevT=null;
 function previewKeyOf(it){ return it.t==="g" ? it.rid : ckHistKey(it.ck); }   // the same key history and unread counts use
 function previewText(r, isGroup){
   if(!r) return "";
+  if(r.env && r.env.t==="gone") return r.dir==="sent" ? t("🚫 You deleted this message") : (isGroup && r.who ? r.who+": " : "")+t("🚫 This message was deleted");
   const body = r.env && r.env.t==="img" ? t("📷 Photo") : r.env && r.env.t==="aud" ? t("🎤 Voice message") : r.env && r.env.t==="loc" ? t("📍 Location") : r.env && r.env.t==="ginv" ? t("👥 Group invitation") : (r.env && r.env.body) || "";
   if(r.dir==="sent") return t("You: ")+body;
   return (isGroup && r.who ? r.who+": " : "") + body;
@@ -1566,7 +1657,7 @@ function refreshPreviews(){           // debounced; re-renders the list only if 
     let changed=false;
     for(const it of items){ const k=previewKeyOf(it); const r=await histLast(k);
       const dur=expFor(k); if(r && dur && (r.ts||0)<=Date.now()-dur){ if(_prev[k]){ delete _prev[k]; changed=true; } continue; }   // expired: no preview
-      const nx=r?{text:previewText(r,it.t==="g"),ts:r.ts||0,dir:r.dir}:null; const old=_prev[k];
+      const nx=r?{text:previewText(r,it.t==="g"),ts:r.ts||0,dir:r.dir,ui:!!(r.env && r.env.t && r.env.t!=="txt")}:null; const old=_prev[k];
       if((nx&&!old)||(!nx&&old)||(nx&&old&&(nx.text!==old.text||nx.ts!==old.ts))){ if(nx) _prev[k]=nx; else delete _prev[k]; changed=true; } }
     if(changed) renderContacts(true);
   }, 120);
@@ -1732,7 +1823,8 @@ async function sendVoice(bytes, dur){
   await go();
 }
 let _vplay=null;   // {src, el, raf}
-function voiceStop(){ const v=_vplay; _vplay=null; if(!v) return; try{ v.src.onended=null; v.src.stop(); }catch(e){} cancelAnimationFrame(v.raf); v.btn.textContent="▶"; v.fill.style.width="0%"; v.dur.textContent=fmtSec(v.total);
+function vbtnState(b, st){ b.dataset.st=st; b.textContent=""; b.appendChild(icoEl(st==="pause"?"i-pause":"i-play","")); b.setAttribute("aria-label", st==="pause" ? t("Pause") : t("Play voice message")); }
+function voiceStop(){ const v=_vplay; _vplay=null; if(!v) return; try{ v.src.onended=null; v.src.stop(); }catch(e){} cancelAnimationFrame(v.raf); vbtnState(v.btn,"play"); v.fill.style.width="0%"; v.dur.textContent=fmtSec(v.total);
   try{ const as=navigator.audioSession; if(as && as.type==="playback") as.type="auto"; }catch(e){} }
 async function voicePlay(st){
   if(_vplay && _vplay.el===st.el){ voiceStop(); return; }
@@ -1743,7 +1835,7 @@ async function voicePlay(st){
   const src=audioCtx.createBufferSource(); src.buffer=buf; src.connect(audioCtx.destination);
   const total=buf.duration, full=st.full||total, off=st.off||0, t0=audioCtx.currentTime;   // after a seek: what plays is the tail, the bar and the length show the whole
   const v={src, el:st.el, btn:st.btn, fill:st.fill, dur:st.durEl, total:full, raf:0}; _vplay=v;
-  st.btn.textContent="⏸";
+  vbtnState(st.btn,"pause");
   const tick=()=>{ if(_vplay!==v) return; const p=off+(1-off)*Math.min(1,(audioCtx.currentTime-t0)/total); v.fill.style.width=(p*100).toFixed(1)+"%"; v.dur.textContent=fmtSec(full*(1-p)); v.raf=requestAnimationFrame(tick); };
   src.onended=()=>{ if(_vplay===v) voiceStop(); }; src.start(); v.raf=requestAnimationFrame(tick);
 }
@@ -1755,7 +1847,7 @@ function addVoice(logEl, cls, env, tag, ts, opts){
   const d=document.createElement("div"); d.className="bubble "+cls+" voice"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
   if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   const row=document.createElement("div"); row.className="vc";
-  const btn=document.createElement("button"); btn.className="vbtn"; btn.type="button"; btn.textContent="▶"; btn.setAttribute("aria-label",t("Play voice message"));
+  const btn=document.createElement("button"); btn.className="vbtn"; btn.type="button"; vbtnState(btn,"play");
   const bar=document.createElement("div"); bar.className="vbar"; const fill=document.createElement("div"); fill.className="vfill"; bar.appendChild(fill);
   const durEl=document.createElement("span"); durEl.className="vdur"; durEl.textContent=fmtSec(env.dur||0);
   row.appendChild(btn); row.appendChild(bar); row.appendChild(durEl); d.appendChild(row);
@@ -2300,10 +2392,12 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   if(opts.quote) d.appendChild(opts.quote);
   const t=document.createElement("span"); t.className="txt"; d.appendChild(t);
+  if(opts.ui){ d.dataset.ui="1"; }
   if(cls==="sent"||cls==="recv") metaRow(d, ts, cls==="sent" ? (opts.st||"sent") : null);
   if(cls==="sent"){ d.addEventListener("click",()=>{ if(d.classList.contains("failed") && d._retry) d._retry(); }); }
   logEl.appendChild(d); scrollEl(logEl, cls==="sent");
-  if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
+  if(opts.ui) iconText(t, body);
+  else if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
   if(opts.edited) markEdited(d);
   return d;
 }
@@ -2372,6 +2466,97 @@ async function sendEdit(R, text){
   if(!ok){ if(tx) tx.textContent=prev; b.dataset.edts=prevTs; if(!wasEdited){ b.classList.remove("edited"); const m=b.querySelector(".edm"); if(m) m.remove(); }
     toast(t("Edit not sent — check your connection")); return; }
   refreshPreviews();
+}
+
+// ---------- deleting a message (v38) ----------
+// "For me": the message leaves this device — its saved copy, the reactions, edits and votes that point at it,
+// its media. "For everyone": our own message, within 48 hours, also leaves the other devices: a quiet
+// {t:"del", m} envelope (signed in a group) that only the author's own message obeys; "This message was
+// deleted" takes its place on every side. What someone already saw, saved or forwarded can't be taken back.
+const DEL_WINDOW=48*3600*1000;
+function delValid(env){ return !!(env && env.t==="del" && typeof env.m==="string" && MID_RE.test(env.m)); }
+function delmMark(mid, how){ if(!mid) return; _meta.delm=_meta.delm||{}; _meta.delm[mid]=Object.assign({at:Date.now()}, how||{});
+  const ks=Object.keys(_meta.delm); if(ks.length>600) ks.sort((a,b)=>(_meta.delm[a].at||0)-(_meta.delm[b].at||0)).slice(0,ks.length-600).forEach(k=>{ delete _meta.delm[k]; });
+  localSaveSoon(); }
+// remove the saved copies of these messages, and every reaction / edit / vote that points at them, and their media
+async function histPurge(room, mids){
+  if(!gHistKey || !mids || !mids.size) return;
+  try{ const rm=await histKeyAsync(room); const db=await idb();
+    const recs=await new Promise((res,rej)=>{ const out=[]; const rq=db.transaction("msgs").objectStore("msgs").index("room").openCursor(IDBKeyRange.only(rm));
+      rq.onsuccess=e=>{ const c=e.target.result; if(c){ out.push({k:c.primaryKey, v:c.value}); c.continue(); } else res(out); }; rq.onerror=()=>rej(rq.error); });
+    const dels=[];
+    for(const x of recs){ try{ const o=JSON.parse(dec.decode(await aesDec(gHistKey,x.v.iv,x.v.ct)));
+      if((o.mid && mids.has(o.mid)) || (o.env && typeof o.env.m==="string" && mids.has(o.env.m) && /^(react|edit|vote|del)$/.test(o.env.t||""))) dels.push(x.k); }catch(e){} }
+    await new Promise(res=>{ const tx=db.transaction(["msgs","media"],"readwrite"); const ms=tx.objectStore("msgs"), md=tx.objectStore("media");
+      dels.forEach(k=>ms.delete(k)); mids.forEach(m=>{ try{ md.delete(m); }catch(e){} }); tx.oncomplete=res; tx.onerror=res; tx.onabort=res; });
+  }catch(e){}
+  refreshPreviews();
+}
+function goneBubble(logEl, cls, tag, ts, opts){ opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
+  const d=goneEl(cls, tag, ts, opts); logEl.appendChild(d); scrollEl(logEl, false); return d; }
+function goneEl(cls, tag, ts, opts){ opts=opts||{};
+  const d=document.createElement("div"); d.className="bubble "+cls+" gone"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
+  if(tag) d.appendChild(whoEl(tag, opts.vf));
+  const s=document.createElement("span"); s.className="gone-t"; s.append(icoEl("i-ban",""), cls==="sent" ? t("You deleted this message") : t("This message was deleted")); d.appendChild(s);
+  metaRow(d, ts, null); return d; }
+function viewOf(R){ if(R.logEl) return R; let V=null, ck=R.fromContact; if(ck && !R.group){ const tg=mergedTarget(contactFind(ck)); if(tg) ck=tg.ck; }
+  rooms.forEach(x=>{ if(!V && x.logEl && (R.group ? x.rid===R.rid : x.fromContact===ck)) V=x; }); return V; }
+function bubbleToGone(V, b){ if(!b || b.classList.contains("gone")) return;
+  const cls=b.classList.contains("sent")?"sent":"recv", w=b.querySelector(":scope > .who");
+  const nb=goneEl(cls, "", +b.dataset.ts||Date.now(), {mid:b.dataset.mid}); if(w) nb.insertBefore(w.cloneNode(true), nb.firstChild);
+  b.replaceWith(nb); if(V.reacts) V.reacts.delete(b.dataset.mid); }
+// the saved original o becomes "deleted" everywhere on this device
+async function goneApply(R, o, show){ const hk=histKeyOf(R);
+  await histPurge(hk, new Set([o.mid]));
+  await histSave(hk, {dir:o.dir, mid:o.mid, ts:o.ts||Date.now(), who:o.who, vf:o.vf, env:{t:"gone"}});
+  const V=viewOf(R); if(V){ const b=bubbleOf(V, o.mid);
+    if(b) bubbleToGone(V, b); else if(show) goneBubble(V.logEl, o.dir, o.dir==="sent" ? "" : (R.group ? (o.who||"") : ""), o.ts||Date.now(), {mid:o.mid, vf:o.vf}); }
+  refreshPreviews(); if(typeof searchStale==="function") searchStale(); }
+async function onDelEnv(R, env, who, ts, mid, own){
+  if(!delValid(env)) return;
+  if(R.group && !own && env.vf!=="ok") return;                                       // unsigned or forged: ignored
+  const want=own ? "sent" : "recv", hk=histKeyOf(R);
+  const o=(await histLoad(hk)).find(r=>r && r.mid===env.m);
+  if(!o){ delmMark(env.m, {d:want, pk:(R.group && !own) ? (env.pk||"") : "", ts:ts||Date.now()}); return; }   // not here yet: it won't show when it comes
+  if(!o.env || o.env.t==="gone" || o.dir!==want) return;                            // only the author's own message obeys
+  if(R.group && want==="recv" && (o.env.pk||"")!==(env.pk||"")) return;
+  if((ts||Date.now())-(o.ts||0) > DEL_WINDOW+600000) return;
+  await goneApply(R, o);
+}
+// a message arriving after its deletion (out of order, or delivered again): never shown
+function goneOnArrival(R, env, who, ts, mid, own){
+  const m=_meta.delm[mid]; if(!m) return false;
+  if(m.d==="*") return true;                                                         // deleted here, for me
+  const want=own ? "sent" : "recv"; if(m.d!==want) return false;
+  if(R.group && want==="recv" && (m.pk||"")!==(env && env.pk || "")) return false;
+  if((m.ts||0)-(ts||0) > DEL_WINDOW+600000) return false;
+  goneApply(R, {dir:want, mid, ts, who, vf:env && env.vf}, true).catch(()=>{});
+  return true;
+}
+function relayPaths(env){ const out=[]; if(!env) return out; if(typeof env.path==="string") out.push(env.path);
+  if(Array.isArray(env.parts)) env.parts.forEach(x=>{ if(x && typeof x.p==="string") out.push(x.p); }); return out; }
+function canDeleteForAll(R, b){ if(!R || !b || !b.classList.contains("sent") || b.classList.contains("gone") || !b.dataset.mid) return false;
+  if(!(R.group || R.fromContact || R.paired)) return false;
+  const st=b.querySelector(":scope > .meta .st"); if(st && st.dataset.st && st.dataset.st!=="sent" && st.dataset.st!=="rcvd") return false;   // not sent yet, or failed
+  return Date.now()-(+b.dataset.ts||0) < DEL_WINDOW; }
+let _delFor=null;
+function askDelete(b){ const R=A(); if(!R || !b || !b.dataset.mid) return;
+  _delFor={code:R.code, m:b.dataset.mid}; const all=canDeleteForAll(R, b);
+  $("delAll").hidden=!all;
+  $("delMsgNote").textContent= all ? t("“For everyone” removes it from the other devices too — but they may already have seen it.")
+    : (b.classList.contains("sent") ? t("Only on this device. After 48 hours a message can no longer be deleted for everyone.") : t("Only on this device. The others keep their copy."));
+  $("delMsgModal").classList.add("show"); }
+async function deleteForMe(){ const f=_delFor; _delFor=null; $("delMsgModal").classList.remove("show"); const R=A(); if(!f || !R || R.code!==f.code) return;
+  delmMark(f.m, {d:"*"}); const b=bubbleOf(R, f.m); if(b){ b.remove(); if(R.reacts) R.reacts.delete(f.m); }
+  await histPurge(histKeyOf(R), new Set([f.m])); if(typeof searchStale==="function") searchStale(); toast(t("Message deleted")); }
+async function deleteForAll(){ const f=_delFor; _delFor=null; $("delMsgModal").classList.remove("show"); const R=A(); if(!f || !R || R.code!==f.code) return;
+  const b=bubbleOf(R, f.m); if(!canDeleteForAll(R, b)) return;
+  const now=Date.now(), env={t:"del", m:f.m, body:t("🚫 This message was deleted")}, mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
+  initAudio(); const ok=await deliverOut(R, env, mid, null, now, true);
+  if(!ok){ toast(t("Not deleted — check your connection")); return; }
+  const hk=histKeyOf(R); const o=(await histLoad(hk)).find(r=>r && r.mid===f.m) || {dir:"sent", mid:f.m, ts:+b.dataset.ts||now};
+  relayPaths(o.env).forEach(p=>deleteBlob(p));                                       // its photo / voice / document leaves the relay too
+  await goneApply(R, Object.assign({}, o, {dir:"sent"}));
 }
 // ---------- reactions and replies ----------
 // Both are ordinary end-to-end encrypted messages (same live channel, same mailbox, signed in groups): the
@@ -2464,7 +2649,8 @@ function openPicker(b){
     RX_MORE.forEach(e=>{ const x=document.createElement("button"); x.type="button"; x.textContent=e; x.dataset.e=e; x.setAttribute("aria-label",e); g.appendChild(x); }); }
   const mine=R.reacts && R.reacts.get(b.dataset.mid) && R.reacts.get(b.dataset.mid).get("me");
   pk.querySelectorAll("button[data-e]").forEach(x=>x.classList.toggle("on", !!(mine && mine.e===x.dataset.e)));
-  $("rxEdit").hidden=!editableBubble(b); $("rxCopy").hidden=!b.querySelector(":scope > .txt");
+  const gone=b.classList.contains("gone"); pk.classList.toggle("no-rx", gone); $("rxReply").hidden=gone;
+  $("rxEdit").hidden=!editableBubble(b); $("rxCopy").hidden=!b.querySelector(":scope > .txt") || !!b.dataset.ui;
   const ph=!!b.dataset.photo; $("rxSave").hidden=!ph; $("rxFwd").hidden=!ph; if(ph) prefetchPhoto(b);
   g.hidden=true; pk.classList.remove("open-grid"); pk.hidden=false; placePicker(b);
 }
@@ -2497,7 +2683,7 @@ function addCard(logEl, cls, card, tag, ts, opts){
   const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
   if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
   const row=document.createElement("div"); row.className="cardl";
-  const ico=document.createElement("span"); ico.className="cl-ico"; ico.textContent=card.ico||""; row.appendChild(ico);
+  const ico=document.createElement("span"); ico.className="cl-ico"; if(ICON_OF[card.ico]) ico.appendChild(icoEl(ICON_OF[card.ico],"cio")); else ico.textContent=card.ico||""; row.appendChild(ico);
   const tx=document.createElement("div"); const tt=document.createElement("div"); tt.className="cl-t"; tt.textContent=card.title||""; tx.appendChild(tt);
   if(card.sub){ const ss=document.createElement("div"); ss.className="cl-s"; ss.textContent=card.sub; tx.appendChild(ss); }
   row.appendChild(tx); d.appendChild(row);
@@ -2526,7 +2712,7 @@ function openLightbox(url, opts){
   opts=opts||{}; const t_=t;   // the countdown label shadows t below
   const lb=document.createElement("div"); lb.className="lightbox";
   const img=new Image(); img.src=url; lb.appendChild(img);
-  const close=document.createElement("button"); close.className="lb-close"; close.textContent="✕"; lb.appendChild(close);
+  const close=document.createElement("button"); close.className="lb-close"; close.setAttribute("aria-label",t("Close")); close.appendChild(icoEl("i-x","")); lb.appendChild(close);
   let timer=null, closed=false;
   function done(){ if(closed) return; closed=true; if(timer) clearInterval(timer); document.removeEventListener("keydown",onKey); lb.remove(); opts.onClose&&opts.onClose(); }
   function onKey(e){ if(e.key==="Escape") done(); }
@@ -2558,19 +2744,19 @@ function addImageRecvOnce(logEl, meta, tag, ts, mid, vf){
   const opts={vf}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble recv"; d.dataset.ts=ts; if(mid) d.dataset.mid=mid;
   if(tag) d.appendChild(whoEl(tag, opts&&opts.vf));
-  const btn=document.createElement("div"); btn.className="tapview"; btn.innerHTML=t("📷 Photo")+"<small>"+t("tap to view — once only")+"</small>";
+  const btn=document.createElement("div"); btn.className="tapview"; { const l=document.createElement("span"); iconText(l, t("📷 Photo")); const sm=document.createElement("small"); sm.textContent=t("tap to view — once only"); btn.append(l, sm); }
   d.appendChild(btn);
   metaRow(d, ts, null);
   logEl.appendChild(d); scrollEl(logEl);
   let opened=false;
   btn.addEventListener("click",async()=>{
-    if(opened) return; opened=true; const prev=btn.innerHTML; btn.textContent=t("decrypting…");
+    if(opened) return; opened=true; const prev=[...btn.childNodes]; btn.textContent=t("decrypting…");
     try{
       const url=await fetchImage(meta);
       markViewed(mid);                                   // never shown again, even after a reload
       openLightbox(url,{countdown:10,onClose:()=>{ try{URL.revokeObjectURL(url);}catch(e){} if(!tag) deleteBlob(meta.path);   // in a group the others still have to see it (the relay sweeps it)
-        const x=document.createElement("div"); x.className="imgph"; x.textContent=t("📷 photo viewed"); btn.replaceWith(x); }});
-    }catch(e){ opened=false; btn.innerHTML=prev; toast(e&&e.message==="gone"?t("This photo is no longer available"):t("Couldn't open this photo")); }
+        const x=document.createElement("div"); x.className="imgph"; iconText(x, t("📷 photo viewed")); btn.replaceWith(x); }});
+    }catch(e){ opened=false; btn.textContent=""; btn.append(...prev); toast(e&&e.message==="gone"?t("This photo is no longer available"):t("Couldn't open this photo")); }
   });
   return d;
 }
@@ -2580,7 +2766,9 @@ function renderHistory(R, past){
   const hk=histKeyOf(R); const dur=expFor(hk); const cut=dur?Date.now()-dur:0; if(dur) histSweep(hk,cut);
   const edits=editsFrom(R, past);
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
-    if(r.env.t==="edit") continue;                                       // applied to the message it edits (above)
+    if(R.group && r.dir!=="sent" && r.mid && r.env.pk && r.env.t && r.env.t!=="txt") setTimeout(()=>{ const b=bubbleOf(R, r.mid); if(b && !b.dataset.pk) b.dataset.pk=r.env.pk; }, 0);
+    if(r.env.t==="edit" || r.env.t==="del") continue;                    // applied to the message it edits (above)
+    if(r.env.t==="gone"){ goneBubble(R.logEl, r.dir==="sent"?"sent":"recv", r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, vf:r.vf}); continue; }
     if(r.env.t==="vote"){ if(validVote(r.env) && !(R.group && r.dir!=="sent" && r.vf==="bad")) voteApply(R, r.env.m, rxActor(R, r.dir==="sent", r.env, r.who), r.env.c, r.ts); continue; }
     if(RICH_T.has(r.env.t)){ renderRich(R, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
     if(r.env.t==="exp"){ if(EXP_CHOICES.includes(r.env.v)) sysline(R.logEl, expLine(r.env.v, r.dir==="sent" ? null : (R.group ? (r.who||t("Member")) : (R.peerName||dn(R.title)||t("Contact"))))); continue; }
@@ -2589,7 +2777,7 @@ function renderHistory(R, past){
     if(r.env.t==="img"){
       if(keptPhoto(r.env)){ addImageKept(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
       if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid,r.vf); }
-      else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid)});
+      else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),ui:1});
       continue; }
     if(r.env.t==="aud"){ if(!validAud(r.env)) continue;
       addVoice(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
@@ -2608,7 +2796,16 @@ function renderHistory(R, past){
   seedSeen(R, past);
   if(R._newN && R.code===active) markNew(R, R._newN);
 }
-function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); d.textContent=t; logEl.appendChild(d); scrollEl(logEl); }
+function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); iconText(d, t); logEl.appendChild(d); scrollEl(logEl); }
+// ---------- icons instead of emojis in the interface (v38): emojis stay for what people write and react with ----------
+const ICON_OF={"🔒":"i-lock","🔐":"i-lock","⚠️":"i-alert","⚠":"i-alert","⛔":"i-ban","🚫":"i-ban","⏱":"i-timer","🔗":"i-link","📷":"i-camera","🎤":"i-mic","📍":"i-pin","👥":"i-users","📄":"i-file","📊":"i-poll","🗳️":"i-poll","📅":"i-calendar","✏️":"i-edit"};
+const ICON_RE=/^((?:[^:\n]{1,60}): )?(🔒|🔐|⚠️|⚠|⛔|🚫|⏱|🔗|📷|🎤|📍|👥|📄|📊|🗳️|📅|✏️) ?/u;
+function icoEl(id, cls){ const s=document.createElementNS("http://www.w3.org/2000/svg","svg"); s.setAttribute("class","ico "+(cls||"ii")); s.setAttribute("aria-hidden","true");
+  const u=document.createElementNS("http://www.w3.org/2000/svg","use"); u.setAttribute("href","#"+id); s.appendChild(u); return s; }
+// text whose first word is one of the interface emojis (after an optional "Name: "): an icon, then the rest
+function iconText(el, text){ text=String(text==null?"":text); el.textContent=""; const m=ICON_RE.exec(text);
+  if(!m){ el.textContent=text; return el; }
+  if(m[1]) el.append(m[1]); el.append(icoEl(ICON_OF[m[2]])); el.append(text.slice(m[0].length)); return el; }
 // The header shows one dot and a short word (online / offline / connecting…); the full explanation is kept
 // and shown on tap (phone) or hover (desktop). kind: "online" | "offline" | "busy" | "warn".
 function statusShort(kind, short){ if(short) return short; return kind==="online"?t("online"):kind==="busy"?t("connecting…"):kind==="warn"?t("not verified"):t("offline"); }
@@ -3028,7 +3225,7 @@ function addVoteBubble(V, cls, env, tag, ts, opts){
   } else {
     const ttl=document.createElement("div"); ttl.className="et"; ttl.textContent=env.ti; box.appendChild(ttl);
     const dd=document.createElement("div"); dd.className="ed"; dd.textContent=fmtEvtTime(env.at, env.end); box.appendChild(dd);
-    if(env.loc){ const l=document.createElement("div"); l.className="el"; l.textContent="📍 "+env.loc; box.appendChild(l); }
+    if(env.loc){ const l=document.createElement("div"); l.className="el"; iconText(l, "📍 "+env.loc); box.appendChild(l); }
     if(env.note){ const n=document.createElement("div"); n.className="en"; n.textContent=env.note; box.appendChild(n); }
     const rs=document.createElement("div"); rs.className="er";
     [t("✓ Going"), t("✕ Can't go")].forEach((lab,i)=>{ const b=document.createElement("button"); b.type="button"; b.className="po rsvp"; b.dataset.i=i; b.innerHTML='<span class="pt"></span> <b class="pn">0</b>'; b.querySelector(".pt").textContent=lab; rs.appendChild(b); });
@@ -3122,7 +3319,7 @@ function addImageKept(logEl, cls, meta, tag, ts, opts){
   const d=document.createElement("div"); d.className="bubble img-wrap "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
   d._meta=meta; d.dataset.mime=meta.mime||"image/jpeg";
   if(tag) d.appendChild(whoEl(tag, opts.vf));
-  const ph=document.createElement("div"); ph.className="imgph"; ph.textContent=t("📷 Photo"); d.appendChild(ph);
+  const ph=document.createElement("div"); ph.className="imgph"; iconText(ph, t("📷 Photo")); d.appendChild(ph);
   metaRow(d, ts, cls==="sent" ? (opts.st||"sent") : null);
   logEl.appendChild(d); scrollEl(logEl, cls==="sent");
   keptBytes(opts.room, opts.mid, meta, ts).then(bytes=>{
@@ -3130,7 +3327,7 @@ function addImageKept(logEl, cls, meta, tag, ts, opts){
     const img=new Image(); img.className="keep"; img.alt=t("Photo"); img.src=url; img.addEventListener("click",()=>openLightbox(url,{}));
     img.onload=()=>{ if(logEl.scrollHeight-logEl.scrollTop-logEl.clientHeight<480) scrollEl(logEl); };
     ph.replaceWith(img); d.dataset.photo="1";
-  }).catch(()=>{ ph.textContent=t("📷 This photo is no longer available"); ph.classList.add("gone"); });
+  }).catch(()=>{ iconText(ph, t("📷 This photo is no longer available")); ph.classList.add("gone"); });
   return d;
 }
 // ---- saving a kept photo, forwarding it ----
@@ -3157,7 +3354,7 @@ function openForward(b){
     .filter(it=>it.id!==here);
   if(!items.length){ const p=document.createElement("p"); p.className="hint"; p.textContent=t("No other chat to forward to yet."); list.appendChild(p); }
   items.forEach(it=>{ const row=document.createElement("button"); row.type="button"; row.className="merge-row";
-    const av=document.createElement("span"); av.className="ava"; av.textContent=it.t==="g"?"👥":up((dn(it.name)||"?")[0]); { const c=chatColor(it, it.t==="g"); if(c) av.style.background=c; }
+    const av=document.createElement("span"); av.className="ava"+(it.t==="g"?" grp":""); av.textContent=it.t==="g"?"👥":up((dn(it.name)||"?")[0]); { const c=chatColor(it, it.t==="g"); if(c) av.style.background=c; }
     const tx=document.createElement("span"); tx.className="mr-t"; const nm=document.createElement("b"); nm.textContent=dn(it.name)||(it.t==="g"?t("Group"):t("Contact")); tx.appendChild(nm);
     row.appendChild(av); row.appendChild(tx); row.addEventListener("click",()=>forwardTo(it)); list.appendChild(row); });
   $("fwdModal").classList.add("show");
@@ -3218,7 +3415,7 @@ let _installChecked=false, _showInstallInvite=null;
 function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
-function goHome(){ closeInfo(); typingTick(""); closeExpMenu(); closePanel(false); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
+function goHome(){ closeInfo(); closeFind(); typingTick(""); closeExpMenu(); closePanel(false); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
   $("join").style.display="none"; $("app").style.display="flex"; $("app").classList.add("home"); document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport();
   renderTabs(); renderContacts(); updateNotifyUI(); try{ history.replaceState(null,"","/"); }catch(e){} }
 // a first visit opens on a short welcome (logo, one sentence, "Create my account"); an invite or group link goes
@@ -3239,7 +3436,7 @@ function showAuth(mode){
   $("ncTabs").style.display=nw?"flex":"none";
   $("bioOptWrap").style.display=((reg||login)&&bioSupported()&&!bioSet())?"flex":"none";
   $("bioBtn").hidden=!(unlock&&bioSupported()&&bioSet());
-  $("bioBtn").textContent=t("🙂 Unlock with {bio}",{bio:bioLabel()});
+  $("bioLabel").textContent=t("Unlock with {bio}",{bio:bioLabel()});
   if($("lockHead")) $("lockHead").style.display=unlock?"block":"none";
   if($("forgotLink")) $("forgotLink").style.display=(login||unlock)?"block":"none";
   if($("iabNote")){ const iab=(typeof _isInApp==="function") && _isInApp() && (reg||login||wel);
@@ -3284,7 +3481,7 @@ function ncSet(nc){
 function switchTo(code){
   const R=rooms.get(code); if(!R) return;
   if(code!==active) typingTick("");                       // leaving a chat: "stopped typing" there
-  closeExpMenu(); if(code!==active) closePanel(false); setTimeout(jumpUpdate,0);
+  closeExpMenu(); if(code!==active){ closePanel(false); closeFind(); } setTimeout(jumpUpdate,0);
   if(!_reply || _reply.code!==code) cancelReply(); closePicker(); if(rec && code!==active) stopRec(false);
   active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
@@ -3665,6 +3862,7 @@ function lockApp(){ if(call) endCall("ended"); stopRec(false); voiceStop(); stop
   document.querySelectorAll(".modal.show").forEach(m=>m.classList.remove("show"));          // every dialog, whatever it was
   try{ document.querySelectorAll(".lightbox").forEach(l=>l.remove()); }catch(e){}
   _ginvPending=null; _pendingInvite=null; _pendingNotify=null;
+  try{ _sq=""; _sCache=null; if($("listSearch")) $("listSearch").value=""; if($("listSearchX")) $("listSearchX").hidden=true; if(_sRes){ _sRes.hidden=true; _sRes.innerHTML=""; } closeFind(); }catch(e){}
   try{ $("logs").innerHTML=""; const sb=document.querySelector(".sb-list"); if(sb) sb.innerHTML=""; renderTabs(); ["pwCur","pwNew","pwNew2","delPw","dispInput"].forEach(id=>{ const e=$(id); if(e) e.value=""; }); }catch(e){}
   showAuth("unlock");
 }
@@ -3864,6 +4062,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       if(x.id==="rxEdit"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) startEdit(b); return; }
       if(x.id==="rxSave"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) savePhoto(b); return; }
       if(x.id==="rxFwd"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) openForward(b); return; }
+      if(x.id==="rxDel"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); if(b) askDelete(b); return; }
       if(x.id==="rxCopy"){ const b=(f&&R)?bubbleOf(R,f.m):null; closePicker(); const tx=b && b.querySelector(":scope > .txt");
         if(tx){ (navigator.clipboard ? navigator.clipboard.writeText(tx.textContent) : Promise.reject()).then(()=>toast(t("Copied"))).catch(()=>{}); } return; }
       if(x.dataset.e && f && R && R.code===f.code){ closePicker(); sendReaction(R, f.m, x.dataset.e); } });
@@ -3910,6 +4109,18 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("peerAvatar").addEventListener("click",openInfo);
   $("peerMeta").addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openInfo(); } });
   wireInfo();
+  // search: the chats list, and inside a chat
+  $("listSearch").addEventListener("input",e=>setSearch(e.target.value));
+  $("listSearch").addEventListener("keydown",e=>{ if(e.key==="Escape"){ e.target.value=""; setSearch(""); e.target.blur(); } });
+  $("listSearchX").addEventListener("click",()=>{ $("listSearch").value=""; setSearch(""); try{ $("listSearch").focus(); }catch(e){} });
+  { let fT=null; $("findInput").addEventListener("input",()=>{ clearTimeout(fT); fT=setTimeout(runFind,150); }); }
+  $("findInput").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); findStep(e.shiftKey?1:-1); } else if(e.key==="Escape"){ e.preventDefault(); closeFind(); } });
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape" && !$("findBar").hidden && !document.querySelector(".modal.show")) closeFind(); });
+  $("findUp").addEventListener("click",()=>findStep(-1)); $("findDown").addEventListener("click",()=>findStep(1)); $("findClose").addEventListener("click",closeFind);
+  // deleting a message
+  $("delMe").addEventListener("click",deleteForMe); $("delAll").addEventListener("click",deleteForAll);
+  $("delCancel").addEventListener("click",()=>{ _delFor=null; $("delMsgModal").classList.remove("show"); });
+  $("delMsgModal").addEventListener("click",e=>{ if(e.target.id==="delMsgModal"){ _delFor=null; $("delMsgModal").classList.remove("show"); } });
   // iOS only lets audio start inside a user gesture: unlock at the first tap so the connection / message sounds
   // that follow (which are not user-initiated) can be heard.
   document.addEventListener("pointerdown",()=>{ if(soundMode()!=="none") initAudio(); },{passive:true});
@@ -3946,7 +4157,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("fileInput").addEventListener("change",e=>{ const fs=[...e.target.files]; e.target.value=""; sendFiles(fs); });
   // ----- theme + sound (surfaced in Settings) -----
   function currentDark(){ const c=document.documentElement.getAttribute("data-theme"); return c?c==="dark":matchMedia("(prefers-color-scheme:dark)").matches; }
-  function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")) $("themeToggle").textContent=d?t("Light ☀"):t("Dark ☾"); }
+  function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")){ const b=$("themeToggle"); b.textContent=""; b.append(icoEl(d?"i-sun":"i-moon",""), d?t("Light"):t("Dark")); } }
   function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); }
   function refreshSoundUI(){ const sel=$("soundSel"); if(sel) sel.value=soundMode();
     const cur=toneName(); document.querySelectorAll("#toneSel .tone").forEach(x=>x.setAttribute("aria-checked", x.dataset.tone===cur ? "true":"false")); }
@@ -4229,7 +4440,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   function closeMenu(){ $("barMenu").hidden=true; }
   function toggleMenu(){ const m=$("barMenu");
     if(m.hidden){ const R=A(); const grp=!!(R&&R.group);
-      $("mi-invite").hidden=!grp; $("mi-info").hidden=!R;
+      $("mi-invite").hidden=!grp; $("mi-info").hidden=!R; $("mi-find").hidden=!(R && R.logEl);
       $("mi-loc").hidden=!(R&&(grp||R.fromContact||R.paired));
       { const rec=muteRecOf(R), mu=mutedUntil(rec);
         $("mi-mute").hidden=!rec || !!mu; $("mi-unmute").hidden=!mu; $("mi-mute-opts").hidden=true;
@@ -4245,6 +4456,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     const act=b.dataset.act;
     if(act==="invite") inviteToGroup();
     else if(act==="info") openInfo();
+    else if(act==="find") openFind();
     else if(act==="loc") sendLocation();
     else if(act==="mute1h") setMute(A(), 3600000);
     else if(act==="mute8h") setMute(A(), 28800000);

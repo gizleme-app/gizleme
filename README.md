@@ -38,6 +38,13 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   quote jumps to the original. Your own text messages can be edited for 24 hours ("edited" shows on the
   bubble, on every side). All three are ordinary encrypted messages — signed in groups — so the relay learns
   nothing new, and only the author's own edit is ever applied.
+- Delete a message from its menu: "Delete for me" removes it from this device; "Delete for everyone" (your own
+  message, within 48 hours) removes it from the other devices too and leaves "This message was deleted" in
+  its place. It can't reach a copy someone already saw or saved (see SECURITY.md).
+- Search: a field under the "Chats" title finds chats by name and, below them, messages — with accents
+  ignored (cafe finds café, sukru finds Şükrü); a tap opens the chat at that message. Inside a chat, ⋮ →
+  Search highlights every match, with previous / next. Everything is searched on the device; nothing is
+  indexed or sent.
 - Voice messages (up to 2 min): recorded on the device with one small built-in codec (IMA ADPCM, 16 kHz —
   the same bytes decode in every browser, no container or codec negotiation), encrypted exactly like a
   photo under a key that only travels inside the message; the relay keeps the ciphertext for 14 days (so
@@ -75,10 +82,12 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 - iPhone / iPad: the installed app uses the "Compatibility" display by default (the page laid out inside
   the safe area, under an opaque status bar), which avoids the band iOS 26 can paint over the bottom of the
   screen; Settings → Chats → iPhone display switches back to "Standard".
+- Drawn icons throughout the interface (system lines, the chats list, cards, dialogs, the welcome screen);
+  emojis are kept for what people write and react with.
 - Chat info: a tap on a chat's name (or its avatar) opens everything about that chat in one place — audio,
   video, location, nickname, colour, disappearing messages, mute, identity check, notify, turn into a group,
-  merge, new keys, what the relay sees, remove or leave. The ⋮ menu keeps the quick ones: Chat info, mute,
-  share my location (and invite, in a group).
+  merge, new keys, what the relay sees, remove or leave. The ⋮ menu keeps the quick ones: Chat info, search,
+  mute, share my location (and invite, in a group).
 - Settings in pages: your name at the top (Profile), then Privacy, Chats, Notifications and sounds, Install
   the app and Account, where "Delete account" sits at the very bottom, apart.
 - A first visit opens on a short welcome — the logo, one sentence, "Create my account" and "I already have

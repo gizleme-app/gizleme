@@ -166,6 +166,19 @@ rate-limit counters.
   signed by the key that signed the original. The newest edit wins. An edit is a correction, not an unsend:
   the original stays in each device's encrypted local history until the chat's messages expire, and an app
   older than v29 shows the edit as a new message ("✏️ …").
+- **Deleting a message.** "For me" removes it from this device only: its copy in the encrypted local history,
+  the reactions, edits and votes that point at it, and its media; its id is remembered, so a copy delivered
+  again is not shown. "For everyone" is offered for your own message within 48 hours: an encrypted, quiet
+  envelope `{t:"del", m}` (signed in groups) that a device obeys only for a message by the same author — in a
+  two-person chat, a message from that contact (or, from one of your own devices, one you sent); in a group,
+  one signed by the same key — and only within 48 hours of it. Each device then removes the content from its
+  local history and keeps a "This message was deleted" marker in its place; the sender also asks the relay to
+  delete the message's photo, voice or document blobs. A deletion that arrives before its message is
+  remembered, and the message is never shown. What it cannot do: reach a copy someone already read, saved,
+  forwarded or photographed, or an app modified to ignore it. An app older than v38 shows the request as a
+  message ("🚫 This message was deleted").
+- **Search** runs only on the device, over the local history it decrypts while unlocked: nothing is indexed,
+  stored or sent anywhere, and the search box is emptied when the app locks.
 - **Typing indicators** ("typing…", "recording a voice message…") are live-only encrypted signals
   `{t:"typ", s}`, never left in the mailbox: in a two-person chat under the contact's mailbox key and on the
   same relay event as delivery receipts, in a group under the group key. The relay can neither read them nor

@@ -188,22 +188,22 @@ try:
     # ---- B receives, plays (fetch + decrypt + decode), the blob is then deleted from the relay ----
     r["recv_bubble"]= wait_for(B,"()=>!!document.querySelector('.bubble.recv.voice .vbtn')",8000)
     B.click(".bubble.recv.voice .vbtn")
-    r["recv_plays"]= wait_for(B,"()=>{ const d=document.querySelector('.bubble.recv.voice'); return d.querySelector('.vbtn').textContent==='⏸' && parseFloat(d.querySelector('.vfill').style.width)>0; }",8000)
+    r["recv_plays"]= wait_for(B,"()=>{ const d=document.querySelector('.bubble.recv.voice'); return d.querySelector('.vbtn').dataset.st==='pause' && parseFloat(d.querySelector('.vfill').style.width)>0; }",8000)
     r["blob_keptForOthers"]= wait_for(A,"()=>true",10) and (time.sleep(0.8) or len(blobs())==1)   # the relay keeps it (14 days) for the other members / devices
-    r["recv_ends"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').textContent==='▶'",8000)
+    r["recv_ends"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').dataset.st==='play'",8000)
     # replay works from the local encrypted store even though the relay no longer has the blob
     B.click(".bubble.recv.voice .vbtn")
-    r["replay_local"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').textContent==='⏸'",5000)
+    r["replay_local"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').dataset.st==='pause'",5000)
     B.click(".bubble.recv.voice .vbtn")   # pause
     # ---- B locks and unlocks: the bubble comes back from history and still plays ----
     B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(800)
     r["hist_bubble"]= B.evaluate("()=>!!document.querySelector('.bubble.recv.voice .vbtn')")
     B.click(".bubble.recv.voice .vbtn")
-    r["hist_plays"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').textContent==='⏸'",5000)
+    r["hist_plays"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').dataset.st==='pause'",5000)
     r["preview"]= "Voice message" in (B.eval_on_selector_all(".ct","els=>els.map(e=>e.textContent).join('|')") or "")
     # ---- A: own bubble replays from memory; a recording in progress is dropped by lock ----
     A.click(".bubble.sent.voice .vbtn")
-    r["own_replay"]= wait_for(A,"()=>document.querySelector('.bubble.sent.voice .vbtn').textContent==='⏸'",5000)
+    r["own_replay"]= wait_for(A,"()=>document.querySelector('.bubble.sent.voice .vbtn').dataset.st==='pause'",5000)
     A.click("#micBtn"); A.wait_for_timeout(700)
     A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(400)
     r["lock_dropsRec"]= A.evaluate("()=>getComputedStyle(document.getElementById('recBar')).display==='none' && !document.querySelector('.composer').classList.contains('rec')")

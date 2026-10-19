@@ -736,6 +736,68 @@
   #join[data-mode="welcome"] .promise{font-size:.8rem}
   #join[data-mode="welcome"] .promise b{font-size:.84rem}
   #join[data-mode="welcome"] .promise .ps{font-size:.74rem}
+  /* ---- v38: delete a message, search, icons instead of emojis ---- */
+  :root{--users-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E")}
+  .ico.ii{width:1.05em;height:1.05em;vertical-align:-.17em;margin-right:.3em}
+  .sys .ico.ii{width:13px;height:13px;vertical-align:-2px}
+  .cm .ico.ii,.sr-s .ico.ii{width:14px;height:14px;vertical-align:-2px;margin-right:3px;opacity:.85}
+  .ava.grp,.avatar.grp,.info-ava.grp{font-size:0!important}
+  .ava.grp::before,.avatar.grp::before,.info-ava.grp::before{content:"";display:block;width:54%;height:54%;background:currentColor;-webkit-mask:var(--users-mask) center/contain no-repeat;mask:var(--users-mask) center/contain no-repeat}
+  .logo .lock .ico{width:21px;height:21px}
+  .promise .pi .ico{width:19px;height:19px;color:#c4b5fd;margin-top:1px}
+  #copyLink,#qrScan,#bioBtn{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+  #copyLink .ico,#qrScan .ico,#bioBtn .ico{width:17px;height:17px}
+  .upd-go .ico{width:15px;height:15px;margin-right:6px;vertical-align:-3px}
+  .pill .ico{width:14px;height:14px;margin-right:5px;vertical-align:-2px}
+  .vbtn .ico{width:18px;height:18px}
+  .rb-x .ico,#recCancel .ico{width:16px;height:16px}
+  .lb-close .ico{width:22px;height:22px}
+  .cl-ico .ico{width:20px;height:20px}
+  /* search: chats list */
+  .sb-search{display:flex;align-items:center;gap:8px;margin:0 12px 8px;padding:0 6px 0 11px;height:40px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted)}
+  .sb-search:focus-within{border-color:var(--accent)}
+  .sb-search input{flex:1;min-width:0;height:100%;border:none;background:transparent;color:var(--fg);font:inherit;font-size:max(16px,.95rem);outline:none}
+  .sb-search input::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
+  .sb-sx{width:30px;height:30px;border:none;border-radius:8px;background:transparent;color:var(--muted);display:grid;place-items:center;cursor:pointer}
+  .sb-sx[hidden]{display:none}
+  .sb-results{padding:2px 0 18px}
+  .sb-results[hidden]{display:none}
+  .sr-h{font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:12px 12px 6px}
+  .sr{display:flex;gap:10px;align-items:flex-start;width:100%;padding:9px 10px;border:none;border-radius:12px;background:transparent;color:var(--fg);font:inherit;text-align:left;cursor:pointer}
+  .sr:hover,.sr:focus-visible{background:var(--surface-2)}
+  .sr .ava{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:.95rem;background:var(--accent-bg)}
+  .sr-b{flex:1;min-width:0}
+  .sr-t{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:.9rem}
+  .sr-t .sr-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sr-t .sr-d{color:var(--muted);font-weight:400;font-size:.74rem;flex:none}
+  .sr-s{color:var(--muted);font-size:.84rem;line-height:1.35;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+  .sr-s mark,.sr-n mark{background:rgba(250,204,21,.38);color:inherit;border-radius:3px;padding:0 1px}
+  .sr-none{color:var(--muted);font-size:.86rem;padding:10px 12px}
+  /* search: inside a chat */
+  .findbar{display:flex;align-items:center;gap:4px;padding:6px 8px 6px 12px;border-bottom:1px solid var(--line);background:var(--surface);color:var(--muted)}
+  .findbar[hidden]{display:none}
+  .findbar input{flex:1;min-width:0;margin-left:4px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font:inherit;font-size:max(16px,.95rem);padding:7px 10px;outline:none}
+  .findbar input:focus{border-color:var(--accent)}
+  .findbar input::-webkit-search-cancel-button{-webkit-appearance:none;display:none}
+  .findbar .icon{width:36px;height:36px;border:none;border-radius:10px;background:transparent;color:var(--fg);display:grid;place-items:center;cursor:pointer}
+  .findbar .icon:hover{background:var(--surface-2)}
+  .find-n{font-size:.78rem;white-space:nowrap;padding:0 4px}
+  .bubble.find-hit{box-shadow:0 0 0 2px rgba(250,204,21,.35)}
+  .bubble.find-cur{box-shadow:0 0 0 2px #facc15}
+  ::highlight(gz-find){background-color:rgba(250,204,21,.6);color:inherit}
+  /* delete a message */
+  .rx-pick .rx-act.danger,.rx-pick .rx-act.danger .ico{color:var(--bad)}
+  .rx-pick.no-rx .rx-top,.rx-pick.no-rx .rx-grid{display:none}
+  .rx-pick.no-rx .rx-acts{border-top:none;margin-top:0;padding-top:0}
+  .del-card{max-width:340px}
+  .del-h{font-size:1.1rem;font-weight:700;margin:0}
+  .btn.danger{background:var(--bad)}
+  .ghost.danger-t{color:var(--bad)}
+  .del-card [hidden]{display:none}
+  .bubble.gone{background:var(--surface-2)!important;color:var(--muted)!important;border:1px solid var(--line)}
+  .bubble.gone .gone-t{display:flex;align-items:center;gap:6px;font-style:italic;font-size:.92rem}
+  .bubble.gone .gone-t .ico{width:15px;height:15px}
+  .bubble.gone .meta{color:var(--muted)!important}
   .composer textarea,.field input,.poll-opts input{font-size:max(16px,1rem)}   /* 16 px at least: no zoom-in on iPhone, whatever the text size */
   /* iOS 26 installed apps: a system band covers the bottom of the screen (see iosGap() in app.js) — no home-indicator
      space is kept above it, and the band takes the message bar's colour */
@@ -754,6 +816,26 @@
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
   <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+  <symbol id="i-dn" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.7 5.7 12.6 12.6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-poll" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M14.5 8.5l2 2"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></symbol>
+  <symbol id="i-face" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5V13h-1M9.5 15.5a3.5 3.5 0 0 0 5 0"/></symbol>
+  <symbol id="i-phone-off" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2M3 3l18 18"/></symbol>
+  <symbol id="i-app-off" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M14 14l7 7M21 14l-7 7"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M9.9 4.2A10 10 0 0 1 12 4c6.5 0 10 8 10 8a17 17 0 0 1-2.2 3.2M6.6 6.6A17 17 0 0 0 2 12s3.5 8 10 8a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5Z" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/><rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.4-5.6A8.5 8.5 0 1 1 21 12Z"/></symbol>
@@ -808,7 +890,7 @@
       <label for="userInput">Username <span class="lbl-sub" id="userSub">to log in</span> <span id="userHint" style="font-weight:400"></span></label>
       <input id="userInput" placeholder="e.g. alex" maxlength="20" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"/>
     </div>
-    <button class="ghost bio" id="bioBtn" type="button" hidden>🙂 Unlock with Face ID</button>
+    <button class="ghost bio" id="bioBtn" type="button" hidden><svg class="ico"><use href="#i-face"/></svg><span id="bioLabel">Unlock with Face ID</span></button>
     <div class="field" id="dispField" style="display:none">
       <label for="dispInput">Your first name <span class="lbl-sub">what your friends see</span></label>
       <input id="dispInput" placeholder="e.g. Alex" maxlength="24" autocomplete="nickname"/>
@@ -847,7 +929,7 @@
       </div>
     </div>
     <div class="share-row" id="shareRow" style="display:none">
-      <button class="ghost" id="copyLink" type="button">📤 Share link</button>
+      <button class="ghost" id="copyLink" type="button"><svg class="ico"><use href="#i-share"/></svg><span>Share link</span></button>
       <button class="ghost wa" id="waShare" type="button">WhatsApp</button>
       <button class="ghost" id="qrShow" type="button">QR</button>
     </div>
@@ -859,7 +941,7 @@
     <div class="field" id="invField" style="display:none">
       <label for="invInput">Invite link</label>
       <input id="invInput" placeholder="Paste the invite link…" autocomplete="off"/>
-      <button class="ghost" id="qrScan" type="button" style="margin-top:8px">📷 Scan a QR code</button>
+      <button class="ghost" id="qrScan" type="button" style="margin-top:8px"><svg class="ico"><use href="#i-camera"/></svg><span>Scan a QR code</span></button>
       <p class="hint" id="qrScanHint">Or point your phone's camera at your friend's QR code: the link opens here.</p>
     </div>
     <label class="remember" id="bioOptWrap" style="display:none"><input type="checkbox" id="bioOptIn"/> Enable Face ID / Touch ID for quick unlock</label>
@@ -870,9 +952,9 @@
     <button class="linkbtn" id="forgotLink" type="button" style="display:none">Forgot your password?</button>
     <button class="linkbtn" id="switchLink" type="button" style="display:none"></button>
     <div class="promises" id="promises" style="display:none">
-      <div class="promise"><span class="pi">📵</span><div><b>No phone number</b><span class="ps">Just a name you invent. Nothing to look you up by.</span></div></div>
-      <div class="promise"><span class="pi">👻</span><div><b>No app on your phone</b><span class="ps">It's a website — nothing in your app list. Install only if you want to.</span></div></div>
-      <div class="promise"><span class="pi">🙈</span><div><b>Never reads your contacts</b><span class="ps">You connect by a link you choose to share. Your contact list is stored encrypted — the server can't read it.</span></div></div>
+      <div class="promise"><span class="pi"><svg class="ico"><use href="#i-phone-off"/></svg></span><div><b>No phone number</b><span class="ps">Just a name you invent. Nothing to look you up by.</span></div></div>
+      <div class="promise"><span class="pi"><svg class="ico"><use href="#i-app-off"/></svg></span><div><b>No app on your phone</b><span class="ps">It's a website — nothing in your app list. Install only if you want to.</span></div></div>
+      <div class="promise"><span class="pi"><svg class="ico"><use href="#i-eye-off"/></svg></span><div><b>Never reads your contacts</b><span class="ps">You connect by a link you choose to share. Your contact list is stored encrypted — the server can't read it.</span></div></div>
       <button class="linkbtn" id="whyLink" type="button">How is this different from WhatsApp or Signal? →</button>
       <a class="linkbtn" href="/privacy.html" target="_blank" rel="noopener" style="text-align:center;display:block;margin-top:-4px">Privacy</a>
     </div>
@@ -889,7 +971,9 @@
         <button id="sbSettings" title="Settings" aria-label="Settings"><svg class="ico"><use href="#i-gear"/></svg></button>
         <button id="sbNew" title="New chat" aria-label="New chat"><svg class="ico"><use href="#i-plus"/></svg></button>
       </span></div>
+    <div class="sb-search" id="sbSearch"><svg class="ico"><use href="#i-search"/></svg><input id="listSearch" type="search" placeholder="Search" aria-label="Search chats and messages" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"/><button class="sb-sx" id="listSearchX" type="button" aria-label="Clear search" title="Clear search" hidden><svg class="ico"><use href="#i-x"/></svg></button></div>
     <div class="sb-list" id="contactList"></div>
+    <div class="sb-results" id="searchResults" hidden></div>
     <button class="fab" id="fabNew" title="New chat" aria-label="New chat"><svg class="ico"><use href="#i-plus"/></svg></button>
   </aside>
   <div class="sb-backdrop" id="sbBackdrop"></div>
@@ -912,6 +996,7 @@
     <button class="icon" id="menuBtn" title="More" aria-label="More options"><svg class="ico"><use href="#i-more"/></svg></button>
     <div class="menu" id="barMenu" hidden>
       <button class="menu-item" data-act="info" id="mi-info"><svg class="ico"><use href="#i-info"/></svg><span>Chat info</span></button>
+      <button class="menu-item" data-act="find" id="mi-find"><svg class="ico"><use href="#i-search"/></svg><span>Search</span></button>
       <button class="menu-item" data-act="invite" id="mi-invite" hidden><svg class="ico"><use href="#i-user-plus"/></svg><span>Invite people</span></button>
       <button class="menu-item" data-act="mute" id="mi-mute"><svg class="ico"><use href="#i-bell-off"/></svg><span>Mute notifications</span></button>
       <div class="menu-sub" id="mi-mute-opts" hidden>
@@ -933,6 +1018,14 @@
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="call-banner" id="callBanner" hidden><span class="cb-dot"></span><span id="callBannerText">Call in progress</span><button class="pill" id="callBannerJoin" type="button">Join</button></div>
+  <div class="findbar" id="findBar" hidden>
+    <svg class="ico"><use href="#i-search"/></svg>
+    <input id="findInput" type="search" placeholder="Search in this chat" aria-label="Search in this chat" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search"/>
+    <span class="find-n" id="findCount" aria-live="polite"></span>
+    <button class="icon" id="findUp" type="button" aria-label="Previous result" title="Previous result"><svg class="ico"><use href="#i-up"/></svg></button>
+    <button class="icon" id="findDown" type="button" aria-label="Next result" title="Next result"><svg class="ico"><use href="#i-dn"/></svg></button>
+    <button class="icon" id="findClose" type="button" aria-label="Close search" title="Close search"><svg class="ico"><use href="#i-x"/></svg></button>
+  </div>
   <div class="logs" id="logs" aria-live="polite"></div>
 
   <div class="wire" id="wire">
@@ -942,7 +1035,7 @@
 
   <div class="reply-bar" id="replyBar" hidden>
     <div class="rb-q"><div class="rb-n" id="rbName"></div><div class="rb-s" id="rbText"></div></div>
-    <button class="rb-x" id="rbCancel" type="button" aria-label="Cancel reply" title="Cancel reply">✕</button>
+    <button class="rb-x" id="rbCancel" type="button" aria-label="Cancel reply" title="Cancel reply"><svg class="ico"><use href="#i-x"/></svg></button>
   </div>
   <div class="rx-pick" id="rxPick" role="menu" aria-label="Message" hidden>
     <div class="rx-top"><div class="rx-quick" id="rxQuick"></div>
@@ -954,6 +1047,7 @@
       <button class="rx-act" id="rxCopy" type="button" hidden><svg class="ico"><use href="#i-copy"/></svg><span>Copy</span></button>
       <button class="rx-act" id="rxFwd" type="button" hidden><svg class="ico"><use href="#i-forward"/></svg><span>Forward</span></button>
       <button class="rx-act" id="rxSave" type="button" hidden><svg class="ico"><use href="#i-download"/></svg><span>Save</span></button>
+      <button class="rx-act danger" id="rxDel" type="button"><svg class="ico"><use href="#i-trash"/></svg><span>Delete</span></button>
     </div>
   </div>
   <div class="composer" id="composer">
@@ -969,7 +1063,7 @@
     <button class="send" id="micBtn" type="button" title="Record a voice message" aria-label="Record a voice message" disabled><svg class="ico"><use href="#i-mic"/></svg></button>
     <button class="send" id="sendBtn" disabled aria-label="Send"><svg class="ico"><use href="#i-send"/></svg></button>
     <div id="recBar" hidden><span class="recdot"></span><span class="rechint">Recording…</span>
-      <button class="attach" id="recCancel" type="button" aria-label="Cancel recording">✕</button>
+      <button class="attach" id="recCancel" type="button" aria-label="Cancel recording"><svg class="ico"><use href="#i-x"/></svg></button>
       <button class="send" id="recSend" type="button" aria-label="Send voice message"><svg class="ico"><use href="#i-send"/></svg></button></div>
   </div>
   <!-- where the keyboard would be: the attachments (+) -->
@@ -1019,6 +1113,16 @@
     <div class="info-sec">
       <button class="info-row danger" type="button" id="ciRemove"><svg class="ico"><use href="#i-trash"/></svg><span class="il">Remove contact</span></button>
     </div>
+  </div>
+</div>
+<!-- Delete a message: for me, or (our own, within 48 h) for everyone -->
+<div class="modal" id="delMsgModal" role="dialog" aria-modal="true" aria-labelledby="delMsgTitle">
+  <div class="card del-card">
+    <h2 class="del-h" id="delMsgTitle">Delete this message?</h2>
+    <p class="set-note" id="delMsgNote"></p>
+    <button class="btn danger" id="delAll" type="button">Delete for everyone</button>
+    <button class="ghost danger-t" id="delMe" type="button">Delete for me</button>
+    <button class="ghost" id="delCancel" type="button">Cancel</button>
   </div>
 </div>
 <div class="modal" id="settingsModal">
@@ -1194,7 +1298,7 @@
 </div>
 <div class="modal" id="ginvModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">👥</span><div><h1 style="font-size:1.05rem" id="ginvTitle">Group created</h1><p id="ginvSub">Your contact has been invited.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-users"/></svg></span><div><h1 style="font-size:1.05rem" id="ginvTitle">Group created</h1><p id="ginvSub">Your contact has been invited.</p></div></div>
     <p class="set-note">Add the other people now: send them the group link (WhatsApp, SMS, e-mail…). Anyone with the link can join, so share it only with the people you want in.</p>
     <button class="btn" id="ginvShare" type="button">Send the invite link</button>
     <button class="ghost" id="ginvCopy" type="button">Copy the link</button>
@@ -1203,7 +1307,7 @@
 </div>
 <div class="modal" id="memModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">👥</span><div><h1 style="font-size:1.05rem" id="memTitle">Members</h1><p id="memSub">Keys learned from signed messages.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-users"/></svg></span><div><h1 style="font-size:1.05rem" id="memTitle">Members</h1><p id="memSub">Keys learned from signed messages.</p></div></div>
     <div class="mem-list" id="memList"></div>
     <p class="set-note" id="memNote"></p>
     <button class="btn" id="memRenew" type="button" hidden>Renew the group key</button>
@@ -1212,7 +1316,7 @@
 </div>
 <div class="modal" id="pinModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">🔢</span><div><h1 style="font-size:1.05rem">Code required</h1><p id="pinSub">This invite is protected by a 4-digit code.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-hash"/></svg></span><div><h1 style="font-size:1.05rem">Code required</h1><p id="pinSub">This invite is protected by a 4-digit code.</p></div></div>
     <div class="field"><label for="pinInput">Code given to you by voice</label><input id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="one-time-code" placeholder="••••"/></div>
     <p class="authmsg" id="pinMsg"></p>
     <button class="btn" id="pinOk" type="button">Continue</button>
@@ -1221,7 +1325,7 @@
 </div>
 <div class="modal" id="mergeModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">🔗</span><div><h1 style="font-size:1.05rem">Merge with another chat</h1><p>Pick your earlier chat with the same person. Its messages will show here.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-link"/></svg></span><div><h1 style="font-size:1.05rem">Merge with another chat</h1><p>Pick your earlier chat with the same person. Its messages will show here.</p></div></div>
     <div class="merge-list" id="mergeList"></div>
     <p class="hint">Only on your devices — nothing is sent, and the other person's app is not changed.</p>
     <button class="ghost" id="mergeCancel" type="button">Cancel</button>
@@ -1229,7 +1333,7 @@
 </div>
 <div class="modal" id="scanModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">📷</span><div><h1 style="font-size:1.05rem">Scan a QR code</h1><p>Point the camera at your friend's invite code.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-camera"/></svg></span><div><h1 style="font-size:1.05rem">Scan a QR code</h1><p>Point the camera at your friend's invite code.</p></div></div>
     <video id="scanVideo" class="scan-video" playsinline muted autoplay></video>
     <p class="authmsg" id="scanMsg"></p>
     <button class="ghost" id="scanCancel" type="button">Cancel</button>
@@ -1237,7 +1341,7 @@
 </div>
 <div class="modal" id="forgotModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">🔑</span><div><h1 style="font-size:1.05rem">Forgot your password?</h1><p>There is no reset — by design</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-key"/></svg></span><div><h1 style="font-size:1.05rem">Forgot your password?</h1><p>There is no reset — by design</p></div></div>
     <p class="set-note">Gizleme never asks for an email address or a phone number, so there is nothing we could send a reset link to. Your password is also the key to your encrypted contact backup: without it, that backup cannot be opened by anyone — including us.</p>
     <p class="set-note">If you're on a device where you're still logged in, go to Settings → Password → Change while you can. Otherwise, the only way forward is a new account: your friends can send you their invite links again.</p>
     <button class="btn" id="forgotNew" type="button">Create a new account</button>
@@ -1248,7 +1352,7 @@
 <!-- Change password -->
 <div class="modal" id="pwModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">🔑</span><div><h1 style="font-size:1.05rem">Change password</h1><p>Your other devices will need to log in again</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-key"/></svg></span><div><h1 style="font-size:1.05rem">Change password</h1><p>Your other devices will need to log in again</p></div></div>
     <div class="field"><label for="pwCur">Current password</label><input id="pwCur" type="password" autocomplete="current-password" maxlength="128"/></div>
     <div class="field"><label for="pwNew">New password</label><input id="pwNew" type="password" autocomplete="new-password" maxlength="128" placeholder="8+ characters"/></div>
     <div class="field"><label for="pwNew2">Confirm new password</label><input id="pwNew2" type="password" autocomplete="new-password" maxlength="128"/></div>
@@ -1261,7 +1365,7 @@
 <!-- Delete account -->
 <div class="modal" id="delModal">
   <div class="card">
-    <div class="logo"><span class="lock" style="background:var(--bad)" aria-hidden="true">🗑</span><div><h1 style="font-size:1.05rem">Delete your account</h1><p>This cannot be undone</p></div></div>
+    <div class="logo"><span class="lock" style="background:var(--bad)" aria-hidden="true"><svg class="ico"><use href="#i-trash"/></svg></span><div><h1 style="font-size:1.05rem">Delete your account</h1><p>This cannot be undone</p></div></div>
     <p class="set-note">Your username is released, your encrypted contact backup and all sessions are deleted from the server, and everything on this device is erased. Messages still waiting in the encrypted mailbox expire on their own within 14 days. Your contacts keep their own copies of past messages.</p>
     <div class="field"><label for="delPw">Your password</label><input id="delPw" type="password" autocomplete="current-password" maxlength="128"/></div>
     <p class="authmsg" id="delMsg"></p>
@@ -1273,7 +1377,7 @@
 <!-- Identity verification modal -->
 <div class="modal" id="verifyModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">🛡</span><div><h1 style="font-size:1.05rem">Verify <span id="verifyWho">this contact</span></h1><p>Confirm no one is in the middle</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-shield"/></svg></span><div><h1 style="font-size:1.05rem">Verify <span id="verifyWho">this contact</span></h1><p>Confirm no one is in the middle</p></div></div>
     <p class="set-note" id="verifyAuto"></p>
     <p class="set-note"><b>In-person check (once):</b> both of you open this screen. If the <b>safety code</b> and emoji match on both devices, no one was in the middle when you first connected. If they differ, stop.</p>
     <div class="safety-emoji" id="safetyEmoji">· · · · ·</div>
@@ -1300,7 +1404,7 @@
 
 <div class="modal" id="pollModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">📊</span><div><h1 style="font-size:1.05rem">New poll</h1><p>Everyone in the chat can vote.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-poll"/></svg></span><div><h1 style="font-size:1.05rem">New poll</h1><p>Everyone in the chat can vote.</p></div></div>
     <div class="field"><label for="pollQ">Question</label><input id="pollQ" maxlength="300" placeholder="Ask something…" autocomplete="off"/></div>
     <div class="field"><label>Options</label><div class="poll-opts" id="pollOpts"></div></div>
     <button class="ghost" id="pollAdd" type="button">+ Add an option</button>
@@ -1311,7 +1415,7 @@
 </div>
 <div class="modal" id="evtModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">📅</span><div><h1 style="font-size:1.05rem">New event</h1><p>Each person can say whether they're coming.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-calendar"/></svg></span><div><h1 style="font-size:1.05rem">New event</h1><p>Each person can say whether they're coming.</p></div></div>
     <div class="field"><label for="evtTi">Name</label><input id="evtTi" maxlength="120" placeholder="Dinner at home" autocomplete="off"/></div>
     <div class="row"><div class="field"><label for="evtDate">Date</label><input id="evtDate" type="date"/></div><div class="field"><label for="evtTime">Time</label><input id="evtTime" type="time"/></div></div>
     <div class="field"><label for="evtDur">Duration</label><select id="evtDur" class="set-sel evt-sel">
@@ -1333,7 +1437,7 @@
 </div>
 <div class="modal" id="fwdModal">
   <div class="card">
-    <div class="logo"><span class="lock" aria-hidden="true">↪</span><div><h1 style="font-size:1.05rem">Forward the photo</h1><p>Pick the chat to send it to.</p></div></div>
+    <div class="logo"><span class="lock" aria-hidden="true"><svg class="ico"><use href="#i-forward"/></svg></span><div><h1 style="font-size:1.05rem">Forward the photo</h1><p>Pick the chat to send it to.</p></div></div>
     <div class="merge-list" id="fwdList"></div>
     <button class="ghost" id="fwdCancel" type="button">Cancel</button>
   </div>
@@ -1344,7 +1448,7 @@
 </div>
 <div class="toast" id="toast"></div>
 <div class="upd-pill" id="updPill" role="status" hidden>
-  <button type="button" class="upd-go" id="updGo">✨ New version available — tap to update</button>
+  <button type="button" class="upd-go" id="updGo"><svg class="ico"><use href="#i-refresh"/></svg><span>New version available — tap to update</span></button>
   <button type="button" class="upd-x" id="updX" aria-label="Later" title="Later">×</button>
 </div>
 

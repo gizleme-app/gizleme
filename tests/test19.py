@@ -116,7 +116,7 @@ with sync_playwright() as pw:
     p.evaluate("([ck])=>window.__drop(ck,{t:'img',path:'x.bin',k:'a',iv:'b',mime:'image/jpeg',once:true,n:'Bob'},'bob-acct',900)",[CKB]); p.wait_for_timeout(200)
     p.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); p.wait_for_timeout(1500)
     r["photo_badgeOnBob"]= [x for x in rows() if x["name"]=="Bob"][0]["badge"]=="1"
-    r["photo_previewOnBob"]= [x for x in rows() if x["name"]=="Bob"][0]["prev"]=="📷 Photo"
+    r["photo_previewOnBob"]= [x for x in rows() if x["name"]=="Bob"][0]["prev"]=="Photo" and p.evaluate("()=>!![...document.querySelectorAll('.ct')].find(e=>e.querySelector('.cn').textContent.trim()==='Bob').querySelector('.cm use[href=\"#i-camera\"]')")   # v38: a drawn camera
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
     p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
     r["afterUnlock_badgeKept"]= [x for x in rows() if x["name"]=="Bob"][0]["badge"]=="1"

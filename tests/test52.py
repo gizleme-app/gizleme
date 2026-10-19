@@ -194,8 +194,9 @@ try:
     r["dark_sent_bubble"]= A.evaluate("()=>{ const l=[...document.querySelectorAll('"+OPEN+" .bubble.sent')]; return getComputedStyle(l[l.length-1]).backgroundColor; }")=="rgb(91, 91, 214)"
     # ---- 2. system lines: short, UI font, soft pill ----
     sa=A.evaluate("()=>window.__gz.lastSys()"); sb=B.evaluate("()=>window.__gz.lastSys()")
-    lock=[x for x in sa+sb if x.startswith("🔒") or x.startswith("🔐")]
-    r["sys_short"]= any("opened your link · end-to-end encrypted" in x for x in sa) and any(x.startswith("🔒 End-to-end encrypted with") for x in sb) and all(len(x)<=64 and "—" not in x for x in lock)
+    lock=[x for x in sa+sb if "encrypted" in x or "Invite link" in x]
+    r["sys_short"]= any("opened your link · end-to-end encrypted" in x for x in sa) and any(x.startswith("End-to-end encrypted with") for x in sb) and all(len(x)<=64 and "—" not in x for x in lock)
+    r["sys_lock_icon"]= B.evaluate("()=>[...document.querySelectorAll('.sys')].some(e=>e.textContent.startsWith('End-to-end') && e.querySelector('use[href=\"#i-lock\"]'))")   # v38: a drawn lock, not 🔒
     r["sys_v"]= lock
     st=A.evaluate("()=>{ const e=document.querySelector('"+OPEN+" .sys'), cs=getComputedStyle(e); return {f:cs.fontFamily, bg:cs.backgroundColor, rad:cs.borderTopLeftRadius}; }")
     r["sys_pill_ui_font"]= "IBM Plex Sans" in st["f"] and "mono" not in st["f"].lower() and st["bg"] not in ("rgba(0, 0, 0, 0)","transparent") and st["rad"]=="12px"
@@ -208,14 +209,14 @@ try:
     A.locator(OPEN+" .bubble.sent").last.click(button="right"); A.wait_for_timeout(250)
     g=A.evaluate("()=>{ const p=document.getElementById('rxPick'), top=p.querySelector('.rx-top').getBoundingClientRect(), acts=p.querySelector('.rx-acts').getBoundingClientRect(), r=p.getBoundingClientRect(); return {vis:!p.hidden, below:acts.top>=top.bottom-1, inView:r.top>=0 && r.bottom<=innerHeight && r.left>=0 && r.right<=innerWidth, emojis:p.querySelectorAll('#rxQuick button').length}; }")
     r["menu_layout"]= g["vis"] and g["below"] and g["inView"] and g["emojis"]>=5
-    r["menu_own_text"]= A.evaluate(ACTS)==["Reply","Edit","Copy"]
+    r["menu_own_text"]= A.evaluate(ACTS)==["Reply","Edit","Copy","Delete"]
     shot(A,"52_menu_dark")
     A.click("#rxCopy"); A.wait_for_timeout(200)
     r["menu_closes"]= A.evaluate("()=>document.getElementById('rxPick').hidden")
     send(B,"salut")
     wait_for(A,has(A,"salut"),8000)
     A.locator(OPEN+" .bubble.recv").last.click(button="right"); A.wait_for_timeout(250)
-    r["menu_their_text"]= A.evaluate(ACTS)==["Reply","Copy"]
+    r["menu_their_text"]= A.evaluate(ACTS)==["Reply","Copy","Delete"]
     A.keyboard.press("Escape"); A.mouse.click(5,400); A.wait_for_timeout(200)
     # ---- 10. a colour of its own for every contact, the same on both sides ----
     ca=A.evaluate("()=>{ const c=window.__gz.contacts().find(x=>!x.into); return {ck:c.ck, cl:c.cl||null, list:getComputedStyle(document.querySelector('.ct .ava')).backgroundColor, head:getComputedStyle(document.getElementById('peerAvatar')).backgroundColor, want:"+AUTO+"(c.ck)}; }")
