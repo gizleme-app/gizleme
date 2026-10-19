@@ -1,6 +1,7 @@
-# v33: an installed iPhone app on iOS 26 is told a viewport that's the screen minus the status bar while it's
-# drawn from the top of the screen (WebKit 301994): the app, calls, dialogs and photos take the screen's full
-# height then — and only then; the text size setting scales the app, with fields kept at 16 px or more.
+# v34: an installed iPhone app on iOS 26 is told a viewport of the screen minus the status bar and gets a system
+# band over the bottom of the screen (WebKit 301994): the app never sizes itself under that band, stops keeping
+# the home-indicator space above it, and gives the band the message bar's colour — only in that case; the text
+# size setting scales the app, with fields kept at 16 px or more.
 from playwright.sync_api import sync_playwright
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
@@ -173,12 +174,10 @@ try:
         return ctx,p
     errs=[]
     ctxI,I=boot("ines",errs,init=IOS26)
-    g=I.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, body:document.body.style.height, ih:innerHeight, fh:getComputedStyle(document.documentElement).getPropertyValue('--full-h').trim()})")
-    r["ios26_app_full"]= g["app"]==g["ih"]+62 and g["body"]==str(g["ih"]+62)+"px" and g["fh"]==str(g["ih"]+62)+"px"
+    g=I.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, body:document.body.style.height, ih:innerHeight, gap:document.documentElement.classList.contains('ios-gap'), pad:getComputedStyle(document.querySelector('.composer')).paddingBottom, bg:getComputedStyle(document.documentElement).backgroundColor, surf:getComputedStyle(document.querySelector('.composer')).backgroundColor})")
+    r["ios26_not_extended"]= g["app"]==g["ih"] and g["body"]==""     # the band at the bottom is drawn over the page: never size under it
+    r["ios26_gap_mode"]= g["gap"] and g["pad"]=="10px" and g["bg"]==g["surf"]
     r["ios26_v"]=g
-    I.evaluate("()=>document.getElementById('sbSettings').click()"); I.wait_for_timeout(300)
-    r["ios26_modal_full"]= I.evaluate("()=>document.getElementById('settingsModal').getBoundingClientRect().height")==g["ih"]+62
-    I.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
     ctxI.close()
     ctxX,X=boot("xena",errs,init=NOBOTTOM)
     g=X.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, ih:innerHeight})")
@@ -186,13 +185,13 @@ try:
     ctxX.close()
     # the same standalone app with a correct viewport (screen = viewport): nothing changes
     ctxN,N=boot("nora",errs,init=SAFEONLY)
-    g=N.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, body:document.body.style.height, ih:innerHeight})")
-    r["normal_unchanged"]= g["app"]==g["ih"] and g["body"]==""
+    g=N.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, body:document.body.style.height, ih:innerHeight, gap:document.documentElement.classList.contains('ios-gap')})")
+    r["normal_unchanged"]= g["app"]==g["ih"] and g["body"]=="" and not g["gap"]
     ctxN.close()
     # a browser tab (not installed): never
     ctxB,B=boot("bora",errs)
-    g=B.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, ih:innerHeight})")
-    r["browser_unchanged"]= g["app"]==g["ih"]
+    g=B.evaluate("()=>({app:document.getElementById('app').getBoundingClientRect().height, ih:innerHeight, gap:document.documentElement.classList.contains('ios-gap')})")
+    r["browser_unchanged"]= g["app"]==g["ih"] and not g["gap"]
     # ---- text size ----
     B.evaluate("()=>document.getElementById('sbSettings').click()"); B.wait_for_timeout(300)
     r["text_default"]= B.evaluate("()=>document.getElementById('textSize').value")=="1" and B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="16px"

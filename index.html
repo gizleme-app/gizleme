@@ -629,7 +629,11 @@
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important} #join .glow{animation:none!important}}
   .composer textarea,.field input,.poll-opts input{font-size:max(16px,1rem)}   /* 16 px at least: no zoom-in on iPhone, whatever the text size */
-  .callui,.modal,.lightbox{height:var(--full-h,auto)}   /* see fullHeight() in app.js: iOS 26 installed apps */
+  /* iOS 26 installed apps: a system band covers the bottom of the screen (see iosGap() in app.js) — no home-indicator
+     space is kept above it, and the band takes the message bar's colour */
+  html{background:var(--surface)}
+  html.ios-gap .composer{padding-bottom:10px} html.ios-gap .cmp-panel{padding-bottom:14px} html.ios-gap .call-ctl{padding-bottom:28px}
+  html.ios-gap .fab{bottom:20px} html.ios-gap .toast{bottom:84px} html.ios-gap .lightbox .lb-timer{bottom:22px} html.ios-gap .pad{padding-bottom:0}
 </style>
 </head>
 <body>

@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 33;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 34;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -2144,30 +2144,27 @@ const vv=window.visualViewport;
 let _fitT=null, _maxVH=0, _logRO=null;
 function viewH(){ return Math.round((vv&&vv.height)||window.innerHeight||0); }
 function fitTarget(){ const b=document.body.classList; return b.contains("in-app") ? $("app") : b.contains("in-auth") ? $("join") : null; }
-// iOS 26 installed apps: the page is drawn from the very top of the screen (under the status bar) but the
-// viewport it is told about — innerHeight, visualViewport, 100dvh — is the screen minus the status bar, so an
-// app sized to it stops that much short of the bottom (WebKit bug 301994). When the missing height is exactly
-// the status bar's (the top safe area), the screen's full height is used instead — keyboard closed only.
-// (Only when the page also reaches the home-indicator area — a bottom safe area — so its frame really runs to the
-// bottom of the screen and the extra height is drawn, not hidden under something.)
+// iOS 26 installed apps (WebKit bug 301994): the system reports a viewport of the screen minus the status bar
+// and paints a band of that height over the bottom of the screen, in the page's background colour cached at
+// launch. Nothing can be drawn under it — so the page doesn't try; it stops reserving the home-indicator space
+// (the band already covers it) and the band takes the colour of the message bar (html background, below).
 let _safeProbe=null;
 function safeInsets(){ try{ if(!_safeProbe){ _safeProbe=document.createElement("div"); _safeProbe.style.cssText="position:fixed;left:0;top:0;width:0;height:0;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none";
     document.documentElement.appendChild(_safeProbe); } const cs=getComputedStyle(_safeProbe); return {top:Math.round(parseFloat(cs.paddingTop)||0), bottom:Math.round(parseFloat(cs.paddingBottom)||0)}; }catch(e){ return {top:0,bottom:0}; } }
 const STANDALONE = window.navigator.standalone===true || !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches);
-function fullHeight(h){
-  if(!STANDALONE || !window.screen) return h;
+function iosGap(h){
+  if(!STANDALONE || !window.screen) return false;
   const portrait=window.innerHeight>=window.innerWidth, sh=portrait ? Math.max(screen.width,screen.height) : Math.min(screen.width,screen.height);
   const si=safeInsets(), gap=sh-h;
-  return (si.top>0 && si.bottom>0 && gap>8 && Math.abs(gap-si.top)<=3) ? sh : h;
+  return si.top>0 && gap>8 && Math.abs(gap-si.top)<=3;
 }
 function fitViewport(){
   const el=fitTarget(); if(!el) return;
   const h=viewH(); if(!h) return;
   if(h>_maxVH) _maxVH=h;
   const kb=(_maxVH-h)>120;
-  const full=kb ? h : fullHeight(h);
-  el.style.height=full+"px"; el.style.maxHeight = full>h ? full+"px" : ""; document.body.style.height = full>h ? full+"px" : "";
-  if(full>h) document.documentElement.style.setProperty("--full-h", full+"px"); else document.documentElement.style.removeProperty("--full-h");   // full-screen layers too (calls, dialogs, photos)
+  el.style.height=h+"px";
+  if(!kb) document.documentElement.classList.toggle("ios-gap", iosGap(h));
   const top=vv?Math.round(vv.offsetTop):0; el.style.transform=top>1?("translateY("+top+"px)"):"";
   document.body.classList.toggle("kb",kb);
   if(window.scrollY) try{ window.scrollTo(0,0); }catch(e){}
