@@ -164,11 +164,11 @@ try:
     B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(2500)
     r["paired"]= wait_for(A,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000) and wait_for(B,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000)
     r["mic_enabled"]= A.evaluate("()=>!document.getElementById('micBtn').disabled")
-    # phone width: the composer row fits (camera, mic, text box, send), the recording bar is NOT rendered unless recording
+    # phone width: the composer row fits (+, text box, camera, mic), the recording bar is NOT rendered unless recording
     A.set_viewport_size({"width":375,"height":700}); A.wait_for_timeout(400)
     r["phone_composerFits"]= A.evaluate("()=>{ const c=document.querySelector('.composer'); const w=c.getBoundingClientRect().right; return c.scrollWidth<=c.clientWidth+1 && [...c.children].every(e=>getComputedStyle(e).display==='none' || e.getBoundingClientRect().right<=w+1); }")
     r["phone_recBarHidden"]= A.evaluate("()=>getComputedStyle(document.getElementById('recBar')).display==='none' && document.getElementById('msgInput').getBoundingClientRect().width>150")
-    r["phone_order"]= A.evaluate("()=>[...document.querySelector('.composer').children].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.id).join(',')")=="attachBtn,micBtn,msgInput,sendBtn"
+    r["phone_order"]= A.evaluate("()=>[...document.querySelector('.composer').children].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.id).join(',')")=="plusBtn,msgField,attachBtn,micBtn"   # v32: + · field (with GIF) · camera · mic (send replaces camera and mic once something is typed)
     A.set_viewport_size({"width":1000,"height":820}); A.wait_for_timeout(300)
     A.fill("#msgInput","texte avant"); A.press("#msgInput","Enter"); A.wait_for_timeout(1500)
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); A.wait_for_timeout(1500)

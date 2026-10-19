@@ -251,6 +251,59 @@
   .exp-menu .xl{display:flex;flex-direction:column;line-height:1.2} .exp-menu .xl small{color:var(--muted);font-size:.72rem}
   .exp-menu .exp-note{margin:6px 8px 2px;font-size:.72rem;color:var(--muted);line-height:1.35}
   /* a kept photo, in the chat */
+  /* the composer: + / keyboard, a rounded field, camera and mic while empty, send once typed */
+  .composer{gap:6px;align-items:flex-end;padding-left:8px;padding-right:10px}
+  .cmp-plus,.cmp-ico{width:40px;height:44px;flex:none;border:0;background:transparent;color:var(--fg);display:grid;place-items:center;cursor:pointer;border-radius:50%;padding:0;-webkit-tap-highlight-color:transparent}
+  .cmp-plus .ico{width:27px;height:27px;stroke-width:1.7} .cmp-ico .ico{width:25px;height:25px;stroke-width:1.7}
+  .cmp-plus .ic-kbd{display:none;width:26px;height:26px} .composer.panel .cmp-plus .ic-plus{display:none} .composer.panel .cmp-plus .ic-kbd{display:block}
+  .cmp-plus:disabled,.cmp-ico:disabled{opacity:.45}
+  .cmp-field{flex:1;min-width:0;display:flex;align-items:flex-end;background:var(--bg);border:1px solid var(--line);border-radius:22px;transition:border-color .15s}
+  .cmp-field:focus-within{border-color:var(--accent)}
+  .composer .cmp-field textarea{border:0;background:transparent;border-radius:22px;padding:10px 15px}
+  .composer .cmp-field textarea:focus-visible{outline:none}
+  #micBtn .ico,#sendBtn .ico{width:21px;height:21px}
+  .composer.has-text #attachBtn,.composer.has-text #micBtn{display:none}
+  .composer:not(.has-text) #sendBtn{display:none}
+  .composer.panel{padding-bottom:8px}
+  .cmp-panel{flex:none;height:min(290px,42vh);background:var(--surface);overflow-y:auto;padding:20px 12px calc(14px + env(safe-area-inset-bottom,0px));-webkit-overflow-scrolling:touch}
+  .cmp-panel[hidden]{display:none}
+  body.kb .cmp-panel{height:min(220px,30vh)}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 6px;max-width:460px;margin:0 auto}
+  .tile{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;color:var(--fg);font:inherit;font-size:.8rem;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;min-width:0}
+  .tile>span:last-child{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tile .ti{width:60px;height:60px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;box-shadow:inset 0 0 0 1px var(--line);transition:transform .12s}
+  .tile:active .ti{transform:scale(.92)} .tile:hover .ti{box-shadow:inset 0 0 0 1px var(--accent)}
+  .tile .ti svg{width:30px;height:30px}
+  /* documents, polls, events */
+  .bubble.docb .cardl{min-width:200px}
+  .doc-ico{width:38px;height:46px;flex:none;border-radius:6px;background:color-mix(in srgb,var(--accent) 24%,transparent);display:grid;place-items:center;font-size:.6rem;font-weight:800;letter-spacing:.04em}
+  .bubble.sent .doc-ico{background:rgba(255,255,255,.22)}
+  .doc-tx{min-width:0} .doc-n{word-break:break-word;max-width:220px}
+  .bubble .cl-btn:disabled{opacity:.6}
+  .bubble.voteb{min-width:min(260px,72vw)}
+  .poll .pq,.evt .et{font-weight:700;font-size:1rem;line-height:1.3}
+  .poll .ph{font-size:.72rem;opacity:.75;margin:2px 0 6px}
+  .voteb .po{position:relative;display:grid;grid-template-columns:20px 1fr auto;align-items:center;gap:8px;width:100%;padding:8px 2px 13px;border:0;background:none;color:inherit;font:inherit;font-size:.92rem;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .voteb .po .pc{width:18px;height:18px;border-radius:50%;border:2px solid currentColor;opacity:.65;box-sizing:border-box}
+  .voteb .po.on .pc{background:currentColor;opacity:1;box-shadow:inset 0 0 0 3px var(--surface-2)}
+  .bubble.sent.voteb .po.on .pc{box-shadow:inset 0 0 0 3px var(--me)}
+  .voteb .po .pt{min-width:0;word-break:break-word}
+  .voteb .po .pn{font-size:.8rem;font-weight:700;opacity:.85}
+  .voteb .po .pbar{position:absolute;left:30px;right:2px;bottom:5px;height:4px;border-radius:2px;background:rgba(127,127,127,.28);overflow:hidden}
+  .voteb .po .pbar i{display:block;height:100%;width:0;background:currentColor;opacity:.75;transition:width .25s}
+  .poll .pf{font-size:.72rem;opacity:.75;margin-top:2px}
+  .evt .ed{font-size:.84rem;margin-top:4px;opacity:.9} .evt .ed::first-letter{text-transform:uppercase}
+  .evt .el,.evt .en{font-size:.82rem;margin-top:4px;opacity:.85;white-space:pre-wrap;word-break:break-word}
+  .evt .er{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .voteb .po.rsvp{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex:1 1 auto;width:auto;padding:6px 12px;border-radius:999px;border:1.5px solid currentColor;opacity:.8;font-size:.82rem;font-weight:600;white-space:nowrap}
+  .voteb .po.rsvp.on{opacity:1;background:rgba(127,127,127,.22)}
+  .evt .ics{margin-top:10px}
+  .poll-opts{display:flex;flex-direction:column;gap:8px}
+  .poll-opts input{width:100%;font-size:1rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
+  .chk{display:flex;align-items:center;gap:8px;font-size:.88rem;color:var(--fg);margin:0;cursor:pointer}
+  .chk input{width:18px;height:18px;accent-color:var(--accent)}
+  .evt-sel{width:100%;padding:10px 12px;font-size:1rem}
+  .row .field input[type=date],.row .field input[type=time]{min-height:44px}
   .bubble img.keep{display:block;max-width:min(240px,62vw);max-height:320px;width:auto;height:auto;border-radius:10px;cursor:pointer;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
   .imgph.gone{font-size:.8rem;opacity:.7;padding:10px;text-align:center}
   .bubble .edm{font-style:italic;opacity:.85;margin-right:2px}
@@ -559,7 +612,7 @@
   /* home mode: show the chats placeholder, hide the conversation chrome */
   #app.home .tabs,#app.home .logs,#app.home .wire,#app.home .composer,#app.home #netBar,#app.home .reply-bar{display:none}
   #app.home #home{display:flex}
-  #app.home #expBtn,#app.home #peerAvatar,#app.home .meta,#app.home #verifyBtn,#app.home #menuBtn,#app.home #backHome,#app.home #callBtn,#app.home #videoBtn{display:none}
+  #app.home .cmp-panel,#app.home #expBtn,#app.home #peerAvatar,#app.home .meta,#app.home #verifyBtn,#app.home #menuBtn,#app.home #backHome,#app.home #callBtn,#app.home #videoBtn{display:none}
   #app.home #barTitle{display:flex}
   @media (max-width:720px){
     .tabs{display:none!important}   /* on a phone the chats list is the only switcher */
@@ -582,6 +635,7 @@
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 15.5h8"/></symbol>
   <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
   <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
@@ -780,15 +834,31 @@
     <button class="rx-tool" id="rxFwd" type="button" aria-label="Forward" title="Forward" hidden>↪</button>
     <div class="rx-grid" id="rxGrid" hidden></div>
   </div>
-  <div class="composer">
-    <input type="file" id="fileInput" accept="image/*" hidden/>
-    <button class="attach" id="attachBtn" title="Send a disappearing photo" aria-label="Send photo" disabled><svg class="ico"><use href="#i-camera"/></svg></button>
-    <button class="attach" id="micBtn" title="Record a voice message" aria-label="Record a voice message" disabled><svg class="ico"><use href="#i-mic"/></svg></button>
-    <textarea id="msgInput" placeholder="Message…" autocomplete="off" maxlength="2000" rows="1" enterkeyhint="send" disabled></textarea>
+  <div class="composer" id="composer">
+    <input type="file" id="fileInput" accept="image/*" multiple hidden/>
+    <input type="file" id="camInput" accept="image/*" capture="environment" hidden/>
+    <input type="file" id="docInput" hidden/>
+    <button class="cmp-plus" id="plusBtn" type="button" title="Attach" aria-label="Attach" disabled><svg class="ico ic-plus"><use href="#i-plus"/></svg><svg class="ico ic-kbd"><use href="#i-keyboard"/></svg></button>
+    <div class="cmp-field" id="msgField">
+      <textarea id="msgInput" placeholder="Message…" autocomplete="off" maxlength="2000" rows="1" enterkeyhint="send" disabled></textarea>
+    </div>
+    <button class="cmp-ico" id="attachBtn" type="button" title="Take a photo" aria-label="Take a photo" disabled><svg class="ico"><use href="#i-camera"/></svg></button>
+    <button class="send" id="micBtn" type="button" title="Record a voice message" aria-label="Record a voice message" disabled><svg class="ico"><use href="#i-mic"/></svg></button>
     <button class="send" id="sendBtn" disabled aria-label="Send"><svg class="ico"><use href="#i-send"/></svg></button>
     <div id="recBar" hidden><span class="recdot"></span><span class="rechint">Recording…</span>
       <button class="attach" id="recCancel" type="button" aria-label="Cancel recording">✕</button>
       <button class="send" id="recSend" type="button" aria-label="Send voice message"><svg class="ico"><use href="#i-send"/></svg></button></div>
+  </div>
+  <!-- where the keyboard would be: the attachments (+) -->
+  <div class="cmp-panel" id="plusPanel" hidden>
+    <div class="tiles">
+      <button class="tile" type="button" data-act="photos"><span class="ti"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="5" width="19" height="16" rx="3" fill="#93c5fd"/><rect x="9" y="10" width="19" height="16" rx="3" fill="#3b82f6" stroke="var(--surface-2)" stroke-width="1.6"/><circle cx="15" cy="15.5" r="2" fill="#dbeafe"/><path d="m11 24 5-5 3 3 3-4 5 6Z" fill="#dbeafe"/></svg></span><span>Photos</span></button>
+      <button class="tile" type="button" data-act="camera"><span class="ti"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M11.5 7h9l2 3H26a2.5 2.5 0 0 1 2.5 2.5v11A2.5 2.5 0 0 1 26 26H6a2.5 2.5 0 0 1-2.5-2.5v-11A2.5 2.5 0 0 1 6 10h3.5Z" fill="var(--fg)"/><circle cx="16" cy="17.5" r="5" fill="var(--surface-2)"/><circle cx="16" cy="17.5" r="3" fill="var(--fg)"/></svg></span><span>Camera</span></button>
+      <button class="tile" type="button" data-act="loc"><span class="ti"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3a9 9 0 0 0-9 9c0 6.6 9 17 9 17s9-10.4 9-17a9 9 0 0 0-9-9Z" fill="#34d399"/><circle cx="16" cy="12" r="3.4" fill="var(--surface-2)"/></svg></span><span>Location</span></button>
+      <button class="tile" type="button" data-act="doc"><span class="ti"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M9 4h10l7 7v15a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" fill="#38bdf8"/><path d="M19 4v5a2 2 0 0 0 2 2h5" fill="#bae6fd"/></svg></span><span>Document</span></button>
+      <button class="tile" type="button" data-act="poll"><span class="ti"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="6" y="7" width="18" height="4" rx="2" fill="#fbbf24"/><rect x="6" y="14" width="21" height="4" rx="2" fill="#fbbf24"/><rect x="6" y="21" width="12" height="4" rx="2" fill="#fbbf24"/></svg></span><span>Poll</span></button>
+      <button class="tile" type="button" data-act="event"><span class="ti"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="5" y="6" width="22" height="21" rx="3" fill="#f43f5e"/><rect x="7.5" y="11" width="17" height="13.5" rx="1.5" fill="var(--surface-2)"/><g fill="#f43f5e"><circle cx="11" cy="15" r="1.2"/><circle cx="16" cy="15" r="1.2"/><circle cx="21" cy="15" r="1.2"/><circle cx="11" cy="20" r="1.2"/><circle cx="16" cy="20" r="1.2"/><circle cx="21" cy="20" r="1.2"/></g></svg></span><span>Event</span></button>
+    </div>
   </div>
   </div><!-- /.main -->
 </div>
@@ -1046,6 +1116,30 @@
   </div>
 </div>
 
+<div class="modal" id="pollModal">
+  <div class="card">
+    <div class="logo"><span class="lock" aria-hidden="true">📊</span><div><h1 style="font-size:1.05rem">New poll</h1><p>Everyone in the chat can vote.</p></div></div>
+    <div class="field"><label for="pollQ">Question</label><input id="pollQ" maxlength="300" placeholder="Ask something…" autocomplete="off"/></div>
+    <div class="field"><label>Options</label><div class="poll-opts" id="pollOpts"></div></div>
+    <button class="ghost" id="pollAdd" type="button">+ Add an option</button>
+    <label class="chk"><input type="checkbox" id="pollMulti"/> <span>Allow several answers</span></label>
+    <button class="btn" id="pollSend" type="button">Send the poll</button>
+    <button class="ghost" id="pollCancel" type="button">Cancel</button>
+  </div>
+</div>
+<div class="modal" id="evtModal">
+  <div class="card">
+    <div class="logo"><span class="lock" aria-hidden="true">📅</span><div><h1 style="font-size:1.05rem">New event</h1><p>Each person can say whether they're coming.</p></div></div>
+    <div class="field"><label for="evtTi">Name</label><input id="evtTi" maxlength="120" placeholder="Dinner at home" autocomplete="off"/></div>
+    <div class="row"><div class="field"><label for="evtDate">Date</label><input id="evtDate" type="date"/></div><div class="field"><label for="evtTime">Time</label><input id="evtTime" type="time"/></div></div>
+    <div class="field"><label for="evtDur">Duration</label><select id="evtDur" class="set-sel evt-sel">
+      <option value="1800000">30 minutes</option><option value="3600000">1 hour</option><option value="7200000">2 hours</option><option value="10800000">3 hours</option><option value="21600000">6 hours</option><option value="86400000">All day</option></select></div>
+    <div class="field"><label for="evtLoc">Place (optional)</label><input id="evtLoc" maxlength="200" autocomplete="off"/></div>
+    <div class="field"><label for="evtNote">Note (optional)</label><input id="evtNote" maxlength="500" autocomplete="off"/></div>
+    <button class="btn" id="evtSend" type="button">Send the event</button>
+    <button class="ghost" id="evtCancel" type="button">Cancel</button>
+  </div>
+</div>
 <div class="exp-menu" id="expMenu" role="menu" aria-label="Disappearing messages" hidden>
   <div class="exp-t">Disappearing messages</div>
   <button type="button" role="menuitemradio" data-v="0"><span class="xb off"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-dasharray="3.4 2.1"/><line x1="5.2" y1="18.8" x2="18.8" y2="5.2" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span><span class="xl">Off<small>messages and photos stay</small></span></button>

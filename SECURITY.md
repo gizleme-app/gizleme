@@ -177,6 +177,12 @@ rate-limit counters.
   inside the message); the ciphertext blob stays on the relay for 14 days, so every member of a group and
   each of your devices can fetch it, and each device keeps its own encrypted copy for replay. A view-once
   photo in a two-person chat is deleted from the relay once it has been viewed.
+- **Documents, polls, events.** A document is encrypted on the device under a random key that only travels
+  inside the message, split in pieces of at most 1.8 MB (10 MB in all) that the relay stores like photos — it
+  sees sizes, never names or contents; the name, type and key are inside the encrypted message. Polls and
+  events are ordinary encrypted messages; a vote (or "going / can't go") is a quiet encrypted envelope
+  `{t:"vote", m, c}` like a reaction — signed in groups, the newest one per person counts. "Add to calendar"
+  builds the .ics file on the device.
 - **A chat's timer** is set from its header and applies to both sides: the choice travels as an encrypted
   `{t:"exp", v}` envelope (quiet, like a reaction; signed in groups) and every device applies the newest one.
   A photo is view-once while the timer runs; with the timer off it is sent as a kept photo (`once:false`):

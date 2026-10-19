@@ -47,6 +47,12 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   contact is invited inside the encrypted chat, the link for the others is offered right away). Group
   messages are signed by their author (✓ / ⚠ on each bubble); the creator can remove members or renew the
   key — the new key reaches each remaining member under their own key, the removed one is locked out.
+- The message bar: "+" on the left opens the attachments where the keyboard would be — Photos (several at
+  once), Camera, Location, Document, Poll, Event — and turns into a keyboard icon to go back; the camera and
+  the microphone sit next to the field while it's empty, the send button replaces them once you type.
+- Documents up to 10 MB (encrypted on the device, sent in 1.8 MB pieces; each device keeps its own encrypted
+  copy once fetched), polls (one or several answers) and events (date, time, place; "going / can't go";
+  "Add to calendar" as an .ics file). Votes are encrypted, quiet envelopes like reactions.
 - Location sharing: coordinates travel only inside the encrypted message; "Open in Maps" hands them to the
   phone's own maps app — Gizleme never fetches anything from a map provider.
 - Quiet by design, with its own sound: "Gizleme", a three-note glass chime (one note per syllable), for a
