@@ -69,6 +69,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 - "Typing…" and "recording a voice message…": in the chat's header, as three dots (or a microphone) at the
   end of the chat and in the chats list — live-only encrypted signals that stop when the message is sent and
   fade after a few seconds of nothing. Settings → Typing indicators: off means you neither send nor see them.
+- Settings → Appearance → Text size: five sizes, from small to largest, for the whole app (typing fields
+  never go below 16 px, so an iPhone doesn't zoom into them).
 - A colour for each chat: a long press (right click on a computer) on a chat in the list opens a palette of
   twelve colours for its round avatar — in the list, at the top of the chat and on the call screen. Saved
   in your encrypted contact list, so it follows your account; the other person never sees it.

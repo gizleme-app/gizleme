@@ -628,6 +628,8 @@
     .sb-backdrop{display:none!important}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important} #join .glow{animation:none!important}}
+  .composer textarea,.field input,.poll-opts input{font-size:max(16px,1rem)}   /* 16 px at least: no zoom-in on iPhone, whatever the text size */
+  .callui,.modal,.lightbox{height:var(--full-h,auto)}   /* see fullHeight() in app.js: iOS 26 installed apps */
 </style>
 </head>
 <body>
@@ -919,6 +921,15 @@
           <option value="en" lang="en">English</option>
           <option value="fr" lang="fr">Français</option>
           <option value="tr" lang="tr">Türkçe</option>
+        </select>
+      </div>
+      <div class="set-row"><label for="textSize">Text size</label>
+        <select id="textSize" class="set-sel" aria-label="Text size">
+          <option value="0.9">Small</option>
+          <option value="1">Normal</option>
+          <option value="1.12">Large</option>
+          <option value="1.25">Larger</option>
+          <option value="1.4">Largest</option>
         </select>
       </div>
     </div>

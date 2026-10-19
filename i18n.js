@@ -689,7 +689,14 @@ window.GZ_I18N = {
     "Send the event": "Envoyer l'événement",
     "B": "o",
     "kB": "ko",
-    "MB": "Mo"
+    "MB": "Mo",
+    "Text size": "Taille du texte",
+    "Small": "Petite",
+    "Normal": "Normale",
+    "Large": "Grande",
+    "Larger": "Plus grande",
+    "Largest": "Très grande",
+    "Text size updated": "Taille du texte modifiée"
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1368,6 +1375,13 @@ window.GZ_I18N = {
     "Send the event": "Etkinliği gönder",
     "B": "B",
     "kB": "KB",
-    "MB": "MB"
+    "MB": "MB",
+    "Text size": "Yazı boyutu",
+    "Small": "Küçük",
+    "Normal": "Normal",
+    "Large": "Büyük",
+    "Larger": "Daha büyük",
+    "Largest": "En büyük",
+    "Text size updated": "Yazı boyutu güncellendi"
   }
 };

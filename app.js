@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 32;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 33;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -45,6 +45,12 @@ function applyI18n(){
 }
 function setLang(l){ LANG=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} applyI18n(); renderContacts(); renderTabs(); updateNotifyUI(); updateVerifyUI(); if(typeof _refreshSettingsUI==="function") _refreshSettingsUI(); if(typeof swNamesSoon==="function") swNamesSoon(); }
 let _refreshSettingsUI=null;
+// ---------- text size (Settings → Appearance): scales every text in the app; fields stay at 16 px or more so an
+// iPhone doesn't zoom into them ----------
+const LS_TEXT="gz-textsize", TEXT_SIZES=[0.9,1,1.12,1.25,1.4];
+function textScale(){ try{ const v=+localStorage.getItem(LS_TEXT); return TEXT_SIZES.includes(v) ? v : 1; }catch(e){ return 1; } }
+function applyTextScale(v){ document.documentElement.style.fontSize = v===1 ? "" : (100*v)+"%"; }
+applyTextScale(textScale());
 const enc = new TextEncoder(), dec = new TextDecoder();
 const SALT = enc.encode("vesper/v1");
 const hex = b => [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");
@@ -2138,12 +2144,30 @@ const vv=window.visualViewport;
 let _fitT=null, _maxVH=0, _logRO=null;
 function viewH(){ return Math.round((vv&&vv.height)||window.innerHeight||0); }
 function fitTarget(){ const b=document.body.classList; return b.contains("in-app") ? $("app") : b.contains("in-auth") ? $("join") : null; }
+// iOS 26 installed apps: the page is drawn from the very top of the screen (under the status bar) but the
+// viewport it is told about — innerHeight, visualViewport, 100dvh — is the screen minus the status bar, so an
+// app sized to it stops that much short of the bottom (WebKit bug 301994). When the missing height is exactly
+// the status bar's (the top safe area), the screen's full height is used instead — keyboard closed only.
+// (Only when the page also reaches the home-indicator area — a bottom safe area — so its frame really runs to the
+// bottom of the screen and the extra height is drawn, not hidden under something.)
+let _safeProbe=null;
+function safeInsets(){ try{ if(!_safeProbe){ _safeProbe=document.createElement("div"); _safeProbe.style.cssText="position:fixed;left:0;top:0;width:0;height:0;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none";
+    document.documentElement.appendChild(_safeProbe); } const cs=getComputedStyle(_safeProbe); return {top:Math.round(parseFloat(cs.paddingTop)||0), bottom:Math.round(parseFloat(cs.paddingBottom)||0)}; }catch(e){ return {top:0,bottom:0}; } }
+const STANDALONE = window.navigator.standalone===true || !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+function fullHeight(h){
+  if(!STANDALONE || !window.screen) return h;
+  const portrait=window.innerHeight>=window.innerWidth, sh=portrait ? Math.max(screen.width,screen.height) : Math.min(screen.width,screen.height);
+  const si=safeInsets(), gap=sh-h;
+  return (si.top>0 && si.bottom>0 && gap>8 && Math.abs(gap-si.top)<=3) ? sh : h;
+}
 function fitViewport(){
   const el=fitTarget(); if(!el) return;
   const h=viewH(); if(!h) return;
   if(h>_maxVH) _maxVH=h;
   const kb=(_maxVH-h)>120;
-  el.style.height=h+"px";
+  const full=kb ? h : fullHeight(h);
+  el.style.height=full+"px"; el.style.maxHeight = full>h ? full+"px" : ""; document.body.style.height = full>h ? full+"px" : "";
+  if(full>h) document.documentElement.style.setProperty("--full-h", full+"px"); else document.documentElement.style.removeProperty("--full-h");   // full-screen layers too (calls, dialogs, photos)
   const top=vv?Math.round(vv.offsetTop):0; el.style.transform=top>1?("translateY("+top+"px)"):"";
   document.body.classList.toggle("kb",kb);
   if(window.scrollY) try{ window.scrollTo(0,0); }catch(e){}
@@ -3844,6 +3868,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     previewTone(btn.dataset.tone); refreshSoundUI(); }));
   function refreshLangUI(){ const s=$("langSel"); if(s) s.value=LANG; }
   $("langSel").addEventListener("change",e=>{ const v=e.target.value; if(LANGS.includes(v)) setLang(v); });
+  { const ts=$("textSize"); if(ts){ ts.value=String(textScale());
+    ts.addEventListener("change",e=>{ const v=+e.target.value; if(!TEXT_SIZES.includes(v)) return; try{ localStorage.setItem(LS_TEXT,String(v)); }catch(_){} applyTextScale(v); stickLog(); toast(t("Text size updated")); }); } }
   refreshLangUI();   // the selector shows the language in use from the start (detected or saved)
   _refreshSettingsUI=()=>{ refreshThemeUI(); refreshSoundUI(); refreshLangUI(); refreshPrevUI(); updateNotifyUI(); };
   $("soundSel").addEventListener("change",e=>{ setSoundMode(e.target.value); if(soundMode()==="all"){ initAudio(); soundRecv(); } refreshSoundUI(); });
