@@ -328,11 +328,11 @@ try:
     r["col_rightclick_opens"]= A.is_visible("#colPick") and A.evaluate("()=>document.querySelectorAll('#colGrid button').length")==13 and A.eval_on_selector("#colTitle","e=>e.textContent")=="Colour for serap"
     r["col_default_marked"]= A.evaluate("()=>document.querySelector('#colGrid button.on').dataset.c")==""
     A.click("#colGrid button[data-c=teal]"); A.wait_for_timeout(500)
-    r["col_applied_list"]= not A.is_visible("#colPick") and A.evaluate("()=>getComputedStyle(document.querySelector('.ct .ava')).backgroundColor")=="rgb(13, 148, 136)"
+    r["col_applied_list"]= not A.is_visible("#colPick") and A.evaluate("()=>getComputedStyle(document.querySelector('.ct .ava')).backgroundColor")=="rgb(15, 118, 110)"
     r["col_saved"]= A.evaluate("()=>{ const c=window.__gz.contacts().find(x=>!x.into); return c.cl==='teal' && c.cts>0; }")
     r["col_still_home"]= A.evaluate("()=>document.getElementById('app').classList.contains('home')")
     A.click(".ct"); A.wait_for_timeout(800)
-    r["col_header_avatar"]= A.evaluate("()=>getComputedStyle(document.getElementById('peerAvatar')).backgroundColor")=="rgb(13, 148, 136)"
+    r["col_header_avatar"]= A.evaluate("()=>getComputedStyle(document.getElementById('peerAvatar')).backgroundColor")=="rgb(15, 118, 110)"
     cnow=A.evaluate("()=>window.__gz.contacts().find(x=>!x.into)")
     m1=A.evaluate("([c])=>window.__gz.merge({contacts:[Object.assign({},c,{cl:'red',cts:c.cts+1000})]}).contacts.find(x=>x.ck===c.ck).cl",[cnow])
     m2=A.evaluate("([c])=>window.__gz.merge({contacts:[Object.assign({},c,{cl:'red',cts:c.cts-1000})]}).contacts.find(x=>x.ck===c.ck).cl",[cnow])
@@ -348,7 +348,10 @@ try:
     B.click("#colGrid button[data-c=pink]"); B.wait_for_timeout(400)
     r["col_phone_applied"]= B.evaluate("()=>getComputedStyle(document.querySelector('.ct .ava')).backgroundColor")=="rgb(219, 39, 119)"
     B.locator(".ct").first.click(button="right"); B.wait_for_timeout(150); B.click("#colGrid button[data-c='']"); B.wait_for_timeout(400)
-    r["col_reset"]= B.evaluate("()=>!document.querySelector('.ct .ava').style.background && !window.__gz.contacts().find(x=>!x.into).cl")
+    # back to the default: the contact's own colour, worked out from its key (v36), and no choice stored
+    AUTO=r"""((ck)=>{ const hx={violet:'#7c3aed',indigo:'#4f46e5',blue:'#2563eb',sky:'#0369a1',teal:'#0f766e',green:'#15803d',lime:'#4d7c0f',amber:'#b45309',orange:'#c2410c',red:'#dc2626',pink:'#db2777',slate:'#475569'};
+      const ks=Object.keys(hx); let h=0; for(const ch of ck) h=(h*31+ch.charCodeAt(0))>>>0; const c=hx[ks[h%ks.length]]; return 'rgb('+[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)).join(', ')+')'; })"""
+    r["col_reset"]= B.evaluate("()=>{ const c=window.__gz.contacts().find(x=>!x.into); return !c.cl && getComputedStyle(document.querySelector('.ct .ava')).backgroundColor==="+AUTO+"(c.ck); }")
     r["col_other_side_untouched"]= A.evaluate("()=>window.__gz.contacts().find(x=>!x.into).cl")=="teal"
     B.click(".ct"); B.wait_for_timeout(800)
     # ---------- 5. 1:1 video call: full screen ----------
@@ -396,7 +399,7 @@ try:
     r["B_gone"]= wait_for(A,"()=>{ const x=window.__gz.room(); return x && !x.paired; }",12000)
     A.evaluate("()=>{ window.__notify.length=0; }")
     A.click("#callBtn"); A.wait_for_timeout(1500)
-    r["col_call_avatar"]= A.evaluate("()=>getComputedStyle(document.querySelector('#callStage .pav')).backgroundColor")=="rgb(13, 148, 136)"
+    r["col_call_avatar"]= A.evaluate("()=>getComputedStyle(document.querySelector('#callStage .pav')).backgroundColor")=="rgb(15, 118, 110)"
     A.wait_for_timeout(14300)
     ns=A.evaluate("()=>window.__notify.map(x=>({kind:x.kind,tag:x.tag||'',nk:x.notify_key}))")
     calls=[x for x in ns if x["kind"]=="call"]

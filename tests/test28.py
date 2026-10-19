@@ -59,7 +59,7 @@ with sync_playwright() as pw:
     p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
     p.click(".ct"); p.wait_for_timeout(700)
     # header: logo right beside the name
-    r["logoBesideName"]= p.evaluate("()=>{ const n=document.getElementById('peerName'); const l=n.nextElementSibling; return !!l && l.classList.contains('peer-logo') && l.tagName==='IMG' && getComputedStyle(l).display!=='none'; }")
+    r["nameStandsAlone"]= p.evaluate("()=>{ const n=document.getElementById('peerName'); return !n.nextElementSibling && !document.querySelector('.peer-logo') && getComputedStyle(document.getElementById('chatBrand')).display==='none'; }")   # v36: no logo or brand in a chat's header
     # offline: red dot, one short word, full explanation kept on the element (hover) and on tap (toast)
     r["offline_class"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-offline') && !e.classList.contains('st-online')")
     r["offline_short"]= p.eval_on_selector("#statusText","e=>e.textContent")
@@ -75,14 +75,14 @@ with sync_playwright() as pw:
     r["online_short"]= p.eval_on_selector("#statusText","e=>e.textContent")
     r["online_fullKept"]= "same key as your first connection" in p.eval_on_selector("#peerMeta","e=>e.title")
     r["connectIsSilent"]= p.evaluate("()=>window.__beeps.length===0")   # a contact coming online is shown by the green dot, not a chime
-    r["connLineOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('verified automatically')).length")==1
+    r["connLineOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('End-to-end encrypted with')).length")==1
     # Florian drops and comes back with a new session: dot red then green again, no second connection line
     p.evaluate("()=>window.__sync({})"); p.wait_for_timeout(500)
     r["back_offline"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-offline')")
     pub2=p.evaluate("()=>window.__pub()"); tag2=p.evaluate("([ck,pub])=>window.__tag(ck,pub)",[CK,pub2])
     p.evaluate("([a,t])=>window.__sync({k2:[{id:'a2',name:'Florian',u:'flo-acct',pub:a,tag:t}]})",[pub2,tag2]); p.wait_for_timeout(1000)
     r["back_online"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-online')")
-    r["connLineStillOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('verified automatically')).length")==1
+    r["connLineStillOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('End-to-end encrypted with')).length")==1
     # French
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.select_option("#langSel","fr"); p.wait_for_timeout(500)
     p.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")

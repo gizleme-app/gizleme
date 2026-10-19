@@ -218,8 +218,24 @@ try:
     r["sb_setting_on_iphone"]= P.is_visible("#sbRow") and P.evaluate("()=>document.getElementById('sbSel').value")=="compat" and "iOS 26.5" in P.eval_on_selector("#sbInfo","e=>e.textContent")
     r["sb_info_v"]= P.eval_on_selector("#sbInfo","e=>e.textContent")
     P.select_option("#sbSel","std"); P.wait_for_timeout(2600)
-    r["sb_setting_turns_off"]= P.evaluate("()=>!document.documentElement.classList.contains('sb-compat') && /viewport-fit=cover/.test(document.querySelector('meta[name=viewport]').content) && localStorage.getItem('gz-sbmode')===null")
+    r["sb_setting_turns_off"]= P.evaluate("()=>!document.documentElement.classList.contains('sb-compat') && /viewport-fit=cover/.test(document.querySelector('meta[name=viewport]').content) && localStorage.getItem('gz-sbmode')==='std'")
     cP.close()
+    # v36: on by default in the app installed on an iPhone / iPad; Safari tabs and other phones keep the standard layout
+    def sbmode(ua, inst, pre=None, q=""):
+        c=b.new_context(viewport={"width":390,"height":780},locale="en-US",user_agent=ua)
+        if inst: c.add_init_script("Object.defineProperty(navigator,'standalone',{get:()=>true});")
+        if pre: c.add_init_script("try{ if(!sessionStorage.getItem('x')){ sessionStorage.setItem('x','1'); localStorage.setItem('gz-sbmode','"+pre+"'); } }catch(e){}")
+        pg=c.new_page(); pg.on("pageerror",lambda e:errs.append(str(e))); pg.goto(f"http://127.0.0.1:{port}/"+q); pg.wait_for_timeout(400)
+        m=pg.evaluate("()=>({on:document.documentElement.classList.contains('sb-compat'), cover:/viewport-fit=cover/.test(document.querySelector('meta[name=viewport]').content), ls:localStorage.getItem('gz-sbmode')})")
+        c.close(); return m
+    ANDROID="Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36"
+    m1=sbmode(IPHONE,True); m2=sbmode(IPHONE,False); m3=sbmode(ANDROID,True); m4=sbmode(IPHONE,True,pre="std"); m5=sbmode(IPHONE,True,q="?sbtest=0")
+    r["sb_default_installed_iphone"]= m1["on"] and not m1["cover"] and m1["ls"] is None
+    r["sb_default_safari_iphone_off"]= not m2["on"] and m2["cover"]
+    r["sb_default_android_off"]= not m3["on"] and m3["cover"]
+    r["sb_explicit_standard_kept"]= not m4["on"] and m4["cover"] and m4["ls"]=="std"
+    r["sb_link_off_stored"]= not m5["on"] and m5["ls"]=="std"
+    r["sb_v"]=[m1,m2,m3,m4,m5]
     r["sb_row_hidden_elsewhere"]= not B.evaluate("()=>{ const e=document.getElementById('sbRow'); return !!e && !e.hidden; }")
     r["errors"]= errs[:4]
     b.close()

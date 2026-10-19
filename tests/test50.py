@@ -224,7 +224,7 @@ try:
     A.click("#plusBtn"); A.wait_for_timeout(200); A.click("#plusPanel [data-act=event]"); A.wait_for_timeout(300)
     r["evt_modal"]= A.is_visible("#evtModal") and A.evaluate("()=>!!document.getElementById('evtDate').value && !!document.getElementById('evtTime').value")
     A.fill("#evtTi","Dîner"); A.fill("#evtLoc","Chez nous"); A.click("#evtSend"); A.wait_for_timeout(600)
-    e=A.evaluate(EVT); r["evt_sent"]= bool(e) and e["t"]=="Dîner" and e["l"]=="📍 Chez nous" and "–" in e["d"]
+    e=A.evaluate(EVT); r["evt_sent"]= bool(e) and e["t"]=="Dîner" and e["l"]=="📍 Chez nous" and ("–" in e["d"] or "→" in e["d"])   # "→" when the default hour runs past midnight; r["evt_v"]=e
     r["evt_received"]= wait_for(B,"()=>{ const e=("+EVT+")(); return e && e.t==='Dîner'; }",8000)
     tapOpt(B,"evt",0)
     r["evt_going_there"]= wait_for(A,"()=>{ const e=("+EVT+")(); return e.r[0][0]===1 && e.r[1][0]===0; }",8000)

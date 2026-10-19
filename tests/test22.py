@@ -84,7 +84,7 @@ with sync_playwright() as pw:
     tag0=p.evaluate("([ck,pub])=>window.__tag(ck,pub)",[CK0,peerPub])
     p.evaluate("([a,t])=>window.__sync({k1:[{id:'a1',name:'Camille',u:'cam-acct',pub:a,tag:t}]})",[peerPub,tag0]); p.wait_for_timeout(1500)
     r["paired"]= p.eval_on_selector("#peerMeta","e=>e.title")
-    r["retiredLine"]= p.eval_on_selector_all(".log .sys","els=>els.some(e=>e.textContent.includes('Invite link retired'))")
+    r["retiredLine"]= p.eval_on_selector_all(".log .sys","els=>els.some(e=>e.textContent.includes('Invite link closed'))")
     c=p.evaluate("()=>window.__gz.contacts()[0]")
     CK2=p.evaluate("([pub])=>window.__peer.rotated(pub)",[ourPub])          # what Camille's device derives independently
     r["rotation_sameKeyBothSides"]= c["ck"]==CK2 and c["ck"]!=CK0

@@ -133,7 +133,7 @@ try:
      r["hangup_lines"]= [A.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('📞')).pop()"), B.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('📞')).pop()")]
      # ---- video call B → A ----
      B.click("#videoBtn")
-     r["A_incomingVideo"]= wait_for(A,"()=>!document.getElementById('callIncoming').hidden && document.getElementById('callStatus').textContent==='Incoming video call'",8000)
+     r["A_incomingVideo"]= wait_for(A,"()=>!document.getElementById('callIncoming').hidden && document.getElementById('callStatus').textContent==='Encrypted video call'",8000)
      A.evaluate("()=>document.getElementById('callAccept').click()")
      r["video_connected"]= wait_for(A,"()=>{ const s=window.__gz.callState(); return s&&s.live&&s.video&&s.peers.some(p=>p.connected); }",15000)
      r["video_remoteTrack"]= wait_for(A,"()=>{ const s=window.__gz.callState(); return s.peers[0]&&s.peers[0].tracks.includes('video') && !document.querySelector('#callStage .peer').classList.contains('audio'); }",8000)

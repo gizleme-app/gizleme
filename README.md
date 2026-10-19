@@ -33,8 +33,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   timer runs, photos are view-once; with it off they stay in the chat on both phones, and a long press on one
   offers Save (to the gallery / Photos) and Forward (to another chat). Auto-lock, privacy screen, hidden
   previews.
-- A long press on a message (right click or double click on a computer) opens its menu: react, reply, edit,
-  copy. Reactions: one per person, tap it again to take it back. Replies: also a swipe to the right; the
+- A long press on a message (right click or double click on a computer) opens its menu: the reactions on top,
+  then Reply, Edit, Copy (and Forward, Save for a kept photo) as a labelled list. Reactions: one per person, tap it again to take it back. Replies: also a swipe to the right; the
   quote jumps to the original. Your own text messages can be edited for 24 hours ("edited" shows on the
   bubble, on every side). All three are ordinary encrypted messages — signed in groups — so the relay learns
   nothing new, and only the author's own edit is ever applied.
@@ -61,7 +61,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   glows briefly in the list. Settings → Sounds: messages and calls / calls only / no sound. Mute a chat for
   1 hour, 8 hours or until you turn it back on (it follows your account; its notifications arrive silently).
 - Unread count in the tab title and on the app icon (a number, never a name), and a "New messages" line
-  where you left off when you open a chat.
+  where you left off when you open a chat. Scrolled up in a chat, you stay where you are when messages
+  arrive: a round ↓ shows how many came in and takes you back down.
 - Two chats with the same person (say, a new invite after the old chat broke) can be merged from the chat
   menu (⋮ → Merge with another chat…): the earlier chat's messages show in this one in time order, it leaves
   the list, and anything still sent on its key lands here. Never automatic — a name proves nothing — and only
@@ -71,8 +72,12 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   fade after a few seconds of nothing. Settings → Typing indicators: off means you neither send nor see them.
 - Settings → Appearance → Text size: five sizes, from small to largest, for the whole app (typing fields
   never go below 16 px, so an iPhone doesn't zoom into them).
-- A colour for each chat: a long press (right click on a computer) on a chat in the list opens a palette of
-  twelve colours for its round avatar — in the list, at the top of the chat and on the call screen. Saved
+- iPhone / iPad: the installed app uses the "Compatibility" display by default (the page laid out inside
+  the safe area, under an opaque status bar), which avoids the band iOS 26 can paint over the bottom of the
+  screen; Settings → Appearance → iPhone display switches back to "Standard".
+- A colour for each chat: every contact has its own colour from the start (worked out from the contact key,
+  so it is the same on both phones), and a long press (right click on a computer) on a chat in the list opens
+  a palette of twelve colours for its round avatar — in the list, at the top of the chat and on the call screen. Saved
   in your encrypted contact list, so it follows your account; the other person never sees it.
 - An app left open for days notices a new release when it comes back to the foreground: a small pill,
   "New version available — tap to update" (on the lock screen it simply reloads).

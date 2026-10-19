@@ -700,10 +700,17 @@ window.GZ_I18N = {
     "iPhone display": "Affichage iPhone",
     "Standard": "Standard",
     "Compatibility": "Compatibilité",
-    "A black band at the bottom of the screen? Choose “Compatibility”, then close the app completely and open it again.": "Une bande noire en bas de l'écran ? Choisis « Compatibilité », puis ferme complètement l'app et rouvre-la.",
+    "“Compatibility” (the default in the installed app) avoids the black band at the bottom of the screen. After a change, close the app completely and open it again.": "« Compatibilité » (par défaut dans l'app installée) évite la bande noire en bas de l'écran. Après un changement, ferme complètement l'app et rouvre-la.",
     "Close the app completely, then open it again": "Ferme complètement l'app, puis rouvre-la",
     "screen": "écran",
-    "view": "vue"
+    "view": "vue",
+    "🔒 {name} opened your link · end-to-end encrypted": "🔒 {name} a ouvert ton lien · chiffré de bout en bout",
+    "🔒 End-to-end encrypted with {name}": "🔒 Chiffré de bout en bout avec {name}",
+    "🔒 Invite link closed · this chat has its own key": "🔒 Lien d'invitation fermé · cette discussion a sa propre clé",
+    "Encrypted video call": "Appel vidéo chiffré",
+    "Encrypted voice call": "Appel vocal chiffré",
+    "Latest messages": "Derniers messages",
+    "Message": "Message"
   },
   // Turkish — informal "sen", like the French "tu". Placeholders such as {name} are never given a suffix:
   // sentences are built around them (… ile, … adlı kişi, … için) so any name reads correctly.
@@ -1393,9 +1400,16 @@ window.GZ_I18N = {
     "iPhone display": "iPhone ekranı",
     "Standard": "Standart",
     "Compatibility": "Uyumluluk",
-    "A black band at the bottom of the screen? Choose “Compatibility”, then close the app completely and open it again.": "Ekranın altında siyah bir bant mı var? « Uyumluluk »u seç, sonra uygulamayı tamamen kapatıp yeniden aç.",
+    "“Compatibility” (the default in the installed app) avoids the black band at the bottom of the screen. After a change, close the app completely and open it again.": "« Uyumluluk » (yüklü uygulamada varsayılan) ekranın altındaki siyah bandı önler. Değiştirdikten sonra uygulamayı tamamen kapatıp yeniden aç.",
     "Close the app completely, then open it again": "Uygulamayı tamamen kapat, sonra yeniden aç",
     "screen": "ekran",
-    "view": "görünüm"
+    "view": "görünüm",
+    "🔒 {name} opened your link · end-to-end encrypted": "🔒 {name} bağlantını açtı · uçtan uca şifreli",
+    "🔒 End-to-end encrypted with {name}": "🔒 {name} ile uçtan uca şifreli",
+    "🔒 Invite link closed · this chat has its own key": "🔒 Davet bağlantısı kapandı · bu sohbetin kendi anahtarı var",
+    "Encrypted video call": "Şifreli görüntülü arama",
+    "Encrypted voice call": "Şifreli sesli arama",
+    "Latest messages": "Son mesajlar",
+    "Message": "Mesaj"
   }
 };

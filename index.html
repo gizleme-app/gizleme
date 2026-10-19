@@ -28,7 +28,7 @@
   :root{
     --bg:#f3f4f6; --surface:#ffffff; --surface-2:#eef0f3;
     --fg:#161a1f; --muted:#5a6572; --line:#e1e4ea;
-    --me:#4338ca; --peer:#334155; --accent:#4338ca;
+    --me:#4338ca; --peer:#334155; --accent:#4338ca; --accent-bg:#4338ca;
     --ok:#15803d; --bad:#b91c1c; --warn:#b45309;
     --wire:#0e1116; --wire-fg:#c9d4df; --wire-line:#232a33;
     --r:14px; --r-sm:9px;
@@ -38,7 +38,7 @@
   @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
     --bg:#0d1117; --surface:#161b22; --surface-2:#1c222b;
     --fg:#e6edf3; --muted:#8b949e; --line:#273039;
-    --me:#818cf8; --peer:#94a3b8; --accent:#818cf8;
+    --me:#5b5bd6; --peer:#475569; --accent:#818cf8; --accent-bg:#5b5bd6;
     --ok:#3fb950; --bad:#f85149; --warn:#f59e0b;
     --wire:#010409; --wire-fg:#9fb0c0; --wire-line:#1b222b;
     color-scheme:dark;
@@ -46,7 +46,7 @@
   :root[data-theme="dark"]{
     --bg:#0d1117; --surface:#161b22; --surface-2:#1c222b;
     --fg:#e6edf3; --muted:#8b949e; --line:#273039;
-    --me:#818cf8; --peer:#94a3b8; --accent:#818cf8;
+    --me:#5b5bd6; --peer:#475569; --accent:#818cf8; --accent-bg:#5b5bd6;
     --ok:#3fb950; --bad:#f85149; --warn:#f59e0b;
     --wire:#010409; --wire-fg:#9fb0c0; --wire-line:#1b222b;
     color-scheme:dark;
@@ -103,7 +103,7 @@
   .linkbtn{background:none;border:none;color:#a5b4fc;font-size:.86rem;cursor:pointer;padding:6px;text-decoration:underline;text-underline-offset:2px}
   .nctabs{display:flex;gap:5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:11px;padding:4px}
   .nctab{flex:1;background:none;border:none;color:#9b96ad;font-size:.85rem;font-weight:600;padding:9px 6px;border-radius:8px;cursor:pointer}
-  .nctab.on{background:var(--accent);color:#fff}
+  .nctab.on{background:var(--accent-bg);color:#fff}
   #userHint.ok{color:#34d399}
   #userHint.bad{color:#f87171}
   #join .remember{align-items:center;gap:8px;font-size:.78rem;color:#b9b4cc;cursor:pointer;margin-top:-4px}
@@ -149,7 +149,7 @@
   .card{width:100%;max-width:390px;background:var(--surface);border:1px solid var(--line);
     border-radius:var(--r);padding:22px;display:flex;flex-direction:column;gap:14px}
   .logo{display:flex;align-items:center;gap:11px}
-  .lock{width:36px;height:36px;border-radius:9px;background:var(--accent);flex:none;display:grid;place-items:center;color:#fff}
+  .lock{width:36px;height:36px;border-radius:9px;background:var(--accent-bg);flex:none;display:grid;place-items:center;color:#fff}
   .lock svg{width:20px;height:20px}
   .logo h1{margin:0;font-size:1.3rem;font-weight:600;letter-spacing:-.02em}
   .logo p{margin:0;font-size:.76rem;color:var(--muted)}
@@ -159,7 +159,7 @@
   .field input:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
   #roomInput{font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase}
   #pinInput{font-family:var(--mono);letter-spacing:.3em}
-  .btn{border:none;border-radius:var(--r-sm);background:var(--accent);color:#fff;font-size:.95rem;font-weight:600;padding:12px;transition:filter .15s}
+  .btn{border:none;border-radius:var(--r-sm);background:var(--accent-bg);color:#fff;font-size:.95rem;font-weight:600;padding:12px;transition:filter .15s}
   .btn:hover{filter:brightness(1.08)}
   .hint{font-size:.78rem;color:var(--muted);line-height:1.5}
   .row{display:flex;gap:9px}
@@ -201,7 +201,7 @@
   .tabs{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--surface);flex:none}
   .tab{display:flex;align-items:center;gap:6px;padding:5px 7px 5px 11px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line);font-family:var(--mono);font-size:.74rem;white-space:nowrap;cursor:pointer;color:var(--fg)}
   .tab.active{border-color:var(--accent);color:var(--accent)}
-  .tab .badge{background:var(--accent);color:#fff;border-radius:999px;font-size:.68rem;padding:1px 5px;font-family:var(--ui);font-weight:600}
+  .tab .badge{background:var(--accent-bg);color:#fff;border-radius:999px;font-size:.68rem;padding:1px 5px;font-family:var(--ui);font-weight:600}
   .tab .tx{border:none;background:none;color:var(--muted);font-size:1.05rem;line-height:1;cursor:pointer;padding:0 1px}
   .tab .tx:hover{color:var(--bad)}
   .tabadd{flex:none;border:1px dashed var(--line);background:none;color:var(--muted);border-radius:50%;width:30px;height:30px;font-size:1.1rem;cursor:pointer}
@@ -405,10 +405,10 @@
   .typing-bub.voice .dots i{background:var(--bad)}
   @keyframes typDot{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
   @keyframes typIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-  .bar.typing .status{color:var(--accent)} .bar.typing .status .led{background:var(--accent);animation:ledPulse 1.2s ease-in-out infinite}
+  .bar.typing .status{color:var(--accent)} .bar.typing .status .led{background:var(--accent-bg);animation:ledPulse 1.2s ease-in-out infinite}
   .ct .cm.typing{color:var(--accent);font-style:italic}
   @media (prefers-reduced-motion:reduce){.typing-bub .dots i,.bar.typing .status .led{animation:none}}
-  .sys{align-self:center;font-size:.72rem;color:var(--muted);font-family:var(--mono);text-align:center;max-width:90%}
+  .sys{align-self:center;font-size:.76rem;line-height:1.4;color:var(--muted);font-family:var(--ui);text-align:center;max-width:86%;background:var(--surface-2);border-radius:12px;padding:5px 12px}
   .sys.warnline{color:var(--warn)}
   .fail{align-self:flex-start;border:1px dashed var(--bad);color:var(--bad);font-size:.82rem;background:transparent}
   .once{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;opacity:.8;display:flex;align-items:center;gap:4px;margin-top:3px}
@@ -436,16 +436,16 @@
   .recdot{width:11px;height:11px;border-radius:50%;background:#e5484d;animation:recpulse 1s ease-in-out infinite}
   @keyframes recpulse{0%,100%{opacity:1}50%{opacity:.25}}
   .vc{display:flex;align-items:center;gap:9px;min-width:190px;padding:2px 0}
-  .vbtn{width:36px;height:36px;flex:none;border:0;border-radius:50%;background:var(--accent);color:#fff;font-size:1.1rem;display:grid;place-items:center;cursor:pointer}
+  .vbtn{width:36px;height:36px;flex:none;border:0;border-radius:50%;background:var(--accent-bg);color:#fff;font-size:1.1rem;display:grid;place-items:center;cursor:pointer}
   .vbtn:disabled{opacity:.6;cursor:default}
   .bubble.sent .vbtn{background:#fff;color:var(--me)}
   .vbar{flex:1;height:4px;border-radius:2px;background:rgba(127,127,127,.35);overflow:hidden;cursor:pointer}
-  .vfill{height:100%;width:0;background:var(--accent);transition:width .1s linear}
+  .vfill{height:100%;width:0;background:var(--accent-bg);transition:width .1s linear}
   .bubble.sent .vfill{background:#fff}
   .vdur{font-size:.74rem;opacity:.8;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
-  .attach.armed{background:var(--accent);color:#fff;border-color:transparent}
+  .attach.armed{background:var(--accent-bg);color:#fff;border-color:transparent}
   .attach:disabled{opacity:.5}
-  .send{width:44px;height:44px;flex:none;border:none;border-radius:50%;background:var(--accent);color:#fff;font-size:1.1rem;display:grid;place-items:center}
+  .send{width:44px;height:44px;flex:none;border:none;border-radius:50%;background:var(--accent-bg);color:#fff;font-size:1.1rem;display:grid;place-items:center}
   .send:disabled{opacity:.5}
 
   .toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);font-size:.8rem;padding:8px 14px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:80}
@@ -453,7 +453,7 @@
   /* nudge shown only inside in-app browsers (WhatsApp/Messenger/etc.), where the installed app can't be reached */
   #iabBar{position:fixed;top:0;left:0;right:0;z-index:70;display:flex;align-items:center;gap:10px;
     padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top,0px));
-    background:var(--accent);color:#fff;font-size:.82rem;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,.28)}
+    background:var(--accent-bg);color:#fff;font-size:.82rem;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,.28)}
   #iabBar[hidden]{display:none}
   #iabBar .iab-logo{width:22px;height:22px;flex:none}
   #iabBar #iabHint{flex:1;min-width:0}
@@ -483,7 +483,7 @@
   .tone{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:999px;padding:7px 13px;font-size:.85rem;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
   .tone::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--line);flex:none}
   .tone[aria-checked="true"]{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--bg))}
-  .tone[aria-checked="true"]::before{background:var(--accent)}
+  .tone[aria-checked="true"]::before{background:var(--accent-bg)}
   .tone.playing{animation:tonePulse .5s ease-out}
   @keyframes tonePulse{0%{transform:scale(1)}30%{transform:scale(1.06)}100%{transform:scale(1)}}
   .set-sel{flex:0 0 auto;font-size:.88rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:7px 9px;cursor:pointer}
@@ -491,7 +491,7 @@
   #settingsClose{margin-top:16px}
   .set-group{margin-top:18px;border-top:1px solid var(--line);padding-top:4px}
   .sect-t2{font-weight:700;font-size:.95rem;margin:8px 0 2px}
-  .pill{flex:0 0 auto;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:999px;padding:7px 15px;font-size:.85rem;font-weight:600;cursor:pointer}
+  .pill{flex:0 0 auto;border:1px solid var(--accent-bg);background:var(--accent-bg);color:#fff;border-radius:999px;padding:7px 15px;font-size:.85rem;font-weight:600;cursor:pointer}
   .pill.off{background:transparent;color:var(--accent)}
   .safety-emoji{font-size:1.9rem;letter-spacing:.18em;text-align:center;margin:10px 0 4px}
   .safety-code{font-family:var(--mono);font-size:1.15rem;letter-spacing:.14em;text-align:center;color:var(--accent);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:12px;margin:2px 0 6px;word-break:break-all}
@@ -499,13 +499,13 @@
   .verify-status{font-size:.82rem;color:var(--muted)}
   .verify-status.ok{color:#16a34a;font-weight:600}
   .vbadge{color:#16a34a;font-size:.8em;margin-left:4px}
-  .ubadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 6px;border-radius:999px;background:var(--accent);color:#fff;font-size:.7em;font-weight:700;line-height:18px;text-align:center;vertical-align:middle}
+  .ubadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 6px;border-radius:999px;background:var(--accent-bg);color:#fff;font-size:.7em;font-weight:700;line-height:18px;text-align:center;vertical-align:middle}
   #verifyClose{margin-top:14px}
   /* contacts sidebar */
   #app{flex-direction:row;height:100dvh;overflow:hidden;align-items:stretch}
   .main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%}
   .sidebar{width:236px;flex:none;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);min-height:0;height:100%;position:relative;padding-top:env(safe-area-inset-top,0px)}
-  .fab{display:none;position:absolute;right:18px;bottom:calc(20px + env(safe-area-inset-bottom,0px));width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:1.9rem;line-height:1;box-shadow:0 10px 26px rgba(67,56,202,.5);cursor:pointer;z-index:10}
+  .fab{display:none;position:absolute;right:18px;bottom:calc(20px + env(safe-area-inset-bottom,0px));width:56px;height:56px;border-radius:50%;background:var(--accent-bg);color:#fff;border:none;font-size:1.9rem;line-height:1;box-shadow:0 10px 26px rgba(67,56,202,.5);cursor:pointer;z-index:10}
   .sb-brand{display:flex;align-items:center;justify-content:center;gap:9px;padding:16px 12px 12px;border-bottom:1px solid var(--line)}
   .sb-logo{width:30px;height:30px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.3))}
   .sb-word{font-weight:800;font-size:1.2rem;letter-spacing:.01em;background:linear-gradient(90deg,var(--fg),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
@@ -537,7 +537,7 @@
   .ct:hover{background:var(--surface-2)}
   .ct.active{background:color-mix(in srgb, var(--accent) 14%, transparent)}
   .ct.active .cn{color:var(--accent)}
-  .ct .ava{width:46px;height:46px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;flex:none}
+  .ct .ava{width:46px;height:46px;border-radius:50%;background:var(--accent-bg);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;flex:none}
   .ct .ava.grp{background:linear-gradient(135deg,#7c3aed,#4338ca);font-size:1.25rem}
   .ct{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}   /* a long press opens the colour palette */
   .col-pick{position:fixed;z-index:70;width:236px;padding:10px 10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.28)}
@@ -587,7 +587,7 @@
   .menu[hidden]{display:none}
   .menu-item{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:none;border:none;color:var(--fg);font-size:.9rem;padding:11px 12px;border-radius:8px;cursor:pointer}
   .menu-item:hover{background:var(--surface-2)}
-  .upd-pill{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 66px);transform:translateX(-50%);z-index:70;display:flex;align-items:center;max-width:calc(100vw - 32px);background:var(--accent);color:#fff;border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.28);animation:updin .35s ease-out both}
+  .upd-pill{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 66px);transform:translateX(-50%);z-index:70;display:flex;align-items:center;max-width:calc(100vw - 32px);background:var(--accent-bg);color:#fff;border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.28);animation:updin .35s ease-out both}
   .upd-pill[hidden]{display:none}
   .upd-pill button{background:none;border:none;color:inherit;cursor:pointer;font:600 .82rem var(--ui)}
   .upd-pill .upd-go{padding:9px 6px 9px 15px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -597,7 +597,7 @@
   .merge-list{display:flex;flex-direction:column;gap:6px;max-height:50vh;overflow:auto;margin:8px 0 10px}
   .merge-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;color:var(--fg);cursor:pointer;font:inherit}
   .merge-row:hover,.merge-row:focus-visible{border-color:var(--accent)}
-  .merge-row .ava{width:38px;height:38px;border-radius:50%;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
+  .merge-row .ava{width:38px;height:38px;border-radius:50%;background:var(--accent-bg);color:#fff;display:grid;place-items:center;font-weight:700;flex:none}
   .merge-row .mr-t{display:flex;flex-direction:column;min-width:0;gap:2px}
   .merge-row small{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .menu-sub{display:flex;flex-direction:column;margin:0 0 4px 28px;border-left:2px solid var(--line)}
@@ -629,6 +629,37 @@
     .sb-backdrop{display:none!important}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important} #join .glow{animation:none!important}}
+  /* ---- v36: calmer, more readable ---- */
+  .bar .status,.call-status{font-family:var(--ui)}
+  .bar .status{font-size:.74rem}
+  #chatBrand,#verifyBtn{display:none!important}
+  .sb-head{font-size:1.3rem;font-weight:800;letter-spacing:-.01em;text-transform:none;color:var(--fg);padding:14px 14px 8px}
+  .sb-head button{width:38px;height:38px;border-radius:12px}
+  .sb-actions #sbLock .ico,.sb-actions #sbSettings .ico,.sb-actions #sbNew .ico{width:19px;height:19px}
+  @media (max-width:720px){ #sbNew{display:none} }            /* the round + at the bottom does it on a phone */
+  /* the message menu: emojis on top, labelled actions below */
+  .rx-pick{flex-direction:column;align-items:stretch;flex-wrap:nowrap;border-radius:18px;padding:6px;width:max-content;max-width:calc(100vw - 16px)}
+  .rx-top{display:flex;align-items:center}
+  .rx-acts{display:flex;flex-direction:column;border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
+  .rx-pick .rx-act{width:100%;height:auto;border-radius:10px;display:flex;align-items:center;justify-content:flex-start;gap:12px;padding:9px 12px;font-size:.95rem;font-weight:500}
+  .rx-pick .rx-act .ico{width:19px;height:19px;opacity:.85}
+  .rx-pick .rx-act:active{transform:none;background:var(--surface-2)}
+  .rx-pick .rx-act[hidden]{display:none}
+  /* messages that follow each other from the same side sit closer */
+  .log>.bubble.sent+.bubble.sent,.log>.bubble.recv+.bubble.recv{margin-top:-5px}
+  .log>.bubble.sent+.bubble.sent{border-top-right-radius:6px} .log>.bubble.recv+.bubble.recv{border-top-left-radius:6px}
+  /* back to the latest messages */
+  .jump{position:absolute;right:14px;bottom:calc(100% + 12px);width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--fg);display:grid;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.22);cursor:pointer;z-index:5}
+  .jump[hidden]{display:none}
+  .jump .ico{width:20px;height:20px}
+  .jump-n{position:absolute;top:-6px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--accent-bg);color:#fff;font-size:.7rem;font-weight:700;display:grid;place-items:center}
+  .jump-n[hidden]{display:none}
+  .composer{position:relative}
+  /* incoming call: labels under the buttons, the caller's avatar breathing */
+  .call-ctl.incoming .cact{display:flex;flex-direction:column;align-items:center;gap:8px;color:#fff;font-size:.82rem;font-weight:600;opacity:.92}
+  .callui.ringing .call-stage .pav{animation:pavPulse 1.6s ease-in-out infinite}
+  @keyframes pavPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.18)}50%{box-shadow:0 0 0 22px rgba(255,255,255,0)}}
+  @media (prefers-reduced-motion:reduce){.callui.ringing .call-stage .pav{animation:none}}
   .composer textarea,.field input,.poll-opts input{font-size:max(16px,1rem)}   /* 16 px at least: no zoom-in on iPhone, whatever the text size */
   /* iOS 26 installed apps: a system band covers the bottom of the screen (see iosGap() in app.js) — no home-indicator
      space is kept above it, and the band takes the message bar's colour */
@@ -641,6 +672,12 @@
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-reply" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+  <symbol id="i-forward" viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></symbol>
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 15.5h8"/></symbol>
@@ -765,7 +802,7 @@
     <div class="sb-head"><span>Chats</span>
       <span class="sb-actions">
         <button id="sbLock" title="Lock now" aria-label="Lock Gizleme now"><svg class="ico"><use href="#i-lock"/></svg></button>
-        <button id="sbSettings" title="Settings" aria-label="Settings"><svg class="ico"><use href="#i-sliders"/></svg></button>
+        <button id="sbSettings" title="Settings" aria-label="Settings"><svg class="ico"><use href="#i-gear"/></svg></button>
         <button id="sbNew" title="New chat" aria-label="New chat"><svg class="ico"><use href="#i-plus"/></svg></button>
       </span></div>
     <div class="sb-list" id="contactList"></div>
@@ -778,7 +815,7 @@
     <span class="bartitle" id="barTitle"><img class="bartitle-logo" src="/watermark.png" alt=""/>Gizleme</span>
     <span class="avatar" id="peerAvatar">?</span>
     <div class="meta" id="peerMeta" role="button" tabindex="0" aria-label="Connection details">
-      <div class="peer-row"><div class="peer-name" id="peerName">Waiting for peer…</div><img class="peer-logo" src="/watermark.png" alt=""/></div>
+      <div class="peer-row"><div class="peer-name" id="peerName">Waiting for peer…</div></div>
       <div class="status"><span class="led"></span><span id="statusText">connecting…</span></div>
     </div>
     <span class="chat-brand" id="chatBrand"><img src="/watermark.png" alt=""/><span>Gizleme</span></span>
@@ -808,7 +845,7 @@
       <button class="menu-item" data-act="rekey" id="mi-rekey"><svg class="ico"><use href="#i-refresh"/></svg><span>New keys</span></button>
       <button class="menu-item" data-act="wire"><svg class="ico"><use href="#i-eye"/></svg><span>What the relay sees</span></button>
       <button class="menu-item" data-act="lock"><svg class="ico"><use href="#i-lock"/></svg><span>Lock now</span></button>
-      <button class="menu-item" data-act="settings"><svg class="ico"><use href="#i-sliders"/></svg><span>Settings</span></button>
+      <button class="menu-item" data-act="settings"><svg class="ico"><use href="#i-gear"/></svg><span>Settings</span></button>
     </div>
   </div>
 
@@ -832,17 +869,20 @@
     <div class="rb-q"><div class="rb-n" id="rbName"></div><div class="rb-s" id="rbText"></div></div>
     <button class="rb-x" id="rbCancel" type="button" aria-label="Cancel reply" title="Cancel reply">✕</button>
   </div>
-  <div class="rx-pick" id="rxPick" role="toolbar" aria-label="React" hidden>
-    <div class="rx-quick" id="rxQuick"></div>
-    <button class="rx-tool" id="rxMore" type="button" aria-label="More reactions" title="More reactions">＋</button>
-    <button class="rx-tool" id="rxReply" type="button" aria-label="Reply" title="Reply">↩</button>
-    <button class="rx-tool" id="rxEdit" type="button" aria-label="Edit" title="Edit" hidden>✏️</button>
-    <button class="rx-tool" id="rxCopy" type="button" aria-label="Copy" title="Copy" hidden>⧉</button>
-    <button class="rx-tool" id="rxSave" type="button" aria-label="Save" title="Save" hidden>⬇</button>
-    <button class="rx-tool" id="rxFwd" type="button" aria-label="Forward" title="Forward" hidden>↪</button>
+  <div class="rx-pick" id="rxPick" role="menu" aria-label="Message" hidden>
+    <div class="rx-top"><div class="rx-quick" id="rxQuick"></div>
+      <button class="rx-tool" id="rxMore" type="button" aria-label="More reactions" title="More reactions">＋</button></div>
     <div class="rx-grid" id="rxGrid" hidden></div>
+    <div class="rx-acts">
+      <button class="rx-act" id="rxReply" type="button"><svg class="ico"><use href="#i-reply"/></svg><span>Reply</span></button>
+      <button class="rx-act" id="rxEdit" type="button" hidden><svg class="ico"><use href="#i-edit"/></svg><span>Edit</span></button>
+      <button class="rx-act" id="rxCopy" type="button" hidden><svg class="ico"><use href="#i-copy"/></svg><span>Copy</span></button>
+      <button class="rx-act" id="rxFwd" type="button" hidden><svg class="ico"><use href="#i-forward"/></svg><span>Forward</span></button>
+      <button class="rx-act" id="rxSave" type="button" hidden><svg class="ico"><use href="#i-download"/></svg><span>Save</span></button>
+    </div>
   </div>
   <div class="composer" id="composer">
+    <button class="jump" id="jumpBtn" type="button" aria-label="Latest messages" title="Latest messages" hidden><svg class="ico"><use href="#i-down"/></svg><span class="jump-n" id="jumpCount" hidden></span></button>
     <input type="file" id="fileInput" accept="image/*" multiple hidden/>
     <input type="file" id="camInput" accept="image/*" capture="environment" hidden/>
     <input type="file" id="docInput" hidden/>
@@ -935,7 +975,7 @@
           <option value="compat">Compatibility</option>
         </select>
       </div>
-      <p class="set-note" id="sbNote" hidden>A black band at the bottom of the screen? Choose “Compatibility”, then close the app completely and open it again.</p>
+      <p class="set-note" id="sbNote" hidden>“Compatibility” (the default in the installed app) avoids the black band at the bottom of the screen. After a change, close the app completely and open it again.</p>
       <p class="set-note sb-diag" id="sbInfo" hidden></p>
       <div class="set-row"><label for="textSize">Text size</label>
         <select id="textSize" class="set-sel" aria-label="Text size">
@@ -1031,8 +1071,8 @@
     <button class="cbtn end" id="callEnd" type="button" aria-label="Hang up"><svg class="ico"><use href="#i-phone"/></svg></button>
   </div>
   <div class="call-ctl incoming" id="callIncoming" hidden>
-    <button class="cbtn end" id="callDecline" type="button" aria-label="Decline"><svg class="ico"><use href="#i-phone"/></svg></button>
-    <button class="cbtn ok" id="callAccept" type="button" aria-label="Accept"><svg class="ico"><use href="#i-phone"/></svg></button>
+    <div class="cact"><button class="cbtn end" id="callDecline" type="button" aria-label="Decline"><svg class="ico"><use href="#i-phone"/></svg></button><span>Decline</span></div>
+    <div class="cact"><button class="cbtn ok" id="callAccept" type="button" aria-label="Accept"><svg class="ico"><use href="#i-phone"/></svg></button><span>Accept</span></div>
   </div>
 </div>
 <div class="modal" id="ginvModal">

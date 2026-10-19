@@ -72,7 +72,7 @@ with sync_playwright() as pw:
     p.evaluate("([a,t])=>window.__sync({k1:[{id:'a1',name:'Oz77',u:'oz-acct',pub:a,tag:t}]})",[pub,tag]); p.wait_for_timeout(900)
     r["paired"]= "secure" in p.eval_on_selector("#peerMeta","e=>e.title") and p.eval_on_selector("#bar","e=>e.classList.contains('st-online')")
     r["header_afterPairing"]= p.eval_on_selector("#peerName","e=>e.textContent")
-    r["verifiedLineUsesNick"]= p.eval_on_selector_all(".log .sys","els=>els.some(e=>e.textContent.includes('Baba verified automatically'))")
+    r["verifiedLineUsesNick"]= p.eval_on_selector_all(".log .sys","els=>els.some(e=>e.textContent.includes('End-to-end encrypted with Baba'))")
     # vault merge from another device: the other device renamed later → its nickname wins; an older record → ours stays
     m=p.evaluate("([ck])=>window.__gz.merge({contacts:[{name:'Oz77',ck:ck,ts:Date.now(),alias:'Papa',ats:Date.now()+100000}],groups:[]})",[CK])
     r["merge_newerWins"]= m["contacts"][0].get("alias")=="Papa"

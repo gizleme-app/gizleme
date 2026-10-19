@@ -267,7 +267,7 @@ try:
     # --- on a phone: WhatsApp's own link scheme (no wa.me page left behind), and the chat opens once WhatsApp is in front
     NOINST="try{ localStorage.setItem('gz-install', JSON.stringify({n:0,next:0,never:true})); }catch(e){}"   # not about installing: no invitation popping up mid-test
     ctxC,C=boot("carla",errsC,w=390,ua=IPHONE,extra=SHARE+NOINST)
-    C.click("#sbNew"); C.wait_for_timeout(300)
+    C.click("#fabNew"); C.wait_for_timeout(300)
     C.click("#waShare"); C.wait_for_timeout(400)
     r["wa_phone_noWebPage"]= C.evaluate("()=>window.__opened.length")==0 and C.evaluate("()=>location.origin")==f"http://127.0.0.1:{port}"
     r["wa_phone_staysUntilHandoff"]= not C.evaluate(INCHAT)
@@ -276,7 +276,7 @@ try:
     # WhatsApp missing: nothing happens on screen → a hint, and you stay on the link page
     C.click("#backHome"); C.wait_for_timeout(300)
     C.evaluate("()=>document.querySelectorAll('.modal.show').forEach(m=>m.classList.remove('show'))")   # the iPhone "add to Home Screen" tip
-    C.click("#sbNew"); C.wait_for_timeout(300)
+    C.click("#fabNew"); C.wait_for_timeout(300)
     C.click("#waShare"); C.wait_for_timeout(3400)
     r["wa_phone_hint"]= "WhatsApp" in C.eval_on_selector("#toast","e=>e.textContent") and not C.evaluate(INCHAT)
     # the share sheet: once it completed, the new chat opens

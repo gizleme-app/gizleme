@@ -175,7 +175,7 @@ try:
     send(A,"old1"); wait_for(B,"()=>("+RECV+")('old1')",8000)
     send(B,"old2"); r["old_exchanged"]= wait_for(A,"()=>("+RECV+")('old2')",8000)
     # the old chat "broke": she sends a new link, he opens it
-    B.click("#backHome"); B.wait_for_timeout(300); B.click("#sbNew"); B.wait_for_timeout(300); link2=B.eval_on_selector("#invLinkOut","e=>e.value"); B.click("#joinBtn"); B.wait_for_timeout(800)
+    B.click("#backHome"); B.wait_for_timeout(300); B.click("#fabNew"); B.wait_for_timeout(300); link2=B.eval_on_selector("#invLinkOut","e=>e.value"); B.click("#joinBtn"); B.wait_for_timeout(800)
     open_link(A, link2)
     r["paired2"]= wait_for(A,PAIRED,10000) and wait_for(B,PAIRED,10000)
     send(A,"new1"); r["new_exchanged"]= wait_for(B,"()=>("+RECV+")('new1')",8000)
