@@ -798,7 +798,21 @@
   .bubble.gone .gone-t{display:flex;align-items:center;gap:6px;font-style:italic;font-size:var(--fs-body)}
   .bubble.gone .gone-t .ico{width:15px;height:15px}
   .bubble.gone .meta{color:var(--muted)!important}
-  [hidden]{display:none!important}   /* hidden means hidden, whatever display a class gives (v39: the iPhone row and the Face ID button showed) */
+  [hidden]{display:none!important}
+  /* v40: a checkbox inside a .field is a checkbox, not a text field (it took the full width: "4-digit code" was pushed off screen) */
+  .field input[type=checkbox],#join .field input[type=checkbox]{width:20px;height:20px;min-width:20px;padding:0;margin:0;flex:none;border:none;background:none;border-radius:4px;accent-color:var(--accent-bg);font-size:inherit}
+  .inv-opts{row-gap:8px}
+  /* v40: the chats list beside a chat (computer, iPad, a phone on its side): title and buttons always fit */
+  .sb-head>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sb-actions{flex:none;margin-left:auto}
+  @media (min-width:721px){
+    .sidebar{width:clamp(264px,27vw,330px)}
+    .sb-head{font-size:var(--fs-title);flex-wrap:wrap;row-gap:8px}
+    .sb-head button{width:34px;height:34px}
+  }
+  #home{min-height:0;overflow-y:auto}
+  @media (max-height:520px){ #home{justify-content:flex-start;padding:14px 20px;gap:8px} #home .hlogo{display:none} }
+  .inv-opt{min-width:0}   /* hidden means hidden, whatever display a class gives (v39: the iPhone row and the Face ID button showed) */
   /* ---- v39: big animated emojis, answer without camera, weak connection ---- */
   .bubble.jumbo{background:transparent!important;box-shadow:none!important;border:none!important;padding:0 2px 2px}
   .bubble.jumbo>.txt{display:block;line-height:1.12;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",var(--ui)}

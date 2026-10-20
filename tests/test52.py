@@ -179,7 +179,7 @@ try:
     ctxA,A=boot("oguz",errsA)
     # ---- the list header ----
     hd=A.evaluate("()=>{ const s=document.querySelector('.sb-head > span:first-child'), cs=getComputedStyle(s); return {t:s.textContent.trim(), fs:cs.fontSize, tt:cs.textTransform, w:document.getElementById('sbSettings').getBoundingClientRect().width, gear:document.querySelector('#sbSettings use').getAttribute('href')}; }")
-    r["list_title_big"]= hd["t"]=="Chats" and hd["fs"]=="22.4px" and hd["tt"]=="none" and hd["w"]>=36 and hd["gear"]=="#i-gear"
+    r["list_title_big"]= hd["t"]=="Chats" and hd["fs"]=="18.4px" and hd["tt"]=="none" and hd["w"]>=34   # v40: beside a chat the title uses the title size and hd["gear"]=="#i-gear"
     r["list_title_v"]= hd
     r["desktop_keeps_plus"]= A.is_visible("#sbNew")
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
