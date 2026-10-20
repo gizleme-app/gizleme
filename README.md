@@ -45,6 +45,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   ignored (cafe finds café, sukru finds Şükrü); a tap opens the chat at that message. Inside a chat, ⋮ →
   Search highlights every match, with previous / next. Everything is searched on the device; nothing is
   indexed or sent.
+- One to three emojis sent on their own are drawn big and move — once when they arrive or are sent, again
+  on a tap (a heart beats, a laugh shakes, a hand waves, a party popper jumps…); never with "reduce motion".
 - Voice messages (up to 2 min): recorded on the device with one small built-in codec (IMA ADPCM, 16 kHz —
   the same bytes decode in every browser, no container or codec negotiation), encrypted exactly like a
   photo under a key that only travels inside the message; the relay keeps the ciphertext for 14 days (so
@@ -110,7 +112,11 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   call rings and turns into "Missed call" if nobody picks up. A two-person video call fills the screen (HD
   capture, your own picture small in a corner; the buttons fade after a few seconds and come back with a
   tap; full screen including the system bars on Android, ⛶ on a computer). Switching between the front and
-  back cameras releases the current one first, which phones such as Samsung's require. A Cloudflare TURN relay (see
+  back cameras releases the current one first, which phones such as Samsung's require. A video call can be
+  answered without the camera: the camera isn't opened at all, their picture still comes in, and tapping the
+  camera button later turns yours on without a new connection. During a call, "Weak connection" appears when
+  this device measures heavy packet loss, a long round trip or a frozen picture (WebRTC's own statistics,
+  read locally), and goes away once things are better. A Cloudflare TURN relay (see
   SECURITY.md) only forwards ciphertext and takes over when both sides sit behind strict NATs.
 
 ## Security

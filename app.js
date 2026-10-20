@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 38;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 39;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -2048,7 +2048,11 @@ async function newPeer(pid, name, initiator){
   pc.onicecandidate=e=>{ if(e.candidate && call) callSend({a:"ice",cid:call.cid,to:pid,from:call.me,cand:e.candidate.toJSON()}); };
   pc.ontrack=e=>{ P.stream.addTrack(e.track); const v=P.el.querySelector("video.mainv"); if(v.srcObject!==P.stream) v.srcObject=P.stream; v.play().catch(()=>{});
     if(e.track.kind==="video"){ const bg=P.el.querySelector("video.bgv"); if(bg && !bg.srcObject){ bg.srcObject=new MediaStream([e.track]); bg.play().catch(()=>{}); }
-      P.el.classList.remove("audio"); callChrome();
+      { const mv=P.el.querySelector("video.mainv"), tk=e.track, pic=()=>!!mv && mv.videoWidth>0 && !tk.muted;     // no picture yet (or none coming: answered without camera) → the avatar
+        P.el.classList.toggle("audio", !pic());
+        if(mv) mv.addEventListener("resize",()=>{ if(!tk.muted && mv.videoWidth>0){ P.el.classList.remove("audio"); callChrome(); } });
+        setTimeout(()=>{ if(call && !pic()){ P.el.classList.add("audio"); callChrome(); } }, 1500); }
+      callChrome();
       e.track.onmute=()=>{ P.el.classList.add("audio"); callChrome(); }; e.track.onunmute=()=>{ P.el.classList.remove("audio"); callChrome(); }; } };
   pc.onconnectionstatechange=()=>{ const st=pc.connectionState;
     if(st==="connected"){ clearTimeout(P.discT); P.connected=true; onCallConnected(); }
@@ -2058,6 +2062,25 @@ async function newPeer(pid, name, initiator){
     callSend({a:"offer",cid:call.cid,to:pid,from:call.me,sdp:{type:pc.localDescription.type,sdp:pc.localDescription.sdp},video:call.video,n:myName}); }
   return P;
 }
+
+// ---------- "weak connection" during a call (v39): measured here, from WebRTC's own statistics ----------
+// Bad when, over the last 2 s, more than 8 % of packets were lost (theirs to us, or ours as they report it),
+// the round trip is above 0.8 s, or their picture stopped while it should be moving. Shown after two bad
+// readings in a row, hidden after three good ones, so a single hiccup doesn't flash it.
+function qualSample(sm){ if(!call || !call.t1) return; const q=call.q||(call.q={bad:0, good:0, on:false});
+  const bad=!!sm && ((sm.loss||0)>0.08 || (sm.rtt||0)>0.8 || !!sm.frozen);
+  if(bad){ q.bad++; q.good=0; if(q.bad>=2) q.on=true; } else { q.good++; q.bad=0; if(q.good>=3) q.on=false; }
+  const w=$("callWeak"); if(w) w.hidden=!q.on; }
+async function qualTick(){ if(!call || !call.t1) return; let worst={loss:0, rtt:0, frozen:false};
+  for(const P of call.peers.values()){ let st; try{ st=await P.pc.getStats(); }catch(e){ continue; } const prev=P._qs||{}, cur={};
+    st.forEach(x=>{
+      if(x.type==="inbound-rtp" && !x.isRemote){ const k=x.kind||x.mediaType; cur["l"+k]=x.packetsLost||0; cur["r"+k]=x.packetsReceived||0; if(k==="video") cur.fd=x.framesDecoded||0; }
+      if(x.type==="remote-inbound-rtp" && typeof x.fractionLost==="number") worst.loss=Math.max(worst.loss, x.fractionLost);
+      if(x.type==="candidate-pair" && (x.nominated || x.selected) && x.state==="succeeded" && typeof x.currentRoundTripTime==="number") worst.rtt=Math.max(worst.rtt, x.currentRoundTripTime); });
+    for(const k of ["audio","video"]){ const dl=(cur["l"+k]||0)-(prev["l"+k]||0), dr=(cur["r"+k]||0)-(prev["r"+k]||0); if(dl+dr>20) worst.loss=Math.max(worst.loss, Math.max(0,dl)/(Math.max(0,dl)+Math.max(1,dr))); }
+    const vt=P.stream.getVideoTracks()[0]; if(vt && !vt.muted && vt.readyState==="live" && typeof prev.fd==="number" && cur.fd===prev.fd && !P.el.classList.contains("audio")) worst.frozen=true;
+    P._qs=cur; }
+  qualSample(worst); }
 function dropPeer(pid, why){
   if(!call) return; const P=call.peers.get(pid); if(!P) return; call.peers.delete(pid); clearTimeout(P.discT);
   try{ P.pc.close(); }catch(e){} if(P.el) P.el.remove(); restage();
@@ -2068,6 +2091,7 @@ function anyConnected(){ return !!(call && [...call.peers.values()].some(P=>P.co
 function onCallConnected(){
   if(!call) return;
   if(!call.t1){ call.t1=Date.now(); call.state="live"; stopRing(); clearTimeout(call.ringT); clearTimeout(call.pushT); soundConnect(); callChrome(); $("callUI").classList.remove("ringing"); }
+  if(!call.qT) call.qT=setInterval(()=>{ qualTick().catch(()=>{}); }, 2000);
   if(!call.timer) call.timer=setInterval(()=>{ if(!call||!call.t1) return;
     if(call.group && call.peers.size===0) callStatus(t("Waiting for others…"));
     else callStatus(fmtDur(Date.now()-call.t1)+(call.group?" · "+t("{n} in the call",{n:call.peers.size+1}):"")); },1000);
@@ -2075,13 +2099,13 @@ function onCallConnected(){
 }
 function setLocalPreview(){ const v=$("callLocal"); if(!call||!call.local){ v.hidden=true; v.srcObject=null; return; }
   const hasV=call.local.getVideoTracks().some(tr=>tr.enabled); v.srcObject=call.local; v.hidden=!hasV; v.play().catch(()=>{});
-  $("callCam").hidden=!call.local.getVideoTracks().length; $("callFlip").hidden=!call.local.getVideoTracks().length || !/iphone|ipad|ipod|android/i.test(navigator.userAgent);
+  $("callCam").hidden=!call.local.getVideoTracks().length && !call.noCam; $("callFlip").hidden=!call.local.getVideoTracks().length || !/iphone|ipad|ipod|android/i.test(navigator.userAgent);
   $("callMute").classList.toggle("on", !call.local.getAudioTracks().every(tr=>tr.enabled));
-  $("callCam").classList.toggle("on", call.local.getVideoTracks().length>0 && !hasV); }
+  $("callCam").classList.toggle("on", (call.local.getVideoTracks().length>0 && !hasV) || !!call.noCam); }
 function showOutgoing(){ callUIShow(true); $("callUI").classList.add("ringing"); $("callName").textContent=call.name||""; $("callIncoming").hidden=true; $("callCtl").hidden=false; $("callStage").innerHTML=""; setLocalPreview(); }
 // the ringing alerts the service worker showed for a call are closed once the app itself rings (or the call ends)
 function closeCallNotifs(){ try{ if(!("serviceWorker" in navigator)) return; navigator.serviceWorker.ready.then(reg=>reg.getNotifications()).then(ns=>{ (ns||[]).forEach(n=>{ if(n.data && n.data.ring) n.close(); }); }).catch(()=>{}); }catch(e){} }
-function showIncoming(){ callUIShow(true); closeCallNotifs(); $("callUI").classList.add("ringing"); $("callName").textContent=call.name||""; callStatus(call.video?t("Encrypted video call"):t("Encrypted voice call")); $("callIncoming").hidden=false; $("callCtl").hidden=true; $("callLocal").hidden=true; $("callStage").innerHTML=""; peerEl(call.from||"?", call.name); startRing("tone"); }
+function showIncoming(){ callUIShow(true); closeCallNotifs(); $("callUI").classList.add("ringing"); $("callName").textContent=call.name||""; callStatus(call.video?t("Encrypted video call"):t("Encrypted voice call")); $("callIncoming").hidden=false; $("callNoCamW").hidden=!(call.video && !call.group); $("callCtl").hidden=true; $("callLocal").hidden=true; $("callStage").innerHTML=""; peerEl(call.from||"?", call.name); startRing("tone"); }
 // ----- 1:1 -----
 async function startCall(video){
   const R=A(); if(!R) return;
@@ -2112,11 +2136,14 @@ function callTryInvite(){
   call.from=R.peer.id; peerEl(R.peer.id, call.name); if(!call.ackd) callStatus(t("Calling…"));
   callSig(R,{a:"invite",cid:call.cid,from:R.id,to:R.peer.id,video:call.video,n:myName});
 }
-async function acceptCall(){
-  if(!call || call.dir!=="in" || call.state!=="ringing") return; stopRing(); clearTimeout(call.ringT); initAudio(); callFsAuto(call.video && !call.group);
-  let local; try{ local=await callMedia(call.video, null, true); }catch(e){ toast(mediaErr(e)); declineCall(); return; }
+// noCam: a video call answered without opening the camera — their picture comes in, ours stays off until the
+// camera button is tapped (the video line is still negotiated both ways, so turning it on needs no new offer)
+async function acceptCall(noCam){
+  if(!call || call.dir!=="in" || call.state!=="ringing") return; noCam=noCam===true && call.video && !call.group;
+  stopRing(); clearTimeout(call.ringT); initAudio(); callFsAuto(call.video && !call.group);
+  let local; try{ local=await callMedia(call.video && !noCam, null, true); }catch(e){ toast(mediaErr(e)); declineCall(); return; }
   if(!call) { local.getTracks().forEach(tr=>tr.stop()); return; }
-  call.local=local; call.video=call.video && local.getVideoTracks().length>0; call.state="connecting";
+  call.local=local; call.noCam=noCam; call.video=call.video && (noCam || local.getVideoTracks().length>0); call.state="connecting";
   $("callIncoming").hidden=true; $("callCtl").hidden=false; setLocalPreview(); callStatus(t("Connecting…"));
   callSend({a:"accept",cid:call.cid,to:call.from,from:call.me,video:call.video});
 }
@@ -2124,7 +2151,7 @@ function declineCall(){ if(!call) return; callSend({a:"decline",cid:call.cid,to:
 function hangup(){ if(!call) return; endCall("ended"); }
 function endCall(reason, silent){
   const c=call; if(!c) return; call=null;
-  stopRing(); clearTimeout(c.ringT); clearTimeout(c.pushT); clearInterval(c.timer); clearInterval(c.inviteT); closeCallNotifs();
+  stopRing(); clearTimeout(c.ringT); clearTimeout(c.pushT); clearInterval(c.timer); clearInterval(c.inviteT); clearInterval(c.qT); closeCallNotifs(); if($("callWeak")) $("callWeak").hidden=true;
   if(_fsByCall) fsExit();
   // we rang their phone and they never picked up: the ringing alert there becomes "missed call"
   if(c.dir==="out" && !c.group && !c.t1 && c.pushed && !c.ackd && reason!=="declined" && reason!=="busy" && c.R && c.R.fromContact) notifyPeer(c.R.fromContact,"missed").catch(()=>{});
@@ -2161,6 +2188,7 @@ async function callSignal(R, env, who){
     case "accept": if(call.dir!=="out" || call.group) break; call.state="connecting"; stopRing(); callStatus(t("Connecting…")); await newPeer(env.from||call.from, call.name, true); break;
     case "offer": { if(!env.sdp) break; let P=call.peers.get(env.from); if(!P){ if(call.group && call.peers.size>=CALL_MAX-1) break; P=await newPeer(env.from, env.n||who||call.name, false); if(!P) break; }
       await P.pc.setRemoteDescription(env.sdp); P.remoteSet=true; for(const c of P.cands){ try{ await P.pc.addIceCandidate(c); }catch(e){} } P.cands=[];
+      if(call.noCam) P.pc.getTransceivers().forEach(tr=>{ if(tr.receiver && tr.receiver.track && tr.receiver.track.kind==="video" && !tr.sender.track){ try{ tr.direction="sendrecv"; }catch(e){} } });   // room for our camera later
       const ans=await P.pc.createAnswer(); await P.pc.setLocalDescription(ans);
       callSend({a:"answer",cid:call.cid,to:env.from,from:call.me,sdp:{type:P.pc.localDescription.type,sdp:P.pc.localDescription.sdp}}); break; }
     case "answer": { const P=call.peers.get(env.from); if(!P||!env.sdp) break; await P.pc.setRemoteDescription(env.sdp); P.remoteSet=true; for(const c of P.cands){ try{ await P.pc.addIceCandidate(c); }catch(e){} } P.cands=[]; break; }
@@ -2199,7 +2227,16 @@ function updateCallUI(){ const R=A(); const ok=!!(R && (R.group || R.fromContact
   const cb=$("callBtn"), vb=$("videoBtn"); if(cb) cb.hidden=!ok; if(vb) vb.hidden=!ok; }
 // ----- in-call controls -----
 function toggleMute(){ if(!call||!call.local) return; const on=!call.local.getAudioTracks().every(tr=>tr.enabled); call.local.getAudioTracks().forEach(tr=>tr.enabled=on); setLocalPreview(); }
-function toggleCam(){ if(!call||!call.local) return; const vts=call.local.getVideoTracks(); if(!vts.length) return; const on=!vts.every(tr=>tr.enabled); vts.forEach(tr=>tr.enabled=on); setLocalPreview(); }
+// answered without the camera: the first tap opens it and puts it on the video line already there
+async function camLater(){ const me=call; if(!me || !me.local || me._camBusy) return; me._camBusy=true;
+  try{ const ns=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user", width:{ideal:1280}, height:{ideal:720}, frameRate:{ideal:30}}});
+    const tr=ns.getVideoTracks()[0]; if(!tr || call!==me){ ns.getTracks().forEach(x=>x.stop()); return; }
+    me.local.addTrack(tr); me.noCam=false;
+    me.peers.forEach(P=>{ const x=P.pc.getTransceivers().find(z=>z.receiver && z.receiver.track && z.receiver.track.kind==="video");
+      if(x){ try{ if(x.direction!=="sendrecv") x.direction="sendrecv"; }catch(e){} x.sender.replaceTrack(tr).catch(()=>{}); } });
+    setLocalPreview();
+  }catch(e){ toast(mediaErr(e)); } finally{ me._camBusy=false; } }
+function toggleCam(){ if(!call||!call.local) return; const vts=call.local.getVideoTracks(); if(!vts.length){ if(call.noCam) camLater(); return; } const on=!vts.every(tr=>tr.enabled); vts.forEach(tr=>tr.enabled=on); setLocalPreview(); }
 // Front ↔ back camera. Many Android phones (Samsung among them) cannot open a second camera while the first is
 // still running — asking for the other one first fails there — so the current camera is released before the
 // other is opened: by facing ("environment" / "user"), else by device (the camera whose name says back / front,
@@ -2385,6 +2422,34 @@ function whoEl(tag, vf){
   else if(vf==="bad"||vf==="changed"){ const b=document.createElement("span"); b.className="vfb warn"; b.textContent=vf==="bad"?t("⚠ bad signature"):t("⚠ different key"); w.appendChild(b); }
   return w;
 }
+
+// ---------- one to three emojis on their own: shown big, and they move (v39) ----------
+const _gseg=(typeof Intl!=="undefined" && Intl.Segmenter) ? new Intl.Segmenter(undefined,{granularity:"grapheme"}) : null;
+const EMO_G=/^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3)/u;
+function graphemes(s){ return _gseg ? [..._gseg.segment(s)].map(x=>x.segment) : Array.from(s); }
+function jumboCount(text){ const s=String(text||"").trim(); if(!s || s.length>48) return 0; let n=0;
+  for(const g of graphemes(s)){ if(/^\s+$/.test(g)) continue; if(!EMO_G.test(g) || /^[0-9#*]$|^[\u00A9\u00AE\u2122]/.test(g)) return 0; if(++n>3) return 0; }
+  return n; }
+function jumboAnim(g){
+  if(/^(?:❤|💖|💗|💓|💕|💞|💘|💝|🧡|💛|💚|💙|💜|🤎|🖤|🤍|❣|😍|🥰|😘|😻)/u.test(g)) return "beat";
+  if(/^(?:😂|🤣|😆|😹|😄|😁)/u.test(g)) return "laugh";
+  if(/^(?:👍|👌|💪|✌|🤙|👏|🙌)/u.test(g)) return "nod";
+  if(/^(?:👋|🙋|🤚)/u.test(g)) return "wave";
+  if(/^(?:🔥|✨|⭐|🌟|💥|⚡|☀)/u.test(g)) return "flare";
+  if(/^(?:🎉|🥳|🎊|🎈|🍾|🎂|🥂)/u.test(g)) return "party";
+  if(/^(?:😢|😭|😞|😔|🥺|💔|😿)/u.test(g)) return "sad";
+  if(/^(?:😮|😱|😲|🤯|😳|🙀)/u.test(g)) return "wow";
+  if(/^(?:🙏|🙇)/u.test(g)) return "bow";
+  if(/^(?:😡|🤬|😠|👿)/u.test(g)) return "angry";
+  return "hop"; }
+// b: the bubble, tx: its text element; true when the text is drawn big
+function jumboApply(b, tx, text, play){ const n=jumboCount(text); b.classList.remove("jumbo","j1","j2","j3","play");
+  if(!n) return false;
+  b.classList.add("jumbo","j"+n); tx.textContent="";
+  graphemes(String(text).trim()).filter(g=>!/^\s+$/.test(g)).forEach((g,i)=>{ const e=document.createElement("span"); e.className="je"; e.dataset.anim=jumboAnim(g); e.style.setProperty("--jd",(i*90)+"ms"); e.textContent=g; tx.appendChild(e); });
+  if(play) jumboPlay(b); return true; }
+function jumboPlay(b){ if(!b || matchMedia("(prefers-reduced-motion:reduce)").matches) return;
+  b.classList.remove("play"); void b.offsetWidth; b.classList.add("play"); clearTimeout(b._jt); b._jt=setTimeout(()=>b.classList.remove("play"), 3600); }
 function addText(logEl, cls, body, tag, animate, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
@@ -2397,6 +2462,7 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   if(cls==="sent"){ d.addEventListener("click",()=>{ if(d.classList.contains("failed") && d._retry) d._retry(); }); }
   logEl.appendChild(d); scrollEl(logEl, cls==="sent");
   if(opts.ui) iconText(t, body);
+  else if(jumboApply(d, t, body, Date.now()-ts<6000)){}                 // just sent or just arrived: it plays once
   else if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
   if(opts.edited) markEdited(d);
   return d;
@@ -2423,7 +2489,7 @@ function applyEditToBubble(V, env, own, ts){
   if((ts||Date.now())-(+b.dataset.ts||0) > EDIT_WINDOW+600000) return false;         // (ten minutes of clock skew allowed)
   if((+b.dataset.edts||0) > (ts||0)) return false;                                  // an older edit arriving late
   const tx=b.querySelector(":scope > .txt"); if(!tx) return false;
-  tx.classList.remove("scrambling"); tx.textContent=env.x; b.dataset.edts=String(ts||Date.now()); markEdited(b); return true;
+  tx.classList.remove("scrambling"); if(!jumboApply(b, tx, env.x, true)) tx.textContent=env.x; b.dataset.edts=String(ts||Date.now()); markEdited(b); return true;
 }
 function onEditEnv(R, env, who, ts, mid, own){
   if(!editValid(env)) return;
@@ -2461,9 +2527,9 @@ async function sendEdit(R, text){
   const now=Date.now(); if(now-(+b.dataset.ts||0) > EDIT_WINDOW){ toast(t("Messages can only be edited within 24 hours")); return; }
   const env={t:"edit", m:e.m, x:text, body:"✏️ "+text}; const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
   const tx=b.querySelector(":scope > .txt"), prev=tx?tx.textContent:"", wasEdited=b.classList.contains("edited"), prevTs=b.dataset.edts||"";
-  if(tx) tx.textContent=text; b.dataset.edts=String(now); markEdited(b); initAudio();
+  if(tx && !jumboApply(b, tx, text, true)) tx.textContent=text; b.dataset.edts=String(now); markEdited(b); initAudio();
   const ok=await deliverOut(R, env, mid, null, now, true);
-  if(!ok){ if(tx) tx.textContent=prev; b.dataset.edts=prevTs; if(!wasEdited){ b.classList.remove("edited"); const m=b.querySelector(".edm"); if(m) m.remove(); }
+  if(!ok){ if(tx && !jumboApply(b, tx, prev, false)) tx.textContent=prev; b.dataset.edts=prevTs; if(!wasEdited){ b.classList.remove("edited"); const m=b.querySelector(".edm"); if(m) m.remove(); }
     toast(t("Edit not sent — check your connection")); return; }
   refreshPreviews();
 }
@@ -2798,8 +2864,8 @@ function renderHistory(R, past){
 }
 function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); iconText(d, t); logEl.appendChild(d); scrollEl(logEl); }
 // ---------- icons instead of emojis in the interface (v38): emojis stay for what people write and react with ----------
-const ICON_OF={"🔒":"i-lock","🔐":"i-lock","⚠️":"i-alert","⚠":"i-alert","⛔":"i-ban","🚫":"i-ban","⏱":"i-timer","🔗":"i-link","📷":"i-camera","🎤":"i-mic","📍":"i-pin","👥":"i-users","📄":"i-file","📊":"i-poll","🗳️":"i-poll","📅":"i-calendar","✏️":"i-edit"};
-const ICON_RE=/^((?:[^:\n]{1,60}): )?(🔒|🔐|⚠️|⚠|⛔|🚫|⏱|🔗|📷|🎤|📍|👥|📄|📊|🗳️|📅|✏️) ?/u;
+const ICON_OF={"📞":"i-phone","🔒":"i-lock","🔐":"i-lock","⚠️":"i-alert","⚠":"i-alert","⛔":"i-ban","🚫":"i-ban","⏱":"i-timer","🔗":"i-link","📷":"i-camera","🎤":"i-mic","📍":"i-pin","👥":"i-users","📄":"i-file","📊":"i-poll","🗳️":"i-poll","📅":"i-calendar","✏️":"i-edit"};
+const ICON_RE=/^((?:[^:\n]{1,60}): )?(📞|🔒|🔐|⚠️|⚠|⛔|🚫|⏱|🔗|📷|🎤|📍|👥|📄|📊|🗳️|📅|✏️) ?/u;
 function icoEl(id, cls){ const s=document.createElementNS("http://www.w3.org/2000/svg","svg"); s.setAttribute("class","ico "+(cls||"ii")); s.setAttribute("aria-hidden","true");
   const u=document.createElementNS("http://www.w3.org/2000/svg","use"); u.setAttribute("href","#"+id); s.appendChild(u); return s; }
 // text whose first word is one of the interface emojis (after an optional "Name: "): an icon, then the rest
@@ -4052,7 +4118,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       const now=Date.now(); if(lastTap && lastTap.b===s.b && now-lastTap.t<330){ lastTap=null; e.preventDefault(); openPicker(s.b); return; }
       lastTap={b:s.b, t:now}; },{passive:false});
     logs.addEventListener("touchcancel",()=>{ const s=sw; sw=null; if(s) clearTimeout(s.lp); if(s && s.on){ s.ready=false; endSwipe(s); } },{passive:true});
-    logs.addEventListener("click",e=>{ const q=e.target.closest && e.target.closest(".quote"); if(q){ const R=A(); if(R) jumpToQuoted(R, q.dataset.ref); return; }
+    logs.addEventListener("click",e=>{ const jb=e.target.closest && e.target.closest(".bubble.jumbo"); if(jb) jumboPlay(jb);   // a tap replays it
+      const q=e.target.closest && e.target.closest(".quote"); if(q){ const R=A(); if(R) jumpToQuoted(R, q.dataset.ref); return; }
       const po=e.target.closest && e.target.closest(".voteb .po"); if(po){ voteTap(po); return; }
       const c=e.target.closest && e.target.closest(".rx"); if(c){ const b=c.closest(".bubble"); const R=A(); if(R && b && b.dataset.mid) sendReaction(R, b.dataset.mid, c.dataset.e); } });
     logs.addEventListener("scroll",()=>closePicker(),{capture:true,passive:true});
@@ -4087,7 +4154,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   })();
   $("callBtn").addEventListener("click",()=>startCall(false)); $("videoBtn").addEventListener("click",()=>startCall(true));
   $("jumpBtn").addEventListener("click",()=>{ const R=A(); if(R && R.logEl){ R._below=0; R.logEl._stick=true; scrollEl(R.logEl, true); } setTimeout(jumpUpdate,60); });
-  $("callEnd").addEventListener("click",hangup); $("callAccept").addEventListener("click",acceptCall); $("callDecline").addEventListener("click",declineCall);
+  $("callEnd").addEventListener("click",hangup); $("callAccept").addEventListener("click",()=>acceptCall(false)); $("callNoCam").addEventListener("click",()=>acceptCall(true)); $("callDecline").addEventListener("click",declineCall);
   $("callMute").addEventListener("click",toggleMute); $("callCam").addEventListener("click",toggleCam); $("callFlip").addEventListener("click",flipCam);
   // during a video call the buttons and the name step aside after a few seconds; a tap on the picture brings them
   // back (and another tap hides them again)

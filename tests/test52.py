@@ -179,7 +179,7 @@ try:
     ctxA,A=boot("oguz",errsA)
     # ---- the list header ----
     hd=A.evaluate("()=>{ const s=document.querySelector('.sb-head > span:first-child'), cs=getComputedStyle(s); return {t:s.textContent.trim(), fs:cs.fontSize, tt:cs.textTransform, w:document.getElementById('sbSettings').getBoundingClientRect().width, gear:document.querySelector('#sbSettings use').getAttribute('href')}; }")
-    r["list_title_big"]= hd["t"]=="Chats" and hd["fs"]=="20.8px" and hd["tt"]=="none" and hd["w"]>=36 and hd["gear"]=="#i-gear"
+    r["list_title_big"]= hd["t"]=="Chats" and hd["fs"]=="22.4px" and hd["tt"]=="none" and hd["w"]>=36 and hd["gear"]=="#i-gear"
     r["list_title_v"]= hd
     r["desktop_keeps_plus"]= A.is_visible("#sbNew")
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
@@ -199,7 +199,7 @@ try:
     r["sys_lock_icon"]= B.evaluate("()=>[...document.querySelectorAll('.sys')].some(e=>e.textContent.startsWith('End-to-end') && e.querySelector('use[href=\"#i-lock\"]'))")   # v38: a drawn lock, not 🔒
     r["sys_v"]= lock
     st=A.evaluate("()=>{ const e=document.querySelector('"+OPEN+" .sys'), cs=getComputedStyle(e); return {f:cs.fontFamily, bg:cs.backgroundColor, rad:cs.borderTopLeftRadius}; }")
-    r["sys_pill_ui_font"]= "IBM Plex Sans" in st["f"] and "mono" not in st["f"].lower() and st["bg"] not in ("rgba(0, 0, 0, 0)","transparent") and st["rad"]=="12px"
+    r["sys_pill_ui_font"]= "IBM Plex Sans" in st["f"] and "mono" not in st["f"].lower() and st["bg"] not in ("rgba(0, 0, 0, 0)","transparent") and st["rad"]=="14px"
     # ---- 3. the chat header: name, status, no brand / shield / logo ----
     h3=A.evaluate("()=>({brand:getComputedStyle(document.getElementById('chatBrand')).display, shield:getComputedStyle(document.getElementById('verifyBtn')).display, logo:!!document.querySelector('.peer-logo'), sf:getComputedStyle(document.querySelector('.bar .status')).fontFamily, verifyInMenu:!!document.getElementById('ciVerify')})")
     r["header_calm"]= h3["brand"]=="none" and h3["shield"]=="none" and not h3["logo"] and "IBM Plex Sans" in h3["sf"] and h3["verifyInMenu"]
@@ -246,7 +246,7 @@ try:
     r["outgoing_ringing"]= B.evaluate("()=>document.getElementById('callUI').classList.contains('ringing')")
     r["incoming_shown"]= wait_for(A,"()=>!document.getElementById('callIncoming').hidden",8000)
     A.wait_for_timeout(300)
-    ic=A.evaluate("()=>({st:document.getElementById('callStatus').textContent, labels:[...document.querySelectorAll('#callIncoming .cact span')].map(e=>e.textContent), ring:document.getElementById('callUI').classList.contains('ringing'), anim:(()=>{ const p=document.querySelector('#callUI .call-stage .pav'); return p?getComputedStyle(p).animationName:null; })()})")
+    ic=A.evaluate("()=>({st:document.getElementById('callStatus').textContent, labels:[...document.querySelectorAll('#callIncoming .cact:not([hidden]) span')].map(e=>e.textContent), ring:document.getElementById('callUI').classList.contains('ringing'), anim:(()=>{ const p=document.querySelector('#callUI .call-stage .pav'); return p?getComputedStyle(p).animationName:null; })()})")
     r["incoming_labels"]= ic["labels"]==["Decline","Accept"] and A.is_visible("#callIncoming .cact span")
     r["incoming_status"]= ic["st"]=="Encrypted voice call"
     r["incoming_pulse"]= ic["ring"] and ic["anim"]=="pavPulse"
