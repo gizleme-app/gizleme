@@ -405,11 +405,11 @@ try:
     calls=[x for x in ns if x["kind"]=="call"]
     r["ring_repeats"]= len(calls)>=3
     r["ring_count_v"]=len(calls)
-    r["ring_tag"]= bool(calls) and all(x["tag"]=="c"+x["nk"][:11] for x in calls)
+    r["ring_tag"]= bool(calls) and len(set(x["tag"] for x in calls))==1 and all(len(x["tag"])==12 and x["tag"][0]=="c" for x in calls)   # v42: the tag names the pair (its v1 key), the key woken names a side
     A.click("#callEnd"); A.wait_for_timeout(900)
     ns2=A.evaluate("()=>window.__notify.map(x=>({kind:x.kind,tag:x.tag||'',nk:x.notify_key,body:x.body}))")
     miss=[x for x in ns2 if x["kind"]=="missed"]
-    r["missed_sent"]= len(miss)==1 and miss[0]["tag"]==calls[0]["tag"] and miss[0]["body"]=="Missed call"
+    r["missed_sent"]= len(miss)==1 and miss[0]["tag"]==calls[0]["tag"]   # the body is the relay's fixed text since v41
     A.wait_for_timeout(7600)
     r["ring_stops"]= len([x for x in A.evaluate("()=>window.__notify") if x.get("kind")=="call"])==len(calls)
     # declined → no missed call (checked on the rule: only an unanswered call)

@@ -152,7 +152,7 @@ try:
      A.evaluate("()=>{ window.__notify.length=0; }")
      A.click("#callBtn")
      r["offline_reaching"]= wait_for(A,"()=>document.getElementById('callStatus').textContent==='Reaching them…'",3000)
-     r["offline_pushCall"]= wait_for(A,"()=>window.__notify.some(n=>n.kind==='call' && n.body==='Incoming call' && !/Oguz/i.test(JSON.stringify(n)))",4000)   # no name on the wire: the receiving device adds it
+     r["offline_pushCall"]= wait_for(A,"()=>window.__notify.some(n=>n.kind==='call' && !n.body && !/Oguz/i.test(JSON.stringify(n)))",4000)   # no name on the wire: the receiving device adds it
      errsB2=[]; ctxB2,B2=boot("florian2","florian2","Oguz",CK,errsB2); B2.click(".ct")
      r["offline_thenRings"]= wait_for(B2,"()=>!document.getElementById('callIncoming').hidden",15000)
      B2.evaluate("()=>document.getElementById('callAccept').click()")

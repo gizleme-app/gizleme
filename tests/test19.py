@@ -93,7 +93,7 @@ with sync_playwright() as pw:
     # send to Camille (offline): bubble shows time + ✓, push sent WITHOUT our own notifications being on
     p.fill("#msgInput","Je te rappelle ce soir"); p.click("#sendBtn"); p.wait_for_timeout(800)
     r["sent_state"]= p.eval_on_selector(".log .bubble.sent:last-of-type .st","e=>e.dataset.st")
-    r["push_sentWithoutOwnPush"]= p.evaluate("()=>window.__notify && window.__notify.body")
+    r["push_sentWithoutOwnPush"]= p.evaluate("()=>!!(window.__notify && window.__notify.kind==='msg' && window.__notify.notify_key)")   # v42: kind and key only; the relay's text is fixed
     mySent=p.evaluate("()=>window.__puts.filter(x=>!x.mid.startsWith('r')).map(x=>x.mid)")
     myAcct=p.evaluate("()=>window.__puts[0].from")
     # Camille's device acknowledges: a receipt lands in the mailbox → ✓✓

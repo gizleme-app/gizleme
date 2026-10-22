@@ -156,9 +156,12 @@ Deno.serve(async (req) => {
       return json({ ok: true, display });
     }
     if (action === "validate") {
+      // v42: the app asks at each unlock and wipes the device on valid:false — so "no such session" is only ever
+      // said after a successful lookup; a database error is an error, never a verdict
       const token = (body.token || "").toString(); if (!token) return json({ error: "missing" }, 400);
       const th = await sha256b64(unb64(token));
-      const { data } = await db.from("gizleme_sessions").select("username_lc, expires_at").eq("token_hash", th).maybeSingle();
+      const { data, error } = await db.from("gizleme_sessions").select("username_lc, expires_at").eq("token_hash", th).maybeSingle();
+      if (error) return json({ error: error.message }, 500);
       if (!data) return json({ ok: true, valid: false });
       if (new Date(data.expires_at).getTime() < Date.now()) { await db.from("gizleme_sessions").delete().eq("token_hash", th); return json({ ok: true, valid: false }); }
       const acc = await db.from("gizleme_accounts").select("display").eq("username_lc", data.username_lc).maybeSingle();

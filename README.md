@@ -58,6 +58,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   contact is invited inside the encrypted chat, the link for the others is offered right away). Group
   messages are signed by their author (✓ / ⚠ on each bubble); the creator can remove members or renew the
   key — the new key reaches each remaining member under their own key, the removed one is locked out.
+  Rotations are numbered and never go backwards; signed messages carry their sender's clock and a stale
+  copy is dropped (v42, see SECURITY.md).
 - The message bar: "+" on the left opens the attachments where the keyboard would be — Photos (several at
   once), Camera, Location, Document, Poll, Event — and turns into a keyboard icon to go back; the camera and
   the microphone sit next to the field while it's empty, the send button replaces them once you type.
@@ -103,7 +105,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 - An app left open for days notices a new release when it comes back to the foreground: a small pill,
   "New version available — tap to update" (on the lock screen it simply reloads).
 - Web Push: the wire carries only "New message" / "Incoming call" / "Missed call" / "A contact wants to
-  chat"; the receiving device adds the contact's name ("New message from X"). Never message content.
+  chat"; the receiving device adds the contact's name ("New message from X"). Never message content. The
+  key a device is woken under names its side of the contact (inviter or opener), not the pair, so the
+  relay's subscription table doesn't say who talks to whom (v42).
 - Installing: while Gizleme isn't installed on a device, a window offers to add it — one button where the
   browser can install it itself, illustrated steps on iPhone / iPad, Android and Safari on a Mac. It comes
   back the next day, then every three days (six times at most), unless you tap "Don't show this again".

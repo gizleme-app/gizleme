@@ -19,6 +19,28 @@ const cors = {   // the base; each request gets its own copy with its (allowed) 
 const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 function corsFor(req: Request){ const o = req.headers.get("origin") || ""; return { ...cors, "Access-Control-Allow-Origin": ORIGINS.includes(o) ? o : ORIGINS[0] }; }
 function clean(s: unknown, n = 512){ return (s ?? "").toString().slice(0, n); }
+function b64(bytes: ArrayBuffer | Uint8Array){ return btoa(String.fromCharCode(...new Uint8Array(bytes))); }
+function unb64(s: string){ try { return Uint8Array.from(atob(s), c => c.charCodeAt(0)); } catch { return new Uint8Array(0); } }
+// v42: a blob upload, a blob deletion and an acknowledgement name the session that asks (the same token the other
+// functions take). Until TOKEN_GRACE_UNTIL a request without one is still served (builds from before v42); a token that
+// is present but unknown is never served. Reading and writing a mailbox need only its key, as before.
+const SESS = "gizleme_sessions";
+const TOKEN_GRACE_UNTIL = Date.parse("2026-12-15T00:00:00Z");
+async function sessionUser(token: unknown): Promise<string | null> {
+  const t = clean(token, 128); if (!t) return null;
+  const raw = unb64(t); if (!raw.length) return null;
+  const th = b64(await crypto.subtle.digest("SHA-256", raw));
+  const { data } = await db.from(SESS).select("username_lc, expires_at").eq("token_hash", th).maybeSingle();
+  if (!data || new Date(data.expires_at).getTime() < Date.now()) return null;
+  return data.username_lc;
+}
+// null when the request may not proceed; "" when served under the grace period without a session
+async function requireSession(body: any): Promise<string | null> {
+  const u = await sessionUser(body?.token);
+  if (u) return u;
+  if (body?.token || Date.now() >= TOKEN_GRACE_UNTIL) return null;
+  return "";
+}
 // ids have one shape each (the client derives them): a mailbox is 16 bytes base64url, a message id 16 hex
 // digits with an optional one-letter prefix (h/r/u/n for hellos, receipts and link notices)
 const MBOX_RE = /^[A-Za-z0-9_-]{22}$/, MID_RE = /^[a-z]?[a-f0-9]{16}$/;
@@ -103,10 +125,12 @@ Deno.serve(async (req) => {
     if (action === "putblob") {
       // Encrypted photo blob (AES-GCM ciphertext; the key travels inside the message, never here).
       // Uploads go through this function so the bucket accepts nothing from the public anon key.
+      const who = await requireSession(body); if (who === null) return json({ error: "unauthorized" }, 401);
       if (ip && !(await rl("mbox:blobip:" + ip, 30, 60))) return json({ error: "rate_limited" }, 429);
-      const b64 = clean(body.data, 2800000);
-      if (!b64) return json({ error: "missing" }, 400);
-      let bytes: Uint8Array; try { bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)); } catch { return json({ error: "bad_data" }, 400); }
+      if (who && !(await rl("mbox:blobacct:" + who, 150, 3600))) return json({ error: "rate_limited" }, 429);   // and per account: an hour's worth of photos, voice notes and documents
+      const data64 = clean(body.data, 2800000);
+      if (!data64) return json({ error: "missing" }, 400);
+      let bytes: Uint8Array; try { bytes = Uint8Array.from(atob(data64), c => c.charCodeAt(0)); } catch { return json({ error: "bad_data" }, 400); }
       if (bytes.length > 2000000) return json({ error: "too_big" }, 413);
       const path = Array.from(crypto.getRandomValues(new Uint8Array(24)), b => b.toString(16).padStart(2, "0")).join("") + ".bin";
       const { error } = await db.storage.from(BUCKET).upload(path, bytes, { contentType: "application/octet-stream", upsert: false });
@@ -118,6 +142,7 @@ Deno.serve(async (req) => {
       // The viewer deletes a view-once photo after showing it. Paths are random and unlistable.
       const path = clean(body.path, 128);
       if (!/^[a-f0-9]{48}\.bin$/.test(path) && !/^[A-Z0-9a-z]{1,40}\/[a-f0-9]{16}\.bin$/.test(path)) return json({ error: "bad_path" }, 400);
+      if ((await requireSession(body)) === null) return json({ error: "unauthorized" }, 401);
       if (ip && !(await rl("mbox:delip:" + ip, 60, 60))) return json({ error: "rate_limited" }, 429);
       await db.storage.from(BUCKET).remove([path]);
       return json({ ok: true });
@@ -128,6 +153,7 @@ Deno.serve(async (req) => {
       const mbox = clean(body.mbox, 64); const mids: string[] = Array.isArray(body.mids) ? body.mids.map((m: unknown)=>clean(m,64)).filter(Boolean).slice(0, 300) : [];
       if (!mbox || !mids.length) return json({ ok: true });
       if (!MBOX_RE.test(mbox)) return json({ error: "bad_id" }, 400);
+      if ((await requireSession(body)) === null) return json({ error: "unauthorized" }, 401);
       if (ip && !(await rl("mbox:ackip:" + ip, 400, 60))) return json({ error: "rate_limited" }, 429);
       await db.from(TABLE).update({ delivered_at: new Date().toISOString() }).eq("mbox", mbox).in("mid", mids).is("delivered_at", null);
       sweepSoon();

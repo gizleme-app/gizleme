@@ -41,6 +41,10 @@ rate-limit counters.
 - A passive or active relay/server (including a compromised Supabase project) reading message or photo
   content, or the contact list.
 - A relay replaying, reflecting or re-labelling live messages (direction, counter and sealed id checks).
+- A member (or a removed one) re-depositing a signed group message or key rotation later: signed envelopes
+  carry the sender's clock and are dropped when older than the relay keeps anything (16 days); a key rotation
+  carries its number and the fingerprint of the key it replaces, and a group never goes back to a key it has
+  used; the ids a chat has already delivered are kept, encrypted, for 14 days — across locks (since v42).
 - Someone who merely reaches a room (relay, leaked daily room code) being paired with an existing contact
   (HMAC pairing check with the shared key).
 - Online password guessing (per-account and per-IP rate limits), username enumeration via the salt
@@ -51,8 +55,15 @@ rate-limit counters.
 - A device picked up while the app is locked: keys are out of memory; local data is encrypted at rest
   (history, contacts, mailbox cursors and settings that name a chat live under the master key; the local
   database and its indexes use opaque per-chat ids derived from the contact key, never the key itself;
-  the lock screen closes every open dialog and clears the rendered chat).
+  the lock screen closes every open dialog, clears the rendered chat and empties what the dialogs showed —
+  a safety code, a group's members and fingerprints, a caller's name, a merge's previews).
 - Cross-account leakage on a shared browser (vault owner check and full wipe on log-out).
+- A device whose session the server no longer knows — the password was changed elsewhere, "sign out
+  everywhere", an expired token: at each unlock (and when the app comes back online or to the front) the
+  session is checked with the server, and a revoked one wipes the device and shows the sign-in screen
+  (since v42). What that device already decrypted is gone with it; what the relay still holds for the
+  account's mailboxes is readable by anyone who kept the contact keys — rotating contact keys on a password
+  change is on the roadmap (the Signal-model work).
 
 **Not protected against (known limitations)**
 
@@ -85,7 +96,11 @@ rate-limit counters.
   open it agrees the contact key by ECDH with the inviter's private half, which never leaves the inviter's
   devices (it rides the encrypted account vault so any of them can complete the agreement). The opener
   announces itself with a `hello` (ephemeral public key + name) in the link's mailbox and in presence; the
-  inviter binds the contact to the first hello and discards the private half. Nothing but hellos is ever
+  inviter binds the contact to the first hello and discards the private half. Since v42 the hello carries a
+  tag, `HKDF(secret, "gz-hello/v1|fs|ke|code tag")`, over what it says — its mailbox-chain offer (`fs`, `ke`)
+  and its code tag — so a copy with those fields stripped or changed (a forward-secrecy downgrade) is refused;
+  the tag needs the ECDH secret, which only the opener's ephemeral key and the link's private half reach.
+  After 2026-12-15 a hello without it is refused. Nothing but hellos is ever
   written under the link key: what the inviter writes before the link is opened waits on the inviter's
   device and is sent under the agreed key once the hello arrives. A later hello for the same link — a
   copy in other hands — is not bound: the inviter is warned once, and the late opener is told the link
@@ -126,7 +141,14 @@ rate-limit counters.
   group, wrapped for each remaining member under that member's ECDH key; whoever is left out cannot derive
   it, and the room name and mailbox follow the key, so they see nothing more (old invite links die too).
   The previous key stays readable for 14 days so late writers are not lost; messages from removed members
-  are dropped. Limits: trust on first use (a member's very first key is not verified against anything);
+  are dropped. Since v42 a rotation (`gk2`) carries, signed, its number (`rc`) and the fingerprint of the key
+  it replaces (`p`); every member keeps the count and the fingerprints of every key the group has used (in
+  the vault, so its other devices agree), and refuses a rotation numbered at or below its own or naming a
+  key already used — a removed member who re-seals the admin's old rotation under a key it still holds can't
+  take the group back to it. Signed envelopes also carry the sender's clock (`sts`); one older than 16 days
+  (the relay keeps nothing that long) is dropped, and after 2026-12-15 one without it is too. What a member
+  can change in a group — the disappearing timer, a reaction, a vote, an edit, a deletion, "X is typing" —
+  needs that member's own valid signature; unsigned ones (older builds) are ignored. Limits: trust on first use (a member's very first key is not verified against anything);
   groups created before this build have no admin and cannot rotate (create a new one); a member who never
   announced a key (older app) would be locked out by a renewal until they reopen the group; group calls
   are a mesh capped at 4; a 1:1 ring inside a group room is ignored; a group invitation received in a
@@ -143,7 +165,16 @@ rate-limit counters.
   each other), so the relay can tell which rooms one account is present in and the name it shows there
   (not the username). Inside the mailbox that marker is sealed in the ciphertext; the relay sees only the
   mailbox id, a random message id, the timestamp and the delivery time. Push subscriptions link a device
-  endpoint to the per-contact notification keys and the account marker. Presence fields other than the
+  endpoint to notification keys and the account marker. Since v42 a notification key names a *direction*,
+  not a pair: the key that wakes the inviter's devices (`HKDF(ck, "gz-notify/v2|i")`) differs from the one
+  that wakes the opener's (`…|o`), each side registers only its own and wakes the other's, and no sender
+  marker goes with that request — so the subscription table never holds one key under two accounts, which
+  is what let it say "these two accounts are contacts". The pair's single key (`gz-notify/v1`) remains for
+  contacts whose side isn't known (records from before v42 learn it from the first message that carries one)
+  and is still registered until 2027-02-01 so a device on an older build can wake us meanwhile; a sender falls
+  back to it, with its marker, only when nobody is registered under the new key. The relay still sees which
+  IP wakes which key and polls which mailboxes, and co-presence in rooms — timing metadata this design does
+  not hide. Presence fields other than the
   signed public key (name, marker, call announcements) are not authenticated by the contact key.
 - **Invite links travel through whatever you share them with.** "Share on WhatsApp" hands the link to
   WhatsApp (its own `whatsapp://` link on a phone, wa.me on a computer); the v3 design is what limits what a
@@ -154,7 +185,12 @@ rate-limit counters.
   over as proof of anything — Gizleme never merges on its own, because a matching name proves nothing.
 - **Server functions accept calls only from gizleme.com** (CORS), TURN credentials only with a session, and
   the per-account login limit counts wrong passwords only (10 in 15 min pause logins for that name; existing
-  devices unlock locally, so a stranger can at most delay a new-device login).
+  devices unlock locally, so a stranger can at most delay a new-device login). Since v42 a blob upload, a blob
+  deletion and a delivery acknowledgement also carry the session token (checked against the sessions table;
+  a request without one is still served until 2026-12-15 for builds from before, one with an unknown token
+  never), with 150 uploads per hour per account on top of the per-IP limit — the relay is no longer an
+  anonymous file host, and a stranger holding a mailbox id can't mark its messages delivered. Reading and
+  writing a mailbox need only its key, as before.
 - **Muted chats and the unread count.** Whether a chat is muted (and until when) is stored with the contact or
   group in the encrypted vault. For notifications, the service worker's cache holds — next to the names it
   already kept — the end time of each muted chat, keyed by a hash of its notification key, and the unread
@@ -187,7 +223,7 @@ rate-limit counters.
   same relay event as delivery receipts, in a group under the group key. The relay can neither read them nor
   tell them from receipts, but it does see small encrypted events every few seconds while someone types —
   timing metadata that Settings → Privacy → Typing indicators (off: neither sent nor shown) removes. In a group the
-  name shown comes from the signal itself, which only members can produce; it is not signed.
+  signal is signed like a message (since v42): the name shown is the signer's, and an unsigned one is ignored.
 - **View-once and disappearing messages are best effort.** They are enforced by the recipient's device;
   nothing stops a screenshot or a modified client. Voice messages are encrypted like a photo (a random key
   inside the message); the ciphertext blob stays on the relay for 14 days, so every member of a group and
@@ -224,8 +260,8 @@ rate-limit counters.
   per account (a success gives the budget back, so a stranger cannot lock the owner out), password change
   and deletion 10/15 min per account, register 10/h per IP, salt 60/min and check 20/min per IP, notify 12/10 min
   per key + 120/10 min per IP, mailbox puts 120/min per mailbox + 300/min per IP, gets/acks 400/min per
-  IP, blob uploads 30/min per IP, TURN credentials 40/10 min per IP. There are no per-account storage
-  quotas beyond these.
+  IP, blob uploads 30/min per IP and 150/h per account, TURN credentials 40/10 min per IP. There are no
+  per-account storage quotas beyond these.
 - Push: endpoints restricted to the browser push services, at most 8 devices woken per notification key,
   12 alerts per notification key per 10 minutes for messages and 40 for call alerts (a call rings every
   7 seconds; a ringing alert expires after 45 s), fixed bodies ("New message", "Incoming call", "Missed
@@ -233,7 +269,8 @@ rate-limit counters.
   hashed notification keys, cleared on log-out.
 - TURN: short-lived credentials (15 min) minted by the function from a server-side key and shared by all
   callers for 2 minutes; a credential only lets someone relay ciphertext through Cloudflare's TURN.
-- Password change and account deletion require both the session token and the current password.
+- Password change and account deletion require both the session token and the current password; a password
+  change deletes the account's other sessions, which those devices notice at their next unlock (v42).
 - The `check` action of registration reveals whether a username is taken (20/min per IP); the `salt`
   action does not.
 - Server error responses may echo database error strings (no secrets, but not yet generic).

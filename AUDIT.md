@@ -107,6 +107,26 @@ updated test20/test33); the suite is now 30 scenarios.
 | R9 | Medium | Client: a fresh group link after a removal was ignored ("rotated key beats an old link"); a failed hello deposit was never retried; a copied invite link was not persisted; `used`/`nopin` notices read while the chat was closed were silent; removing a chat left its unread count on the icon; two readers of one mailbox could deliver a message twice; own messages read before the account marker was restored; queued invite messages never retried; lock dropped the pending save and vault push; receipts accepted from a link mailbox; auto-lock cut calls; the update check reloaded the New-chat screen; a rejoin timer outlived its room; a recording followed you to another chat; a second call start leaked a mic stream; early ICE candidates dropped; voice playback on a muted iPhone went silent after 1.5 s; peer names unbounded. | **Fixed.** |
 | R10 | Low | Merge inherited the ✓ verified mark onto an unverified key; `identAdopt` left two devices with different group ECDH keys; a re-invited member stayed on the removed list; any link could name an admin on a legacy group; image envelopes unvalidated; call buttons shown in audio calls; toast under modals; duplicate SVG id; `_chainCache` survived lock. | **Fixed.** |
 
+## Third pass — 21–22 October 2026 (full review, v41–v42)
+
+Five parallel reviews of the whole application (security, code, UX, performance, tests and maintenance)
+by reviewers who had not written the code; the plan that came out of it runs from v41 to v45. v41 took the
+urgent fixes (a long chat froze the app, a photo burst could land in the wrong chat, a message written
+offline was lost, the delete-account dialog's Cancel, a notification could open an invite link, docs that
+no longer matched the code). v42 took the security findings below, covered by test58 (and test19, test37,
+test38 updated); the suite is 41 scenarios.
+
+| # | Sev. | Finding | Status |
+|---|------|---------|--------|
+| S1 | High | A group key rotation (`gk2`) carried neither a number nor a link to the key it replaced, and the ids a chat had seen were forgotten at each lock: a removed member could re-seal the admin's earlier, signed rotation under a key it still held and take the group back to it. | **Fixed.** `rc` (rotation number) and `p` (previous fingerprint) are signed into every gk2; members keep the count and every key fingerprint the group has used (vault-synced) and refuse a rotation numbered at or below theirs or naming a used key; seen ids persist 14 days (`_meta.sids`, encrypted). |
+| S2 | Medium | Signed group envelopes had no sender clock; any old one could be re-deposited as new. | **Fixed.** `sts` is signed; older than 16 days (or missing, after 2026-12-15) → dropped. |
+| S3 | Medium | A password change deleted the other sessions server-side but no device ever asked (`validate` was never called), so a lost device kept reading. | **Fixed.** `validate` at each unlock, on coming online and to the front; a revoked session wipes the device. The toast says what now happens. |
+| S6/S8 | Medium/Low | `putblob` (an anonymous file host), `delblob` and `ack` took no session. | **Fixed.** The session token is required (grace for older builds until 2026-12-15); 150 uploads/h per account. |
+| S7 | Medium | The push subscription table held one notification key under both contacts' account markers — a social graph. | **Fixed.** Per-direction keys (inviter / opener), registered by their own side only, no sender marker; v1 key kept for role-less records and registered until 2027-02-01 for older builds. |
+| S10 | Low | The opener's hello was not bound to its own fields (a copy with the chain offer stripped would downgrade forward secrecy). | **Fixed.** `h = HKDF(secret, "gz-hello/v1|fs|ke|m")`; required after 2026-12-15. |
+| S14 | Low | At lock, hidden dialogs kept their text (safety code, members and fingerprints, caller name, merge previews). | **Fixed.** Emptied in `lockApp`. |
+| S19 | Low | A group's disappearing timer and "X is typing" were accepted unsigned. | **Fixed.** Group typing is signed; exp/react/vote/edit/del need `vf==="ok"`. |
+
 ## What is deliberately not fixed yet (roadmap)
 
 1. **Forward secrecy for the mailbox** — done at week granularity on 15 Oct 2026 (one-way key chain per
@@ -115,7 +135,8 @@ updated test20/test33); the suite is now 30 scenarios.
 2. **aPAKE login (OPAQUE) and a memory-hard KDF** — removes the replayable `av` and raises the cost of
    offline guessing from a database leak.
 3. ~~Group sender authentication / key rotation~~ — done 15 Oct 2026 (signed messages, creator-driven
-   rotation and removal; see SECURITY.md). Authenticated presence remains open.
+   rotation and removal; see SECURITY.md). Authenticated presence remains open. Rotations are ordered and
+   replay-proof since v42.
 4. ~~Own Supabase project (M8)~~ — done 15 Oct 2026.
 
 ## Verified as sound
