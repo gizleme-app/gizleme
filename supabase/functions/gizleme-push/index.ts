@@ -14,19 +14,20 @@ const ORIGIN = "https://gizleme.com";
 
 // VAPID keypair: generated once on first run, kept server-side in gizleme_config.
 // The private key never appears in source, in the client, or in any response.
-let vapidCache: { publicKey: string; privateKey: string } | null = null;
-async function getVapid() {
+type Vapid = { publicKey: string; privateKey: string };
+let vapidCache: Vapid | null = null;
+async function getVapid(): Promise<Vapid> {
   if (vapidCache) return vapidCache;
   const { data } = await db.from(CONF).select("value").eq("key", "vapid").maybeSingle();
   if (data?.value?.publicKey && data?.value?.privateKey) {
-    vapidCache = data.value; return vapidCache;
+    vapidCache = data.value as Vapid; return vapidCache;
   }
   // first run: whoever inserts first wins, and every instance then uses the stored pair — two cold instances
   // each keeping their own would sign pushes with a key the subscriptions were not made for
   const keys = webpush.generateVAPIDKeys();
   await db.from(CONF).upsert({ key: "vapid", value: keys, updated_at: new Date().toISOString() }, { onConflict: "key", ignoreDuplicates: true });
   const { data: again } = await db.from(CONF).select("value").eq("key", "vapid").maybeSingle();
-  vapidCache = (again?.value?.publicKey && again?.value?.privateKey) ? again.value : keys; return vapidCache!;
+  vapidCache = (again?.value?.publicKey && again?.value?.privateKey) ? (again.value as Vapid) : keys; return vapidCache;
 }
 async function configured() {
   const v = await getVapid();

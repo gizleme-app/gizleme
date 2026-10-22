@@ -22,7 +22,7 @@ async function rl(key: string, limit: number, windowS: number) {
 }
 function b64(bytes: ArrayBuffer | Uint8Array){ return btoa(String.fromCharCode(...new Uint8Array(bytes))); }
 function unb64(s: string){ try { return Uint8Array.from(atob(s), c => c.charCodeAt(0)); } catch { return new Uint8Array(0); } }
-async function sha256b64(bytes: Uint8Array){ return b64(await crypto.subtle.digest("SHA-256", bytes)); }
+async function sha256b64(bytes: Uint8Array){ return b64(await crypto.subtle.digest("SHA-256", bytes as BufferSource)); }
 // Relay minutes are paid for: only a logged-in account gets credentials (the function URL is public).
 async function userFromToken(token: string){
   if (!token) return null;
