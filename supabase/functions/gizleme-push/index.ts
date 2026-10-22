@@ -27,7 +27,7 @@ async function getVapid(): Promise<Vapid> {
   const keys = webpush.generateVAPIDKeys();
   await db.from(CONF).upsert({ key: "vapid", value: keys, updated_at: new Date().toISOString() }, { onConflict: "key", ignoreDuplicates: true });
   const { data: again } = await db.from(CONF).select("value").eq("key", "vapid").maybeSingle();
-  vapidCache = (again?.value?.publicKey && again?.value?.privateKey) ? (again.value as Vapid) : keys; return vapidCache;
+  const v: Vapid = (again?.value?.publicKey && again?.value?.privateKey) ? (again.value as Vapid) : keys; vapidCache = v; return v;
 }
 async function configured() {
   const v = await getVapid();
