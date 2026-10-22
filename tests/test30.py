@@ -49,7 +49,7 @@ html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
-_app=_app[:_app.rstrip().rfind("})();")]+'window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),meta:()=>_meta,merge:(r)=>mergeContacts(r)};\n})();\n'
+_app=_app[:_app.rstrip().rfind("})();")]+'const _gzAsk0=gzAsk; gzAsk=(o)=>{ window.__asks=(window.__asks||[]).concat([String(o.text||"")]); const pol=window.__askPolicy; let v=pol?pol(String(o.text||""),o):undefined; if(v===undefined) v= o.input ? (window.__promptValue!==undefined ? window.__promptValue : (o.def||"")) : true; if(v==="__dialog__") return _gzAsk0(o); return Promise.resolve(v); }; window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),meta:()=>_meta,merge:(r)=>mergeContacts(r)};\n})();\n'
 (site/"app.js").write_text(_app)
 for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())
@@ -109,7 +109,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>{ window.__puts.length=0; }")
     p.click("#peerMeta"); p.wait_for_timeout(250); r["info_togroup"]= p.is_visible("#ciToGroup") and p.is_visible("#ciLoc")
     p.click("#ciToGroup"); p.wait_for_timeout(2000)
-    r["togroup_prompted"]= any(d[0]=="prompt" and d[1]=="oguz & Florian" for d in dlg)
+    r["togroup_prompted"]= any(d[0]=="prompt" and d[1]=="oguz & Florian" for d in dlg) or p.evaluate("()=>(window.__asks||[]).some(t=>/Group name/.test(t))")
     r["togroup_modal"]= p.evaluate("()=>document.getElementById('ginvModal').classList.contains('show')") and "oguz & Florian" in p.eval_on_selector("#ginvTitle","e=>e.textContent") and "Florian has been invited" in p.eval_on_selector("#ginvSub","e=>e.textContent")
     r["togroup_groupCreated"]= p.evaluate("()=>window.__gz.groups().map(g=>g.name)")==["Les potes","oguz & Florian"]
     r["togroup_inGroupNow"]= p.eval_on_selector("#peerName","e=>e.textContent").startswith("oguz & Florian")

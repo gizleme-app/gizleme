@@ -49,7 +49,7 @@ html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
-_app=_app[:_app.rstrip().rfind("})();")]+'window.__gz={legacyPending:()=>{ const l=contactsLoad(); l.forEach(c=>{ if(c.inv&&c.pk){ delete c.pk; delete c.pp; delete c.v3; } }); contactsSave(l); },contacts:()=>contactsLoad(),groups:()=>groupsLoad(),meta:()=>_meta,merge:(r)=>mergeContacts(r)}; window.__rv=(ck)=>rvCodeFromCK(ck);\n})();\n'
+_app=_app[:_app.rstrip().rfind("})();")]+'const _gzAsk0=gzAsk; gzAsk=(o)=>{ window.__asks=(window.__asks||[]).concat([String(o.text||"")]); const pol=window.__askPolicy; let v=pol?pol(String(o.text||""),o):undefined; if(v===undefined) v= o.input ? (window.__promptValue!==undefined ? window.__promptValue : (o.def||"")) : true; if(v==="__dialog__") return _gzAsk0(o); return Promise.resolve(v); }; window.__gz={legacyPending:()=>{ const l=contactsLoad(); l.forEach(c=>{ if(c.inv&&c.pk){ delete c.pk; delete c.pp; delete c.v3; } }); contactsSave(l); },contacts:()=>contactsLoad(),groups:()=>groupsLoad(),meta:()=>_meta,merge:(r)=>mergeContacts(r)}; window.__rv=(ck)=>rvCodeFromCK(ck);\n})();\n'
 (site/"app.js").write_text(_app)
 for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())

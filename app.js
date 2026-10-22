@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 43;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 44;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -514,6 +514,24 @@ function activeCK(){ const R=A(); return R&&R.fromContact||null; }
 // chat takes the colour chosen — in the list, at the top of the chat and on the call screen. Saved with the
 // contact (or group) in your encrypted list, so it follows your account to your other devices; the other
 // person never sees it.
+// v44: the app's own question dialog in place of the browser's confirm()/prompt() — translated buttons, the app's
+// look (not "gizleme.com says…"), Escape and focus like every other dialog. gzAsk resolves true/false for a question,
+// the text or null for a prompt. The first paragraph of the text is the title, the rest the body.
+let _ask=null;
+function gzAsk(o){
+  const m=$("askModal"); if(!m) return Promise.resolve(o.input ? null : false);
+  if(_ask){ try{ _ask.res(o.input ? null : false); }catch(e){} }
+  const parts=String(o.text||"").split(/\n\n+/); const title=parts.shift()||""; const body=parts.join("\n\n");
+  $("askTitle").textContent=title; $("askText").textContent=body; $("askText").hidden=!body;
+  const f=$("askField"), inp=$("askInput"); f.hidden=!o.input; if(o.input){ inp.value=o.def||""; inp.maxLength=o.max||64; inp.placeholder=o.placeholder||""; }
+  const ok=$("askOk"), cancel=$("askCancel"); ok.textContent=o.ok||t("OK"); cancel.textContent=o.cancel||t("Cancel"); ok.classList.toggle("danger", !!o.danger);
+  return new Promise(res=>{ _ask={res, input:!!o.input}; m.classList.add("show"); setTimeout(()=>{ try{ (o.input ? inp : ok).focus(); if(o.input) inp.select(); }catch(e){} }, 40); });
+}
+function askDone(v){ const a=_ask; _ask=null; const m=$("askModal"); if(m) m.classList.remove("show"); if(a) a.res(v); }
+function gzConfirm(text, ok, danger){ return gzAsk({text, ok, danger}); }
+function gzPrompt(text, def, ok, max){ return gzAsk({text, input:true, def, ok, max}); }
+const COLOR_EN={violet:"Violet", indigo:"Indigo", blue:"Blue", sky:"Sky blue", teal:"Teal", green:"Green", lime:"Lime", amber:"Amber", orange:"Orange", red:"Red", pink:"Pink", slate:"Slate"};
+function colorName(k){ return t(COLOR_EN[k]||k); }   // v44: a screen reader says "Bleu", not "blue"
 const AVA_COLORS={violet:"#7c3aed", indigo:"#4f46e5", blue:"#2563eb", sky:"#0369a1", teal:"#0f766e", green:"#15803d",
   lime:"#4d7c0f", amber:"#b45309", orange:"#c2410c", red:"#dc2626", pink:"#db2777", slate:"#475569"};
 // every contact has a colour of its own even when none was chosen: picked from its key, the same on every screen
@@ -536,7 +554,7 @@ function openColorPick(row){
   const pk=$("colPick"), g=$("colGrid");
   if(!g.childElementCount){
     const d=document.createElement("button"); d.type="button"; d.className="sw auto"; d.dataset.c=""; d.textContent="↺"; d.title=t("Default colour"); d.setAttribute("aria-label",d.title); g.appendChild(d);
-    for(const k in AVA_COLORS){ const b=document.createElement("button"); b.type="button"; b.className="sw"; b.dataset.c=k; b.style.background=AVA_COLORS[k]; b.setAttribute("aria-label",k); g.appendChild(b); } }
+    for(const k in AVA_COLORS){ const b=document.createElement("button"); b.type="button"; b.className="sw"; b.dataset.c=k; b.style.background=AVA_COLORS[k]; b.setAttribute("aria-label",colorName(k)); g.appendChild(b); } }
   const nm=rec.alias || dn(rec.name) || (id.startsWith("g:") ? t("Group") : t("Contact"));
   $("colTitle").textContent=t("Colour for {name}",{name:nm});
   g.querySelectorAll("button").forEach(b=>b.classList.toggle("on", (b.dataset.c||"")===(AVA_COLORS[rec.cl] ? rec.cl : "")));
@@ -633,6 +651,7 @@ function findStep(d){ if(!_find.hits.length) return; _find.i=Math.max(0, Math.mi
 // ---------- Chat info: everything about one chat in one place, from a tap on its name (v37) ----------
 function infoId(R){ return !R ? null : R.group ? "g:"+R.rid : R.fromContact ? "c:"+R.fromContact : null; }
 function infoShown(){ const m=$("infoModal"); return !!(m && m.classList.contains("show")); }
+function topModalId(){ const m=[...document.querySelectorAll(".modal.show")].pop(); return m ? m.id : ""; }
 function openInfo(){ const R=A(); if(!R) return; closePicker(); closeExpMenu(); closeColorPick(); $("barMenu").hidden=true;
   refreshInfo(); $("infoModal").classList.add("show"); const c=$("infoModal").querySelector(".info-card"); if(c) c.scrollTop=0;
   if(!TOUCH_UI) try{ $("ciBack").focus({preventScroll:true}); }catch(e){} }
@@ -653,7 +672,7 @@ function refreshInfo(){ const R=A(); if(!R || !$("infoModal")) return;
   if(rec){ const g=$("ciColors");
     if(!g.childElementCount){
       const d=document.createElement("button"); d.type="button"; d.className="auto"; d.dataset.c=""; d.textContent="↺"; d.title=t("Default colour"); d.setAttribute("aria-label",d.title); d.setAttribute("role","radio"); g.appendChild(d);
-      for(const k in AVA_COLORS){ const b=document.createElement("button"); b.type="button"; b.dataset.c=k; b.style.background=AVA_COLORS[k]; b.setAttribute("aria-label",k); b.setAttribute("role","radio"); g.appendChild(b); } }
+      for(const k in AVA_COLORS){ const b=document.createElement("button"); b.type="button"; b.dataset.c=k; b.style.background=AVA_COLORS[k]; b.setAttribute("aria-label",colorName(k)); b.setAttribute("role","radio"); g.appendChild(b); } }
     const cur=AVA_COLORS[rec.cl] ? rec.cl : ""; g.querySelectorAll("button").forEach(b=>{ const on=(b.dataset.c||"")===cur; b.classList.toggle("on",on); b.setAttribute("aria-checked",on?"true":"false"); });
     const a=g.querySelector(".auto"); if(a) a.style.background=chatColor(Object.assign({},rec,{cl:""}), grp)||""; }
   { const es=$("ciExp"); if(!es.options.length) EXP_CHOICES.forEach(v=>{ const o=document.createElement("option"); o.value=String(v); o.textContent=expLabel(v); es.appendChild(o); });
@@ -675,12 +694,12 @@ function wireInfo(){ const m=$("infoModal"); if(!m) return;
   const then=(f)=>()=>{ closeInfo(); f(); };
   $("ciBack").addEventListener("click",closeInfo);
   m.addEventListener("click",e=>{ if(e.target===m) closeInfo(); });
-  document.addEventListener("keydown",e=>{ if(e.key==="Escape" && infoShown()) closeInfo(); });
+  document.addEventListener("keydown",e=>{ if(e.key==="Escape" && infoShown() && topModalId()==="infoModal") closeInfo(); });   // v44: not while a question is on top
   $("ciCall").addEventListener("click",then(()=>$("callBtn").click()));
   $("ciVideo").addEventListener("click",then(()=>$("videoBtn").click()));
   $("ciLoc").addEventListener("click",then(sendLocation));
   $("ciInvite").addEventListener("click",()=>inviteToGroup());
-  $("ciRename").addEventListener("click",()=>{ renameChat(); refreshInfo(); });
+  $("ciRename").addEventListener("click",()=>{ renameChat().then(()=>refreshInfo()); });
   $("ciColors").addEventListener("click",e=>{ const b=e.target.closest && e.target.closest("button"); const R=A(); const id=infoId(R); if(!b || !id) return;
     setAvaColor(id, b.dataset.c||""); renderContacts(); refreshInfo(); });
   $("ciExp").addEventListener("change",async e=>{ await chooseExp(+e.target.value); refreshInfo(); });
@@ -695,11 +714,11 @@ function wireInfo(){ const m=$("infoModal"); if(!m) return;
   $("ciWire").addEventListener("click",then(()=>$("wire").classList.add("show")));
   $("ciRemove").addEventListener("click",()=>{ const R=A(); if(!R) return;
     if(R.group){ const g=groupsLoad().find(x=>x.rid===R.rid);
-      if(!confirm(t("Leave the group “{name}”?\n\nYou'll need a new invite link to come back.",{name:dn(g&&(g.alias||g.name))||t("Group")}))) return;
-      closeInfo(); groupRemove(R.rid); goHome(); return; }
+      gzConfirm(t("Leave the group “{name}”?\n\nYou'll need a new invite link to come back.",{name:dn(g&&(g.alias||g.name))||t("Group")}), t("Leave group"), true).then(ok=>{ if(!ok) return;
+        closeInfo(); groupRemove(R.rid); goHome(); }); return; }
     if(!R.fromContact) return; const c=contactFind(R.fromContact);
-    if(!confirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(c&&(c.alias||c.name))||t("this contact")}))) return;
-    closeInfo(); contactRemove(R.fromContact); goHome(); });
+    gzConfirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(c&&(c.alias||c.name))||t("this contact")}), t("Remove contact"), true).then(ok=>{ if(!ok) return;
+      closeInfo(); contactRemove(R.fromContact); goHome(); }); });
 }
 const _rowCache=new Map();   // v43: id → {sig,row}; a row whose signature is unchanged is kept and moved, not rebuilt
 function renderContacts(fromPreview){
@@ -763,13 +782,12 @@ function renderContacts(fromPreview){
     r2.appendChild(cm);
     if(unread && it.id!==activeId){ const ub=document.createElement("span"); ub.className="ubadge"+(muted?" muted":""); ub.textContent=unread>99?"99+":String(unread); ub.title=t("{n} unread",{n:unread}); r2.appendChild(ub); ct.classList.add("unread"); }
     ci.appendChild(r1); ci.appendChild(r2);
-    const x=document.createElement("button"); x.className="cx"; x.textContent="×"; x.title=it.t==="g"?t("Leave group"):t("Remove contact"); x.setAttribute("aria-label",x.title);
-    x.addEventListener("click",ev=>{ ev.stopPropagation();
-      if(it.t==="g"){ if(confirm(t("Leave the group “{name}”?\n\nYou'll need a new invite link to come back.",{name:dn(it.name)||t("Group")}))) groupRemove(it.rid); }
-      else { if(confirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(it.name)||t("this contact")}))) contactRemove(it.ck); } });
-    row.appendChild(ava); row.appendChild(ci); row.appendChild(x);
+    row.appendChild(ava); row.appendChild(ci);   // v44: no delete cross on the row (Chat info has "Remove contact" / "Leave group")
+    row.setAttribute("role","button"); row.tabIndex=0;
+    { const parts=[cn.textContent]; if(unread && it.id!==activeId) parts.push(t("{n} unread",{n:unread})); if(cm.textContent) parts.push(cm.textContent); if(ct.textContent) parts.push(ct.textContent); row.setAttribute("aria-label", parts.join(", ")); }
     row.addEventListener("click",()=>{ if(row._lp){ row._lp=false; return; }   // that was a long press: the colour menu is open
       it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.alias||it.name); });
+    row.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); row.click(); } });
     if(_sq){ const row1=row.querySelector(".cn"), tn=row1 && row1.firstChild; if(tn && tn.nodeType===3){ const sp=document.createElement("span"); markText(sp, tn.nodeValue, _sq, 0); row1.replaceChild(sp, tn); } }
     _rowCache.set(it.id,{sig,row}); keep.add(it.id); frag.push(row);
   });
@@ -915,14 +933,14 @@ async function openMembers(){
     const nm=document.createElement("span"); nm.className="mn"; nm.textContent=m.n+(m.me?" ("+t("you")+")":"")+(g.adm===m.pk?" · "+t("creator"):""); row.appendChild(nm);
     const fp=document.createElement("span"); fp.className="mf"; fp.textContent=await keyFp(m.pk); row.appendChild(fp);
     if(admin && !m.me){ const x=document.createElement("button"); x.className="mx"; x.type="button"; x.textContent=t("Remove");
-      x.addEventListener("click",async()=>{ if(!confirm(t("Remove {name} from the group? The group gets a new key they won't have.",{name:m.n}))) return; x.disabled=true; await rotateGroup(R, m.pk); openMembers(); });
+      x.addEventListener("click",async()=>{ if(!await gzConfirm(t("Remove {name} from the group? The group gets a new key they won't have.",{name:m.n}), t("Remove"), true)) return; x.disabled=true; await rotateGroup(R, m.pk); openMembers(); });
       row.appendChild(x); }
     list.appendChild(row); }
   const missing=rows.filter(m=>!m.me && !m.ek).length;
   $("memTitle").textContent=t("Members · {n}",{n:rows.length});
   $("memSub").textContent= g.adm ? (admin ? t("You created this group: you can remove people and renew the key.") : t("Only the group's creator can remove people or renew the key.")) : t("This group was created before member keys existed: nobody can renew its key — create a new group to exclude someone.");
   $("memNote").textContent= rows.length<=1 ? t("Members appear here after their first message in the group.") : (missing ? t("{n} member(s) have not announced a key yet (older app): renewing the key now would lock them out until they reopen the group.",{n:missing}) : "");
-  const rn=$("memRenew"); rn.hidden=!admin; rn.onclick=async()=>{ if(!confirm(t("Renew the group key now? Everyone listed with a key keeps access; old invite links stop working."))) return; rn.disabled=true; await rotateGroup(R, null); rn.disabled=false; openMembers(); };
+  const rn=$("memRenew"); rn.hidden=!admin; rn.onclick=async()=>{ if(!await gzConfirm(t("Renew the group key now? Everyone listed with a key keeps access; old invite links stop working."), t("Renew the key"))) return; rn.disabled=true; await rotateGroup(R, null); rn.disabled=false; openMembers(); };
   $("memModal").classList.add("show");
 }
 function groupGone(R, env){ const g=groupsLoad().find(x=>x.rid===R.rid); return !!(g && g.gone && env.pk && g.gone.includes(env.pk)); }
@@ -1026,7 +1044,7 @@ function groupInviteLink(R){ const g=groupsLoad().find(x=>x.rid===R.rid); const 
 async function inviteToGroup(){ const R=A(); if(!R||!R.group) return;
   const url=groupInviteLink(R); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:R.title,url});
   if(navigator.share){ try{ await navigator.share({text:msg}); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
-  try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); }
+  try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ gzPrompt(t("Copy this invite link:"),url,t("Done"),2000); }
 }
 function parseInvite(text){ // accepts a full link or raw payload
   try{ const s=(text||"").trim(); const i=s.indexOf("#g="); const payload= i>=0 ? s.slice(i+3) : s;
@@ -1936,9 +1954,14 @@ async function startRec(){
   src.connect(proc); proc.connect(gain); gain.connect(ctx.destination);   // silent sink: the processor only runs when connected
   rec={stream, ctx, src, proc, gain, chunks, t0:Date.now(), rate:ctx.sampleRate, timer:null};
   const comp=document.querySelector(".composer"); if(comp) comp.classList.add("rec"); $("recBar").hidden=false;
-  rec.timer=setInterval(()=>{ if(!rec) return; typingTick("v"); if((Date.now()-rec.t0)/1000>=VOICE_MAX_S) stopRec(true); },250);   // 2-minute cap; "recording…" for the others
+  rec.timer=setInterval(()=>{ if(!rec) return; typingTick("v"); recClock(); if((Date.now()-rec.t0)/1000>=VOICE_MAX_S) recPause(); },250);   // 2-minute cap: the recording stops and waits for Send or Cancel (v44); "recording…" for the others
+  recClock();
   typingTick("v");
 }
+function recClock(){ const el=$("recTime"); if(!el || !rec) return; const s=Math.min(VOICE_MAX_S, Math.floor(((rec.t1||Date.now())-rec.t0)/1000)); const f=n=>Math.floor(n/60)+":"+String(n%60).padStart(2,"0"); el.textContent=f(s)+" / "+f(VOICE_MAX_S);
+  const h=$("recHint"); if(h) h.textContent= rec.t1 ? t("Maximum length reached — send it or cancel") : t("Recording…"); }
+function recPause(){ const r=rec; if(!r || r.t1) return; r.t1=Date.now(); clearInterval(r.timer); r.timer=null; recClock();
+  try{ r.proc.onaudioprocess=null; r.src.disconnect(); r.proc.disconnect(); r.gain.disconnect(); }catch(e){} try{ r.stream.getTracks().forEach(tr=>tr.stop()); }catch(e){} typingTick(""); }
 function recTeardown(){ const r=rec; rec=null; if(!r) return null; clearInterval(r.timer);
   r.rate=r.ctx.sampleRate;   // read at the end: the rate the samples were really captured at
   try{ r.proc.onaudioprocess=null; r.src.disconnect(); r.proc.disconnect(); r.gain.disconnect(); }catch(e){} try{ r.stream.getTracks().forEach(tr=>tr.stop()); }catch(e){} try{ r.ctx.close(); }catch(e){}
@@ -1946,7 +1969,7 @@ function recTeardown(){ const r=rec; rec=null; if(!r) return null; clearInterval
   typingTick(""); return r; }   // "recording…" ends with the recording
 async function stopRec(send){
   const r=recTeardown(); if(!r) return; if(!send) return;
-  const dur=(Date.now()-r.t0)/1000; if(dur<0.6){ toast(t("Too short — hold on a little longer")); return; }
+  const dur=((r.t1||Date.now())-r.t0)/1000; if(dur<0.6){ toast(t("Too short — hold on a little longer")); return; }
   const pcm=voiceDownsample(r.chunks, r.rate); if(!pcm.length){ toast(t("Nothing was recorded — check the microphone")); return; }
   await sendVoice(voicePack(pcm), Math.min(dur, pcm.length/VOICE_RATE));
 }
@@ -2122,7 +2145,7 @@ function fsExit(){ try{ _fsByCall=false; if(!fsActive()) return; const p=documen
 function callFsAuto(video){ if(video && TOUCH_UI && !/iphone|ipad|ipod/i.test(navigator.userAgent)) fsEnter(); }
 // show the buttons now, and let them fade after 4 s while the other person's picture is on screen
 function callChrome(){ const ui=$("callUI"); clearTimeout(_bareT); ui.classList.remove("bare");
-  $("callFs").hidden=!(call && call.video && fsCan() && !/iphone|ipad|ipod/i.test(navigator.userAgent));
+  $("callFsWrap").hidden=!(call && call.video && fsCan() && !/iphone|ipad|ipod/i.test(navigator.userAgent));
   if(!call || !call.t1 || !$("callIncoming").hidden) return;
   if(!$("callStage").querySelector(".peer:not(.audio)")) return;
   _bareT=setTimeout(()=>{ if(call && call.t1 && $("callStage").querySelector(".peer:not(.audio)")) ui.classList.add("bare"); }, 4000); }
@@ -2238,8 +2261,9 @@ function onCallConnected(){
 }
 function setLocalPreview(){ const v=$("callLocal"); if(!call||!call.local){ v.hidden=true; v.srcObject=null; return; }
   const hasV=call.local.getVideoTracks().some(tr=>tr.enabled); v.srcObject=call.local; v.hidden=!hasV; v.play().catch(()=>{});
-  $("callCam").hidden=!call.local.getVideoTracks().length && !call.noCam; $("callFlip").hidden=!call.local.getVideoTracks().length || !/iphone|ipad|ipod|android/i.test(navigator.userAgent);
-  $("callMute").classList.toggle("on", !call.local.getAudioTracks().every(tr=>tr.enabled));
+  $("callCamWrap").hidden=!call.local.getVideoTracks().length && !call.noCam; $("callFlipWrap").hidden=!call.local.getVideoTracks().length || !/iphone|ipad|ipod|android/i.test(navigator.userAgent);
+  { const muted=!call.local.getAudioTracks().every(tr=>tr.enabled); const mb=$("callMute"); mb.classList.toggle("on", muted); mb.setAttribute("aria-pressed", muted?"true":"false"); mb.setAttribute("aria-label", muted?t("Microphone off"):t("Mute"));
+    const u=mb.querySelector("use"); if(u) u.setAttribute("href", muted?"#i-mic-off":"#i-mic"); const lb=$("callMuteLb"); if(lb) lb.textContent=muted?t("Mic off"):t("Mute"); }
   $("callCam").classList.toggle("on", (call.local.getVideoTracks().length>0 && !hasV) || !!call.noCam); }
 function showOutgoing(){ callUIShow(true); $("callUI").classList.add("ringing"); $("callName").textContent=call.name||""; $("callIncoming").hidden=true; $("callCtl").hidden=false; $("callStage").innerHTML=""; setLocalPreview(); }
 // the ringing alerts the service worker showed for a call are closed once the app itself rings (or the call ends)
@@ -2474,12 +2498,13 @@ function sweepEphemeral(){
     // v43: nothing to do while the oldest thing on screen is still young; the stored copy is swept every 5 minutes
     if(R._older && R._older.length){ const n=R._older.length; R._older=R._older.filter(r=>!((r.ts||0)<=cut)); if(R._older.length!==n) olderHint(R); }
     const first=R.logEl.querySelector(":scope > [data-ts]"); const ots=first ? +(first.dataset.ts||0) : 0;
-    if(ots && ots<=cut) [...R.logEl.children].forEach(el=>{ const ts=+(el.dataset&&el.dataset.ts||0); if(ts&&ts<=cut) el.remove(); });
+    if(ots && ots<=cut){ [...R.logEl.children].forEach(el=>{ const ts=+(el.dataset&&el.dataset.ts||0); if(ts&&ts<=cut) el.remove(); });
+      [...R.logEl.querySelectorAll(":scope > .daysep")].forEach(d=>{ const n=d.nextElementSibling; if(!n || n.classList.contains("daysep")) d.remove(); }); }   // v44: no orphan day labels
     if(!R._sweptAt || now-R._sweptAt>300000){ R._sweptAt=now; histSweep(k,cut); }
   });
 }
 let _toastT=null;
-function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(_toastT); _toastT=setTimeout(()=>t.classList.remove("show"), Math.max(1700, Math.min(6000, 55*m.length))); }
+function toast(m){ const t=$("toast"); t.textContent=""; t.textContent=m; t.classList.add("show"); clearTimeout(_toastT); _toastT=setTimeout(()=>t.classList.remove("show"), Math.max(1700, Math.min(6000, 55*m.length))); }
 // to the newest message; a chat scrolled up by hand stays where it is (the ↓ button counts what arrives) unless forced
 function scrollEl(el, force){ if(el && (el._bulk || (el._stick===false && !force))) return; try{ el.scrollTop=el.scrollHeight; requestAnimationFrame(()=>{ try{ el.scrollTop=el.scrollHeight; }catch(e){} }); }catch(e){} }
 // The on-screen keyboard shrinks the *visual* viewport; on iOS the layout viewport stays full height and
@@ -2552,7 +2577,7 @@ function dayLabel(ts){ const d=new Date(ts), now=new Date(); if(d.toDateString()
 function ensureDaySep(logEl, ts){ const d=new Date(ts); const k=d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); if(logEl.dataset.lastDay===k) return; logEl.dataset.lastDay=k;
   const el=document.createElement("div"); el.className="daysep"; el.dataset.k=k; el.textContent=dayLabel(ts); logEl.appendChild(el); }
 const ST_GLYPH={pending:"🕓",sent:"✓",rcvd:"✓✓",failed:"!"};
-function metaRow(d, ts, st){ const m=document.createElement("span"); m.className="meta"; const t=document.createElement("span"); t.className="time"; t.textContent=fmtTime(ts); m.appendChild(t);
+function metaRow(d, ts, st){ d.tabIndex=0; const m=document.createElement("span"); m.className="meta"; const t=document.createElement("span"); t.className="time"; t.textContent=fmtTime(ts); m.appendChild(t);
   if(st){ const x=document.createElement("span"); x.className="st"; m.appendChild(x); } d.appendChild(m); if(st) setMsgState(d,st); }
 function setMsgState(d, st){ const x=d.querySelector(".st"); if(!x) return; x.dataset.st=st; x.textContent=ST_GLYPH[st]||"";
   d.classList.toggle("failed",st==="failed"); x.title= st==="rcvd"?t("Received on their device") : st==="sent"?t("Sent") : st==="failed"?t("Not sent — tap to retry") : t("Sending…"); }
@@ -2561,7 +2586,7 @@ function setMsgState(d, st){ const x=d.querySelector(".st"); if(!x) return; x.da
 // ⚠ a different key for that name (or a broken signature), nothing for an older build that does not sign.
 function whoEl(tag, vf){
   const w=document.createElement("span"); w.className="who"+(vf==="ok"?" vf-ok":(vf==="bad"||vf==="changed")?" vf-bad":""); w.textContent=tag;
-  if(vf==="ok"){ const b=document.createElement("span"); b.className="vfb"; b.textContent="✓"; b.title=t("Signed with this member's usual key"); w.appendChild(b); }
+  if(vf==="ok"){ w.title=t("Signed with this member's usual key"); }   // v44: no green tick next to every name — a problem is what gets a mark
   else if(vf==="bad"||vf==="changed"){ const b=document.createElement("span"); b.className="vfb warn"; b.textContent=vf==="bad"?t("⚠ bad signature"):t("⚠ different key"); w.appendChild(b); }
   return w;
 }
@@ -2928,7 +2953,7 @@ function groupAddIfNew(rid, gkB64, name, adm){ const l=groupsLoad(); if(l.some(g
 function openLightbox(url, opts){
   opts=opts||{}; const t_=t;   // the countdown label shadows t below
   const lb=document.createElement("div"); lb.className="lightbox";
-  const img=new Image(); img.src=url; lb.appendChild(img);
+  const img=new Image(); img.alt=t("Photo"); img.src=url; lb.appendChild(img);
   const close=document.createElement("button"); close.className="lb-close"; close.setAttribute("aria-label",t("Close")); close.appendChild(icoEl("i-x","")); lb.appendChild(close);
   let timer=null, closed=false;
   function done(){ if(closed) return; closed=true; if(timer) clearInterval(timer); document.removeEventListener("keydown",onKey); lb.remove(); opts.onClose&&opts.onClose(); }
@@ -2947,7 +2972,7 @@ async function deleteBlob(path){ try{ await mboxFn("delblob",{path}); }catch(e){
 function addImageSent(logEl, meta, localUrl, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble img-wrap sent"; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
-  const img=new Image(); img.src=localUrl; img.style.cursor="pointer";
+  const img=new Image(); img.alt=t("Photo"); img.src=localUrl; img.style.cursor="pointer";
   if(opts.once===false){ img.className="keep"; } else img.style.maxWidth="160px";
   img.addEventListener("click",()=>openLightbox(localUrl,{}));
   d.appendChild(img);
@@ -3101,7 +3126,7 @@ async function shareInvite(){
   const parts=inviteParts(), {url,msg}=parts, pi=parts.invite?_pendingInvite:null;
   // One combined text field is handled most consistently across targets (WhatsApp included).
   if(navigator.share){ try{ await navigator.share({text:msg}); openInviteChatIfStill(pi); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
-  try{ await navigator.clipboard.writeText(url); persistPendingInvite(); toast(t("Link copied")); }catch(e){ persistPendingInvite(); prompt(t("Copy this link:"),url); }
+  try{ await navigator.clipboard.writeText(url); persistPendingInvite(); toast(t("Link copied")); }catch(e){ persistPendingInvite(); gzPrompt(t("Copy this link:"),url,t("Done"),2000); }
 }
 const IS_PHONE=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
 function shareWhatsApp(){
@@ -3538,7 +3563,7 @@ let _ginvPending=null;
 async function convertToGroup(){
   const R=A(); if(!R||R.group||!R.fromContact) return;
   const c=contactFind(R.fromContact); const other=(c&&(c.alias||dn(c.name)))||dn(R.title)||t("Friend"); const me=realName(myName)||t("Me");
-  const v=prompt(t("Group name:"), me+" & "+other); if(v===null) return;
+  const v=await gzPrompt(t("Group name:"), me+" & "+other, t("Create the group"), 40); if(v===null) return;
   const gname=(v.trim()||(me+" & "+other)).slice(0,40);
   const grid=newRid(); const gk=crypto.getRandomValues(new Uint8Array(32)); const gkB64=b64(gk);
   let adm=""; try{ adm=(await identEnsure()).pk; }catch(e){}
@@ -3672,8 +3697,9 @@ async function doJoin(code, opts){
   try{ history.replaceState(null,"", opts.fromContact ? "/" : localRoomUrl(code)); }catch(e){}
 }
 let _installChecked=false, _showInstallInvite=null;
-let _persistAsked=false;
+let _persistAsked=false, _syncThemeColor=null;
 function enterApp(){ _dbClosed=false; if(!_persistAsked){ _persistAsked=true; try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){} }   /* v43: history and kept photos live only here */ $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
+  if(_syncThemeColor) _syncThemeColor();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
 function goHome(){ closeInfo(); closeFind(); typingTick(""); closeExpMenu(); closePanel(false); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
@@ -3684,6 +3710,7 @@ function goHome(){ closeInfo(); closeFind(); typingTick(""); closeExpMenu(); clo
 function firstAuthMode(){ const P=window.__pending||{}; return (P.invite||P.group||P.room) ? "register" : "welcome"; }
 function showAuth(mode){
   $("app").style.display="none"; $("join").style.display="flex"; $("join").dataset.mode=mode; $("join").removeAttribute("data-boot"); $("joinBtn").disabled=false;   // v43: boot.js drew the first screen; the app takes over
+  if(_syncThemeColor) setTimeout(_syncThemeColor, 0);
   document.body.classList.remove("in-app","kb"); document.body.classList.add("in-auth"); const ap=$("app"); ap.style.height=""; ap.style.transform=""; try{ window.scrollTo(0,0); }catch(e){}
   $("join").scrollTop=0; fitViewport();
   const reg=mode==="register", login=mode==="login", unlock=mode==="unlock", nw=mode==="newchat", wel=mode==="welcome";
@@ -3813,11 +3840,11 @@ async function applyDeepLink(){
   const p=window.__pending||{}; window.__pending=null;
   if(p.group && p.group.rid && p.group.gk){ try{
     const known=groupsLoad().some(g=>g.rid===p.group.rid);
-    if(known || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(p.group.name||"Group").slice(0,40)}))) { await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name, p.group.adm, p.group.rot); return; }
+    if(known || await gzConfirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(p.group.name||"Group").slice(0,40)}), t("Join"))) { await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name, p.group.adm, p.group.rot); return; }
     else { try{ history.replaceState(null,"","/"); }catch(e){} goHome(); return; } }catch(e){} }
   if(p.invite && p.invite.s){ try{   // came here by the link and just signed up: that was the point; otherwise (already in, e.g. a tapped notification) ask (v41)
       const nm=realName(p.invite.n) ? p.invite.n : t("Someone");
-      if(window.__justReg || confirm(t("{name} invites you to a private chat on Gizleme. Accept?",{name:nm}))){ window.__justReg=false; await acceptInvite(p.invite); return; }
+      if(window.__justReg || await gzConfirm(t("{name} invites you to a private chat on Gizleme. Accept?",{name:nm}), t("Accept"))){ window.__justReg=false; await acceptInvite(p.invite); return; }
       try{ history.replaceState(null,"","/"); }catch(e){} }catch(e){} }
   if(p.room){ if(rooms.has(p.room)) switchTo(p.room); else await doJoin(p.room); return; }
   if(p.n){ const ok=await openByNotifyKey(p.n); if(ok) return; _pendingNotify=p.n; }   // contacts may still be restoring — retried after sync
@@ -4084,7 +4111,7 @@ async function logoutAccount(){
   let flushed=false;
   try{ clearTimeout(_syncT); if(gContactsKey) flushed=await pushBlob(); }catch(e){}   // flush pending changes before the token dies
   if(!flushed && (contactsLoad().length||groupsLoad().length) &&
-     !confirm(t("Your contacts couldn't be backed up to your account just now (offline?).\n\nIf you log out, the contacts on this device that aren't backed up yet will be lost. Log out anyway?"))) return false;
+     !await gzConfirm(t("Your contacts couldn't be backed up to your account just now (offline?).\n\nIf you log out, the contacts on this device that aren't backed up yet will be lost. Log out anyway?"), t("Log out"), true)) return false;
   // This device's push subscriptions belong to the outgoing account — drop them so its contacts can't wake the next user.
   try{ if(pushOn() && gPushSub) await fn("unregister",{owner:deviceId()}); }catch(e){}
   if(s&&s.token){ try{ await authFn("logout",{token:s.token}); }catch(e){} }
@@ -4183,7 +4210,7 @@ async function startScan(){
 function stopScan(){ const sc=_scan; _scan=null; if(!sc) return; clearTimeout(sc.timer); try{ sc.stream.getTracks().forEach(tr=>tr.stop()); }catch(e){} const v=$("scanVideo"); if(v) v.srcObject=null; $("scanModal").classList.remove("show"); }
 async function openScanned(text){
   const pi=parseInviteLink(text); if(pi){ try{ hideJoin(); await acceptInvite(pi); }catch(e){ toast(t("Couldn't open that invite — try again")); } return; }
-  const inv=parseInvite(text); if(inv){ if(groupsLoad().some(g=>g.rid===inv.rid) || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(inv.name||"Group").slice(0,40)}))){ try{ hideJoin(); await doJoinGroup(inv.rid, unb64(inv.gk), inv.name, inv.adm, inv.rot); }catch(e){ toast(t("Couldn't join — try again")); } } return; }
+  const inv=parseInvite(text); if(inv){ if(groupsLoad().some(g=>g.rid===inv.rid) || await gzConfirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(inv.name||"Group").slice(0,40)}), t("Join"))){ try{ hideJoin(); await doJoinGroup(inv.rid, unb64(inv.gk), inv.name, inv.adm, inv.rot); }catch(e){ toast(t("Couldn't join — try again")); } } return; }
   toast(t("That's not a Gizleme code"));
 }
 async function joinFromInviteInput(){ initAudio(); const raw=$("invInput").value;
@@ -4217,19 +4244,19 @@ function openMerge(){
     const sub=document.createElement("small"); sub.textContent=pv ? (fmtListTime(pv.ts)+" · "+pv.text) : t("No messages on this device");
     tx.appendChild(n); tx.appendChild(sub); b.appendChild(av); b.appendChild(tx);
     b.addEventListener("click",async()=>{
-      if(!confirm(t("Merge your chat with “{old}” into this one?\n\nIts messages will show here, in order, and it leaves your chats list. If they still write in that chat, it arrives here too. Only on your devices — nothing is sent.",{old:nm}))) return;
+      if(!await gzConfirm(t("Merge your chat with “{old}” into this one?\n\nIts messages will show here, in order, and it leaves your chats list. If they still write in that chat, it arrives here too. Only on your devices — nothing is sent.",{old:nm}), t("Merge"))) return;
       $("mergeModal").classList.remove("show"); const ok=await mergeChatInto(A(), c.ck); toast(ok ? t("Chats merged") : t("Couldn't merge these chats")); });
     list.appendChild(b); });
   $("mergeModal").classList.add("show");
 }
-function renameChat(){
+async function renameChat(){
   const R=A(); if(!R) return;
   if(R.group){ const l=groupsLoad(); const g=l.find(x=>x.rid===R.rid); if(!g) return;
-    const v=prompt(t("Nickname for this chat (only on your devices):"), g.alias||g.name||""); if(v===null) return;
+    const v=await gzPrompt(t("Nickname for this chat (only on your devices):"), g.alias||g.name||"", t("Save"), 32); if(v===null) return;
     const nv=v.trim().slice(0,32); if(nv && nv!==g.name) g.alias=nv; else delete g.alias; g.ats=Date.now(); groupsSave(l);
     R.title=g.alias||g.name; R.peerName=R.title; }
   else if(R.fromContact){ const l=contactsLoad(); const c=l.find(x=>x.ck===R.fromContact); if(!c) return;
-    const v=prompt(t("Nickname for this chat (only on your devices):"), c.alias||dn(c.name)||""); if(v===null) return;
+    const v=await gzPrompt(t("Nickname for this chat (only on your devices):"), c.alias||dn(c.name)||"", t("Save"), 32); if(v===null) return;
     const nv=v.trim().slice(0,32); if(nv && nv!==c.name) c.alias=nv; else delete c.alias; c.ats=Date.now(); contactsSave(l);
     R.title=c.alias||c.name; R.peerName=c.alias||dn(c.name); R.avatar=up((R.peerName||"?")[0]); }
   else return;
@@ -4298,7 +4325,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("bioBtn").addEventListener("click",doUnlockBio);
   $("switchLink").addEventListener("click",()=>{ const m=$("join").dataset.mode;
     if(m==="register" || m==="welcome") showAuth("login"); else if(m==="login") showAuth("register");
-    else if(m==="unlock"){ if(confirm(String(LOGOUT_MSG))) logoutAccount(); } });
+    else if(m==="unlock"){ gzConfirm(String(LOGOUT_MSG), t("Log out"), true).then(ok=>{ if(ok) logoutAccount(); }); } });
   $("backBtn").addEventListener("click",()=>{ enterApp(); if(active) switchTo(active); else goHome(); });
   $("homeNew").addEventListener("click",showAddRoom);
 
@@ -4333,6 +4360,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     // a long press (about half a second, finger still) opens the same menu: react, reply, edit, copy
     logs.addEventListener("contextmenu",e=>{ const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b) || interactive(e.target)) return;
       e.preventDefault(); openPicker(b); });
+    // v44: a focused bubble opens its menu from the keyboard (Enter, Space, the Menu key, Shift+F10)
+    logs.addEventListener("keydown",e=>{ const b=e.target && e.target.classList && e.target.classList.contains("bubble") ? e.target : null; if(!b) return;
+      if(e.key==="Enter" || e.key===" " || e.key==="ContextMenu" || (e.key==="F10" && e.shiftKey)){ if(!rxTargetOk(b)) return; e.preventDefault(); openPicker(b); } });
     logs.addEventListener("touchstart",e=>{ if(e.touches.length!==1){ sw=null; return; } const b=e.target.closest && e.target.closest(".bubble"); if(!rxTargetOk(b)){ sw=null; return; }
       const p=e.touches[0]; sw={b, x:p.clientX, y:p.clientY, t:Date.now(), on:false, ready:false, moved:false, inter:interactive(e.target), lock:!!(e.target.closest && e.target.closest(".vbar"))};
       const me=sw; if(!me.inter) me.lp=setTimeout(()=>{ if(sw!==me || me.moved || me.on) return; me.long=true; try{ navigator.vibrate && navigator.vibrate(10); }catch(_){} openPicker(me.b); }, 480); },{passive:true});
@@ -4352,7 +4382,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       lastTap={b:s.b, t:now}; },{passive:false});
     logs.addEventListener("touchcancel",()=>{ const s=sw; sw=null; if(s) clearTimeout(s.lp); if(s && s.on){ s.ready=false; endSwipe(s); } },{passive:true});
     logs.addEventListener("click",e=>{ const ln=e.target.closest && e.target.closest("a.lnk");
-      if(ln){ let host=""; try{ host=new URL(ln.href).host; }catch(_){} if(!confirm(t("Open {host}?",{host}))) e.preventDefault(); return; }
+      if(ln){ let host=""; try{ host=new URL(ln.href).host; }catch(_){} e.preventDefault();
+        gzConfirm(t("Open {host}?",{host}), t("Open")).then(ok=>{ if(ok){ try{ window.open(ln.href, "_blank", "noopener,noreferrer"); }catch(_){} } }); return; }
       const jb=e.target.closest && e.target.closest(".bubble.jumbo"); if(jb) jumboPlay(jb);   // a tap replays it
       const q=e.target.closest && e.target.closest(".quote"); if(q){ const R=A(); if(R) jumpToQuoted(R, q.dataset.ref); return; }
       const po=e.target.closest && e.target.closest(".voteb .po"); if(po){ voteTap(po); return; }
@@ -4404,8 +4435,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   const ginvLink=()=>{ const g=_ginvPending; if(!g) return ""; const o={rid:g.rid,gk:g.gk,name:g.name}; if(g.adm) o.adm=g.adm; return CANONICAL+"/#g="+b64url(enc.encode(JSON.stringify(o))); };
   $("ginvShare").addEventListener("click",async()=>{ const g=_ginvPending; if(!g) return; const url=ginvLink(); const msg=t("Join my Gizleme group “{name}” 🔒\n{url}",{name:g.name,url});
     if(navigator.share){ try{ await navigator.share({text:msg}); $("ginvModal").classList.remove("show"); return; }catch(e){ if(e&&e.name==="AbortError") return; } }
-    try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); } $("ginvModal").classList.remove("show"); });
-  $("ginvCopy").addEventListener("click",async()=>{ const url=ginvLink(); if(!url) return; try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ prompt(t("Copy this invite link:"),url); } $("ginvModal").classList.remove("show"); });
+    try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ gzPrompt(t("Copy this invite link:"),url,t("Done"),2000); } $("ginvModal").classList.remove("show"); });
+  $("ginvCopy").addEventListener("click",async()=>{ const url=ginvLink(); if(!url) return; try{ await navigator.clipboard.writeText(url); toast(t("Invite link copied")); }catch(e){ gzPrompt(t("Copy this invite link:"),url,t("Done"),2000); } $("ginvModal").classList.remove("show"); });
   $("ginvLater").addEventListener("click",()=>$("ginvModal").classList.remove("show"));
   $("peerMeta").addEventListener("click",openInfo);       // the name (and the avatar) open Chat info, as in any messenger
   $("peerAvatar").addEventListener("click",openInfo);
@@ -4423,8 +4454,24 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("delMe").addEventListener("click",deleteForMe); $("delAll").addEventListener("click",deleteForAll);
   $("delMsgCancel").addEventListener("click",()=>{ _delFor=null; $("delMsgModal").classList.remove("show"); });
   // Escape closes the dialog on top (Settings and Chat info handle it themselves; the invite-code prompt stays)
-  document.addEventListener("keydown",e=>{ if(e.key!=="Escape") return; const m=[...document.querySelectorAll(".modal.show")].pop(); if(!m) return;
-    if(["settingsModal","infoModal","pinModal"].includes(m.id)) return; m.classList.remove("show"); if(m.id==="delMsgModal") _delFor=null; });
+  document.addEventListener("keydown",e=>{ if(e.key!=="Escape") return; const m=[...document.querySelectorAll(".modal.show")].pop(); if(!m){ if(!$("barMenu").hidden){ closeMenu(); $("menuBtn").focus(); } return; }
+    if(["settingsModal","infoModal","pinModal"].includes(m.id)) return; if(m.id==="askModal"){ $("askCancel").click(); return; } m.classList.remove("show"); if(m.id==="delMsgModal") _delFor=null; });
+  // v44: one keeper for all dialogs — a dialog that opens gets its role and name, the focus goes in (and stays in:
+  // Tab cycles), and comes back to what opened it when it closes
+  const FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  const visible=el=>{ try{ return !!(el.offsetWidth||el.offsetHeight||el.getClientRects().length) && !el.closest("[hidden]"); }catch(e){ return false; } };
+  const focusables=m=>[...m.querySelectorAll(FOCUSABLE)].filter(visible);
+  const modalOpened=m=>{ if(!m.hasAttribute("role")) m.setAttribute("role","dialog"); m.setAttribute("aria-modal","true");
+    if(!m.getAttribute("aria-labelledby")){ const h=m.querySelector("h1,h2,h3"); if(h){ if(!h.id) h.id=m.id+"Title"; m.setAttribute("aria-labelledby",h.id); } }
+    m._opener=document.activeElement && document.activeElement!==document.body ? document.activeElement : null;
+    setTimeout(()=>{ if(!m.classList.contains("show")) return; const a=document.activeElement; if(a && m.contains(a)) return;   // the dialog chose its own field
+      const f=m.querySelector("[autofocus]") || focusables(m).find(x=>!x.classList.contains("mclose") && !x.matches(".set-back,.info-top .icon")) || focusables(m)[0]; if(f){ try{ f.focus({preventScroll:true}); }catch(e){} } }, 60); };
+  const modalClosed=m=>{ const o=m._opener; m._opener=null; const a=document.activeElement; if(o && o.isConnected && (!a || a===document.body || m.contains(a))){ try{ o.focus({preventScroll:true}); }catch(e){} } };
+  new MutationObserver(rs=>{ for(const r of rs){ const m=r.target; if(!m.classList || !m.classList.contains("modal")) continue; const now=m.classList.contains("show"); if(now===!!m._shown) continue; m._shown=now; if(now) modalOpened(m); else modalClosed(m); } })
+    .observe(document.body,{attributes:true, attributeFilter:["class"], subtree:true});
+  document.addEventListener("keydown",e=>{ if(e.key!=="Tab") return; const m=[...document.querySelectorAll(".modal.show")].pop(); if(!m) return;
+    const f=focusables(m); if(!f.length){ e.preventDefault(); return; } const a=document.activeElement; const i=f.indexOf(a);
+    if(e.shiftKey){ if(i<=0){ e.preventDefault(); f[f.length-1].focus(); } } else if(i===-1 || i===f.length-1){ e.preventDefault(); f[0].focus(); } });
   $("delMsgModal").addEventListener("click",e=>{ if(e.target.id==="delMsgModal"){ _delFor=null; $("delMsgModal").classList.remove("show"); } });
   // iOS only lets audio start inside a user gesture: unlock at the first tap so the connection / message sounds
   // that follow (which are not user-initiated) can be heard.
@@ -4462,8 +4509,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("fileInput").addEventListener("change",e=>{ const fs=[...e.target.files]; e.target.value=""; sendFiles(fs); });
   // ----- theme + sound (surfaced in Settings) -----
   function currentDark(){ const c=document.documentElement.getAttribute("data-theme"); return c?c==="dark":matchMedia("(prefers-color-scheme:dark)").matches; }
-  function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")){ const b=$("themeToggle"); b.textContent=""; b.append(icoEl(d?"i-sun":"i-moon",""), d?t("Light"):t("Dark")); } }
-  function syncThemeColor(){ try{ const c=currentDark()?"#040509":"#f3f4f6"; document.querySelectorAll('meta[name="theme-color"]').forEach(m=>{ m.removeAttribute("media"); m.setAttribute("content",c); }); }catch(e){} }   // v43: the system bar follows the theme in use
+  function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")){ const b=$("themeToggle"); b.textContent=""; b.append(icoEl(d?"i-sun":"i-moon",""), d?t("Switch to light"):t("Switch to dark")); } }
+  function syncThemeColor(){ try{ const c=document.body.classList.contains("in-app") ? (currentDark()?"#040509":"#f3f4f6") : "#07070c"; document.querySelectorAll('meta[name="theme-color"]').forEach(m=>{ m.removeAttribute("media"); m.setAttribute("content",c); }); }catch(e){} }   // v43: the system bar follows the theme in use (v44: dark on the always-dark first screens)
+  _syncThemeColor=syncThemeColor;
   function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); syncThemeColor(); }
   syncThemeColor();
   function refreshSoundUI(){ const sel=$("soundSel"); if(sel) sel.value=soundMode();
@@ -4481,6 +4529,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       const diag=()=>{ const v=(/OS (\d+)[._](\d+)/.exec(navigator.userAgent)||[]).slice(1).join("."), si=safeInsets(), sw=Math.min(screen.width,screen.height), sh=Math.max(screen.width,screen.height);
         $("sbInfo").textContent="iOS "+(v||"?")+" · "+(STANDALONE?"app":"Safari")+" · "+t("screen")+" "+sw+"×"+sh+" · "+t("view")+" "+window.innerWidth+"×"+viewH()+" · safe "+si.top+"/"+si.bottom+" · "+(document.documentElement.classList.contains("ios-gap")?"gap":"no gap")+" · "+mode; };
       diag(); $("sbRow").closest(".modal") && $("sbRow").closest(".modal").addEventListener("transitionend",diag);
+      // v44: the diagnostic line is for support, not for everyone — shown with ?debug=1 or after a long press on the row
+      $("sbInfo").hidden=!/[?&]debug=1/.test(location.search);
+      { let lp=null; $("sbRow").addEventListener("pointerdown",()=>{ lp=setTimeout(()=>{ $("sbInfo").hidden=false; },700); }); ["pointerup","pointerleave","pointercancel"].forEach(ev=>$("sbRow").addEventListener(ev,()=>clearTimeout(lp))); }
       $("sbSel").addEventListener("change",e=>{ const v=e.target.value; try{ localStorage.setItem("gz-sbmode", v==="compat" ? "compat" : "std"); }catch(_){}
         toast(t("Close the app completely, then open it again")); setTimeout(()=>location.reload(), 1800); }); } }
   { const ts=$("textSize"); if(ts){ ts.value=String(textScale());
@@ -4512,13 +4563,17 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     if($("dispNow")) $("dispNow").textContent=(s&&s.display)||"—";
     $("settingsModal").classList.add("show");
   }
-  $("logoutBtn").addEventListener("click",()=>{ if(!confirm(String(LOGOUT_MSG))) return; $("settingsModal").classList.remove("show"); logoutAccount(); });
+  $("logoutBtn").addEventListener("click",async()=>{ if(!await gzConfirm(String(LOGOUT_MSG), t("Log out"), true)) return; $("settingsModal").classList.remove("show"); logoutAccount(); });
   // forgot / change / delete password & account
   const openModal=id=>$(id).classList.add("show"), closeModal=id=>$(id).classList.remove("show");
+  $("askOk").addEventListener("click",()=>{ const a=_ask; askDone(a && a.input ? $("askInput").value : true); });
+  $("askCancel").addEventListener("click",()=>{ const a=_ask; askDone(a && a.input ? null : false); });
+  $("askInput").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("askOk").click(); } });
+  $("askModal").addEventListener("click",e=>{ if(e.target.id==="askModal") $("askCancel").click(); });
   $("memClose").addEventListener("click",()=>closeModal("memModal"));
   $("forgotLink").addEventListener("click",()=>openModal("forgotModal"));
   $("forgotClose").addEventListener("click",()=>closeModal("forgotModal"));
-  $("forgotNew").addEventListener("click",()=>{ closeModal("forgotModal"); if($("join").dataset.mode==="unlock"){ if(confirm(String(LOGOUT_MSG))) logoutAccount().then(()=>showAuth("register")); } else showAuth("register"); });
+  $("forgotNew").addEventListener("click",async()=>{ closeModal("forgotModal"); if($("join").dataset.mode==="unlock"){ if(await gzConfirm(String(LOGOUT_MSG), t("Log out"), true)) logoutAccount().then(()=>showAuth("register")); } else showAuth("register"); });
   $("chpwBtn").addEventListener("click",()=>{ closeModal("settingsModal"); ["pwCur","pwNew","pwNew2"].forEach(i=>$(i).value=""); $("pwMsg").textContent=""; openModal("pwModal"); });
   $("pwCancel").addEventListener("click",()=>closeModal("pwModal"));
   $("pwSave").addEventListener("click",async()=>{
@@ -4534,8 +4589,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("delCancel").addEventListener("click",()=>closeModal("delModal"));
   $("delConfirm").addEventListener("click",async()=>{
     const pw=$("delPw").value; const m=$("delMsg"); if(!pw){ m.textContent=t("Enter your password"); return; }
-    if(!confirm(t("Delete your account now? This cannot be undone."))) return;
-    $("delConfirm").disabled=true; m.textContent=t("Deleting…");
+    $("delConfirm").disabled=true; m.textContent=t("Deleting…");   // v44: the dialog itself is the confirmation (no second question)
     try{ await deleteAccount(pw); closeModal("delModal"); showAuth("welcome"); toast(t("Your account has been deleted")); }
     catch(e){ m.textContent=(e&&e.message)||t("Couldn't delete the account"); }
     $("delConfirm").disabled=false;
@@ -4544,15 +4598,16 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("settingsClose").addEventListener("click",()=>$("settingsModal").classList.remove("show"));
   $("settingsModal").addEventListener("click",e=>{ const g=e.target.closest && e.target.closest("[data-go]"); if(g){ setPage(g.dataset.go); return; }
     if(e.target.closest && e.target.closest(".set-back")) setPage("root"); });
-  document.addEventListener("keydown",e=>{ if(e.key!=="Escape") return; const m=$("settingsModal");
+  document.addEventListener("keydown",e=>{ if(e.key!=="Escape" || topModalId()!=="settingsModal") return; const m=$("settingsModal");
     if(m.classList.contains("show")){ if(m.dataset.page && m.dataset.page!=="root") setPage("root"); else m.classList.remove("show"); } });
   $("settingsModal").addEventListener("click",e=>{ if(e.target.id==="settingsModal") $("settingsModal").classList.remove("show"); });
   // ----- privacy & lock, and the "why Gizleme" comparison -----
   $("autoLock").addEventListener("change",e=>{ setAutoLock(+e.target.value||0); toast(+e.target.value?t("Auto-lock on"):t("Auto-lock off")); });
-  function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?t("Hidden"):t("Shown"); if($("prevToggle")) $("prevToggle").textContent=h?t("Show"):t("Hide");
-    const s=shieldOn(); if($("shieldState")) $("shieldState").textContent=s?t("On"):t("Off"); if($("shieldToggle")){ $("shieldToggle").textContent=s?t("On"):t("Off"); $("shieldToggle").classList.toggle("off",!s); } }
+  const setSwitch=(id, on, label)=>{ const b=$(id); if(!b) return; b.setAttribute("aria-checked", on?"true":"false"); if(label) b.setAttribute("aria-label", label); };   // v44: role="switch" buttons
+  function refreshPrevUI(){ const h=previewsHidden(); if($("prevState")) $("prevState").textContent=h?t("Hidden"):t("Shown"); setSwitch("prevToggle", !h, t("Message previews in the chats list"));
+    const s=shieldOn(); if($("shieldState")) $("shieldState").textContent=s?t("On"):t("Off"); setSwitch("shieldToggle", s, t("Privacy screen")); }
   $("prevToggle").addEventListener("click",()=>{ const h=!previewsHidden(); setPreviewsHidden(h); refreshPrevUI(); toast(h?t("Previews hidden"):t("Previews shown")); });
-  function refreshTypUI(){ const on=typingOn(); if($("typState")) $("typState").textContent=on?t("On"):t("Off"); if($("typToggle")){ $("typToggle").textContent=on?t("On"):t("Off"); $("typToggle").classList.toggle("off",!on); } }
+  function refreshTypUI(){ const on=typingOn(); if($("typState")) $("typState").textContent=on?t("On"):t("Off"); setSwitch("typToggle", on, t("Typing indicators")); }
   refreshTypUI();
   $("typToggle").addEventListener("click",()=>{ const on=!typingOn(); if(!on) typingTick("");
     try{ localStorage.setItem(LS_TYPING, on?"1":"0"); }catch(e){}
@@ -4560,7 +4615,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
     refreshTypUI(); toast(on?t("Typing indicators on"):t("Typing indicators off")); });
   $("shieldToggle").addEventListener("click",()=>{ const s=!shieldOn(); setShieldOn(s); refreshPrevUI(); toast(s?t("Privacy screen on"):t("Privacy screen off")); });
   // display name (what friends see): free text, changed server-side and re-announced
-  $("dispEdit").addEventListener("click",async()=>{ const s=sessLoad(); if(!s||!s.token) return; const v=prompt(t("New display name:"), s.display||""); if(v===null) return; const nv=v.trim().slice(0,24); if(!nv) return;
+  $("dispEdit").addEventListener("click",async()=>{ const s=sessLoad(); if(!s||!s.token) return; const v=await gzPrompt(t("New display name:"), s.display||"", t("Save"), 24); if(v===null) return; const nv=v.trim().slice(0,24); if(!nv) return;
     try{ const r=await authFn("rename",{token:s.token, display:nv}); if(!r.data||!r.data.ok) throw new Error(); sessSave(Object.assign({},s,{display:nv})); myName=nv; retrackAll(); if($("acctUser")) $("acctUser").textContent=nv; if($("dispNow")) $("dispNow").textContent=nv; toast(t("Name updated")); }
     catch(e){ toast(t("Couldn't update the name — try again")); } });
   // Cover the content the instant the page goes to the background (synchronously, so the app-switcher
@@ -4703,7 +4758,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   // nothing can be lost, so it simply reloads there.
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden) checkUpdate(false); });
   setInterval(()=>checkUpdate(false), 1800000);
-  $("updGo").addEventListener("click",()=>{ if(call && !confirm(t("Updating will end the call. Update now?"))) return; location.reload(); });
+  $("updGo").addEventListener("click",async()=>{ if(call && !await gzConfirm(t("Updating will end the call. Update now?"), t("Update now"))) return; location.reload(); });
   $("updX").addEventListener("click",()=>{ $("updPill").hidden=true; _updLater=true; });
 
   // ----- in-app browser nudge -----
@@ -4745,7 +4800,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   showIabBar();
 
   // ----- overflow menu (⋮) -----
-  function closeMenu(){ $("barMenu").hidden=true; }
+  function closeMenu(){ $("barMenu").hidden=true; $("menuBtn").setAttribute("aria-expanded","false"); }
   function toggleMenu(){ const m=$("barMenu");
     if(m.hidden){ const R=A(); const grp=!!(R&&R.group);
       $("mi-invite").hidden=!grp; $("mi-info").hidden=!R; $("mi-find").hidden=!(R && R.logEl);
@@ -4756,7 +4811,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       m.hidden=false;
     } else m.hidden=true;
   }
-  $("menuBtn").addEventListener("click",e=>{ e.stopPropagation(); toggleMenu(); });
+  $("menuBtn").addEventListener("click",e=>{ e.stopPropagation(); toggleMenu(); const open=!$("barMenu").hidden; $("menuBtn").setAttribute("aria-expanded", open?"true":"false"); if(open){ const f=$("barMenu").querySelector("button:not([hidden])"); if(f && e.detail===0) f.focus(); } });
+  $("barMenu").addEventListener("keydown",e=>{ if(e.key!=="ArrowDown" && e.key!=="ArrowUp") return; const items=[...$("barMenu").querySelectorAll("button")].filter(b=>!b.hidden && b.offsetParent); const i=items.indexOf(document.activeElement); if(!items.length) return; e.preventDefault(); items[(i+(e.key==="ArrowDown"?1:-1)+items.length)%items.length].focus(); });
   document.addEventListener("click",e=>{ if(!$("barMenu").hidden && !$("barMenu").contains(e.target) && e.target!==$("menuBtn")) closeMenu(); });
   $("barMenu").addEventListener("click",e=>{ const b=e.target.closest(".menu-item"); if(!b) return;
     if(b.dataset.act==="mute"){ $("mi-mute-opts").hidden=!$("mi-mute-opts").hidden; return; }   // pick how long: the menu stays open

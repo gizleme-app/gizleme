@@ -37,7 +37,7 @@ html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
-_app=_app[:_app.rstrip().rfind("})();")]+'window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),merge:(r)=>mergeContacts(r)};\n})();\n'
+_app=_app[:_app.rstrip().rfind("})();")]+'const _gzAsk0=gzAsk; gzAsk=(o)=>{ window.__asks=(window.__asks||[]).concat([String(o.text||"")]); const pol=window.__askPolicy; let v=pol?pol(String(o.text||""),o):undefined; if(v===undefined) v= o.input ? (window.__promptValue!==undefined ? window.__promptValue : (o.def||"")) : true; if(v==="__dialog__") return _gzAsk0(o); return Promise.resolve(v); }; window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),merge:(r)=>mergeContacts(r)};\n})();\n'
 (site/"app.js").write_text(_app)
 for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","logo-head.png","logo-word.png","logo-dot.png"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())
@@ -55,7 +55,7 @@ r={}
 with sync_playwright() as pw:
     b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e)))
-    nick=["Baba"]; p.on("dialog",lambda d: d.accept(nick[0]) if d.type=="prompt" else d.accept())
+    nick=["Baba"]; p.on("dialog",lambda d: d.accept(nick[0]) if d.type=="prompt" else d.accept()); ctx.add_init_script("window.__promptValue='Baba';")
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Oz77',ck:ck,ts:Date.now()}]))",[CK])
@@ -81,7 +81,7 @@ with sync_playwright() as pw:
     m2=p.evaluate("([ck])=>window.__gz.merge({contacts:[{name:'Oz77',ck:ck,ts:Date.now(),alias:'Old',ats:1}],groups:[]})",[CK])
     r["merge_olderIgnored"]= m2["contacts"][0].get("alias")=="Baba"
     # empty name restores his own name
-    nick[0]=""; p.click("#peerMeta"); p.wait_for_timeout(200); p.click("#ciRename"); p.wait_for_timeout(400); p.click("#ciBack"); p.wait_for_timeout(150)
+    nick[0]=""; p.evaluate("()=>{ window.__promptValue=''; }"); p.click("#peerMeta"); p.wait_for_timeout(200); p.click("#ciRename"); p.wait_for_timeout(400); p.click("#ciBack"); p.wait_for_timeout(150)
     r["cleared_header"]= p.eval_on_selector("#peerName","e=>e.textContent"); r["cleared_record"]= "alias" not in p.evaluate("()=>window.__gz.contacts()[0]")
     # message tones: select → persisted + previewed; receive uses it
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=notif]').click()"); p.wait_for_timeout(100)

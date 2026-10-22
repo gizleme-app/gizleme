@@ -56,7 +56,8 @@ html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
-HOOK='''window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),
+HOOK='''const _gzAsk0=gzAsk; gzAsk=(o)=>{ window.__asks=(window.__asks||[]).concat([String(o.text||"")]); const pol=window.__askPolicy; let v=pol?pol(String(o.text||""),o):undefined; if(v===undefined) v= o.input ? (window.__promptValue!==undefined ? window.__promptValue : (o.def||"")) : true; if(v==="__dialog__") return _gzAsk0(o); return Promise.resolve(v); };   // tests: the house dialog answers like page.on("dialog") did — yes, or the prompt value; window.__askPolicy decides per question
+window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),
   callState:()=>call?{state:call.state,live:!!call.t1,group:!!call.group,video:call.video,dir:call.dir,peers:[...call.peers.values()].map(P=>({pid:P.pid,cs:P.pc.connectionState,connected:P.connected,tracks:P.stream.getTracks().map(t=>t.kind)})),localAudioOn:call.local?call.local.getAudioTracks().every(t=>t.enabled):null,localVideo:call.local?call.local.getVideoTracks().length:0}:null,
   setIce:(l)=>{ _iceCache={servers:l,exp:Date.now()+1e9}; }, room:()=>{ const R=A(); return R?{paired:R.paired,group:R.group,gcall:R.gcall?R.gcall.cid:null,ck:R.fromContact}:null; },
   outq:()=>JSON.parse(JSON.stringify(_meta.outq||{})), histOf:async()=>{ const R=A(); const l=await histLoad(histKeyOf(R)); return l.map(r=>r.mid+'|'+r.dir+'|'+(r.env&&r.env.t)); }, lastSys:()=>{ const R=A(); return R&&R.logEl?[...R.logEl.querySelectorAll('.sys')].map(e=>e.textContent):[]; },
@@ -199,7 +200,7 @@ try:
     r["sw_opens_only_app"]= sv==["/","/#n=k1","/","/","/","/"]
     r["sw_v"]=sv
     # ---- pair A with B and C ----
-    l1=invite(A); cB,B=ctxp(scheme="light",dialogs=False); dlg=[]; B.on("dialog",lambda d:(dlg.append(d.message), d.dismiss() if "example.com" in d.message else d.accept())); register(B,"serap"); open_link(B,l1)
+    l1=invite(A); cB,B=ctxp(scheme="light",dialogs=False); cB.add_init_script("window.__askPolicy=(t)=>/example\\.com/.test(t)?false:undefined;"); register(B,"serap"); open_link(B,l1)
     r["pairedB"]= wait_for(A,PAIRED,15000) and wait_for(B,PAIRED,15000)
     l2=invite(A); cC,C=ctxp(); register(C,"can"); open_link(C,l2)
     r["pairedC"]= wait_for(A,PAIRED,15000) and wait_for(C,PAIRED,15000)
@@ -216,7 +217,7 @@ try:
     send(A,"regarde https://example.com/x, ok")
     r["link_rendered"]= wait_for(B,"()=>{ const a=document.querySelector('"+OPEN+" .bubble.recv .txt a.lnk'); return !!a && a.getAttribute('href')==='https://example.com/x' && a.textContent==='https://example.com/x' && a.closest('.txt').textContent==='regarde https://example.com/x, ok' && a.rel.includes('noopener'); }",8000)
     B.click(OPEN+" .bubble.recv .txt a.lnk"); B.wait_for_timeout(400)
-    r["link_asks_first"]= any("example.com" in m for m in dlg) and len(cB.pages)==1 and B.url.startswith(f"http://127.0.0.1:{port}/")
+    r["link_asks_first"]= any("example.com" in m for m in B.evaluate("()=>window.__asks||[]")) and len(cB.pages)==1 and B.url.startswith(f"http://127.0.0.1:{port}/")
     # ---- 3. offline: the message waits and goes by itself ----
     cB.set_offline(True); B.wait_for_timeout(300)
     r["offline_header"]= wait_for(B,"()=>document.getElementById('statusText').textContent==='you\\'re offline' && document.getElementById('bar').classList.contains('st-offline')",4000)
@@ -241,12 +242,12 @@ try:
     r["ids_unique"]= A.evaluate("()=>{ const ids=[...document.querySelectorAll('[id]')].map(e=>e.id); return ids.filter((x,i)=>ids.indexOf(x)!==i); }")==[]
     # ---- 5. an invite link opened while already signed in asks first ----
     l3=invite(A)
-    cD,D=ctxp(dialogs=False); register(D,"deniz"); ddl=[]; D.on("dialog",lambda d:(ddl.append(d.message), d.dismiss()))
+    cD,D=ctxp(dialogs=False); cD.add_init_script("window.__askPolicy=()=>false;"); register(D,"deniz")
     D.goto(f"http://127.0.0.1:{port}/?r=1"+l3[l3.index("#"):]); D.wait_for_timeout(400); D.fill("#pwInput","password123"); D.click("#joinBtn"); D.wait_for_timeout(1500)
-    r["invite_asks_when_signed_in"]= any("invites you" in m for m in ddl) and D.evaluate("()=>window.__gz.contacts().length")==0
-    cE,E=ctxp(dialogs=False); edl=[]; E.on("dialog",lambda d:(edl.append(d.message), d.accept()))
+    r["invite_asks_when_signed_in"]= any("invites you" in m for m in D.evaluate("()=>window.__asks||[]")) and D.evaluate("()=>window.__gz.contacts().length")==0
+    cE,E=ctxp(dialogs=False)
     E.goto(f"http://127.0.0.1:{port}/?r=1"+l3[l3.index("#"):]); E.wait_for_timeout(400); E.evaluate(SKIP); E.fill("#userInput","ece"); E.fill("#pwInput","password123"); E.fill("#pw2Input","password123"); E.click("#joinBtn"); E.wait_for_timeout(2000)
-    r["invite_no_question_after_signup"]= not any("invites you" in m for m in edl) and E.evaluate("()=>window.__gz.contacts().length")==1
+    r["invite_no_question_after_signup"]= not any("invites you" in m for m in E.evaluate("()=>window.__asks||[]")) and E.evaluate("()=>window.__gz.contacts().length")==1
     # ---- 6. a photo under a timer tells the sender ----
     A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(200); A.evaluate("()=>[...document.querySelectorAll('.ct')].find(e=>e.textContent.includes('serap')).click()"); A.wait_for_timeout(500)
     A.evaluate("()=>document.getElementById('expBtn').click()"); A.wait_for_timeout(200); A.evaluate("()=>document.querySelector('#expMenu button[data-v=\"300000\"]').click()"); A.wait_for_timeout(500)

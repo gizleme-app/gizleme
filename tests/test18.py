@@ -54,7 +54,7 @@ import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.j
 html=html.replace('<meta charset="utf-8"/>','<meta charset="utf-8"/>\n<meta http-equiv="Content-Security-Policy" content="'+csp_meta.replace('"','&quot;')+'"/>')
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
-_app=_app[:_app.rstrip().rfind("})();")]+'window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad()};\n})();\n'
+_app=_app[:_app.rstrip().rfind("})();")]+'const _gzAsk0=gzAsk; gzAsk=(o)=>{ window.__asks=(window.__asks||[]).concat([String(o.text||"")]); const pol=window.__askPolicy; let v=pol?pol(String(o.text||""),o):undefined; if(v===undefined) v= o.input ? (window.__promptValue!==undefined ? window.__promptValue : (o.def||"")) : true; if(v==="__dialog__") return _gzAsk0(o); return Promise.resolve(v); }; window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad()};\n})();\n'
 (site/"app.js").write_text(_app)
 for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())

@@ -24,7 +24,7 @@
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)"/>
 <meta name="theme-color" content="#040509" media="(prefers-color-scheme: dark)"/>
-<script src="/sb.js?v=43"></script>
+<script src="/sb.js?v=44"></script>
 <style>
   :root{
     --bg:#f3f4f6; --surface:#ffffff; --surface-2:#eef0f3;
@@ -97,7 +97,7 @@
   .mem-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface-2)}
   .mem-row .mn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
   .mem-row .mf{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-cap);opacity:.7}
-  .mem-row .mx{border:1px solid #e5484d;color:#e5484d;background:transparent;border-radius:var(--r-s);padding:4px 8px;font-size:var(--fs-cap);cursor:pointer}
+  .mem-row .mx{border:1px solid #e5484d;color:#e5484d;background:transparent;border-radius:var(--r-s);padding:7px 10px;min-height:32px;font-size:var(--fs-cap);cursor:pointer}
   .share-row .ghost{flex:1;margin:0}
   #join .ghost.wa{flex:0 0 auto;border-color:rgba(37,211,102,.5);color:#25d366;font-weight:600}
   .authmsg{color:#f87171;font-size:var(--fs-sec);margin:-2px 0 2px;min-height:1em;text-align:center}
@@ -114,7 +114,7 @@
   #join[data-mode="unlock"] #lockHead h1,#join[data-mode="unlock"] #lockHead p,#join[data-boot="unlock"]:not([data-mode]) #lockHead h1,#join[data-boot="unlock"]:not([data-mode]) #lockHead p{color:#e8e6f0}
   #join[data-mode="unlock"] #lockHead p,#join[data-boot="unlock"]:not([data-mode]) #lockHead p{color:#b9b4cc}
   .pill.danger{border-color:var(--bad);color:var(--bad);background:transparent}
-  @media (hover:none){ .ct .cx{opacity:.55} }
+
   #join .remember input{width:16px;height:16px;accent-color:#a855f7}
   .brandhero{display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:4px}
   .logo-anim{position:relative;width:min(230px,70%);aspect-ratio:460/338;background:#04050a;border-radius:20px;box-shadow:0 10px 36px rgba(109,40,217,.4),0 0 0 1px rgba(168,85,247,.18);overflow:hidden;perspective:700px;cursor:pointer;user-select:none;-webkit-user-select:none}
@@ -188,7 +188,7 @@
   .bar.st-online .status{color:var(--ok)}
   @keyframes ledPulse{0%,100%{opacity:1}50%{opacity:.35}}
   @media (prefers-reduced-motion:reduce){.bar.st-busy .status .led{animation:none}}
-  .bar .icon{background:none;border:none;color:var(--muted);font-size:1.1rem;padding:5px;line-height:1}
+  .bar .icon{background:none;border:none;color:var(--muted);font-size:1.1rem;padding:0;line-height:1;min-width:40px;min-height:44px;display:grid;place-items:center}   /* v44: targets ≥ 40×44 without a bigger glyph */
   .roomtag{font-family:var(--mono);font-size:var(--fs-cap);color:var(--accent);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px 9px;cursor:pointer;white-space:nowrap}
 
   .logs{flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;position:relative}
@@ -222,10 +222,11 @@
   .bubble.sent .quote{border-left-color:#fff;background:rgba(255,255,255,.18)}
   .quote .qn{display:block;font-weight:700;font-size:var(--fs-cap);opacity:.95}
   .quote .qs{display:block;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:62vw}
+  .bubble.sent .quote .qn,.bubble.sent .quote .qs{opacity:1}
   /* reactions under a bubble */
   .reacts{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
   .bubble.sent .reacts{justify-content:flex-end}
-  .rx{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;font-size:var(--fs-sec);line-height:1.4;padding:1px 7px;cursor:pointer;font-family:inherit}
+  .rx{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;font-size:var(--fs-sec);line-height:1.4;padding:2px 9px;min-height:26px;cursor:pointer;font-family:inherit}
   .rx.mine{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
   /* the reaction picker (double tap / double click on a message) */
   .rx-pick{position:fixed;z-index:70;display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:5px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:0 10px 30px rgba(0,0,0,.28);max-width:calc(100vw - 16px)}
@@ -237,7 +238,7 @@
   .rx-pick .rx-tool{font-size:1.15rem;opacity:.8}
   .rx-pick button[hidden]{display:none}
   /* the chat's timer in the header: red and crossed out when off, blue with the time when on */
-  .bar .exp-btn{width:34px;height:34px;padding:3px;display:grid;place-items:center;color:#3b82f6;cursor:pointer;flex:none}
+  .bar .exp-btn{width:40px;height:44px;padding:3px;display:grid;place-items:center;color:#3b82f6;cursor:pointer;flex:none}
   .bar .exp-btn[hidden]{display:none}
   .exp-ico{width:26px;height:26px;overflow:visible}
   .exp-ico .exp-num{font:800 9.5px/1 var(--ui);fill:currentColor;letter-spacing:-.3px}
@@ -271,8 +272,8 @@
   .cmp-panel{flex:none;height:min(290px,42vh);background:var(--surface);overflow-y:auto;padding:20px 12px calc(14px + env(safe-area-inset-bottom,0px));-webkit-overflow-scrolling:touch}
   .cmp-panel[hidden]{display:none}
   body.kb .cmp-panel{height:min(220px,30vh)}
-  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 6px;max-width:460px;margin:0 auto}
-  .tile{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;color:var(--fg);font:inherit;font-size:var(--fs-sec);cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;min-width:0}
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:18px 6px;max-width:420px;margin:0 auto}   /* v44: 3×2, labels on two lines when needed */
+  .tile{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;color:var(--fg);font:inherit;font-size:var(--fs-sec);cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent;min-width:0;text-align:center;white-space:normal;line-height:1.2}
   .tile>span:last-child{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tile .ti{width:60px;height:60px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;box-shadow:inset 0 0 0 1px var(--line);transition:transform .12s}
   .tile:active .ti{transform:scale(.92)} .tile:hover .ti{box-shadow:inset 0 0 0 1px var(--accent)}
@@ -331,14 +332,15 @@
   .bubble .who.vf-bad{color:#e5484d;opacity:1}
   .bubble .who.vf-bad .vfb{background:#e5484d;color:#fff;border-radius:var(--r-s);padding:1px 5px}
   .bubble .meta{display:flex;justify-content:flex-end;align-items:center;gap:5px;font-size:var(--fs-cap);opacity:.72;margin-top:3px;line-height:1}
+  .bubble.sent .meta{opacity:.92}   /* v44: time and ticks on the accent read at 4.5:1 and more */
   .bubble.recv .meta{justify-content:flex-start}
   .bubble .st{font-size:var(--fs-cap);letter-spacing:-.08em}
-  .bubble .st[data-st="rcvd"]{color:#86efac}
+  .bubble .st[data-st="rcvd"]{color:#86efac} .bubble.sent .st[data-st="rcvd"]{color:#fff}
   .bubble .st[data-st="pending"]{opacity:.7}
   .bubble.failed{opacity:.75;outline:1px dashed var(--bad);cursor:pointer}
   .bubble.failed .st{color:var(--bad);letter-spacing:0;font-weight:800}
   .daysep{align-self:center;font-size:var(--fs-cap);color:var(--muted);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:3px 10px;margin:6px 0 2px}
-  #netBar{background:var(--warn);color:#111;font-size:var(--fs-sec);text-align:center;padding:6px 12px;font-weight:600}
+  #netBar{background:#f59e0b;color:#111;font-size:var(--fs-sec);text-align:center;padding:6px 12px;font-weight:600}   /* v44: 8.8:1 in both themes */
   #netBar[hidden]{display:none}
   /* ---- calls ---- */
   .callui{position:fixed;inset:0;z-index:40;background:#07070c;color:#fff;display:flex;flex-direction:column}
@@ -496,6 +498,15 @@
   .sect-t2{font-weight:700;font-size:var(--fs-body);margin:8px 0 2px}
   .pill{flex:0 0 auto;border:1px solid var(--accent-bg);background:var(--accent-bg);color:#fff;border-radius:999px;padding:7px 15px;font-size:var(--fs-sec);font-weight:600;cursor:pointer}
   .pill.off{background:transparent;color:var(--accent)}
+  .tgl{flex:none;width:46px;height:28px;border-radius:999px;border:0;background:var(--line);position:relative;cursor:pointer;padding:0;transition:background .15s}
+  .tgl .tgl-k{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .15s}
+  .tgl[aria-checked="true"]{background:var(--accent-bg)} .tgl[aria-checked="true"] .tgl-k{transform:translateX(18px)}
+  .tgl:disabled{opacity:.45;cursor:default} .tgl:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .ask-card{max-width:400px} .ask-card h2{font-size:var(--fs-title);margin:0 0 8px} .ask-text{white-space:pre-line;color:var(--muted);font-size:var(--fs-sec);line-height:1.45;margin:0 0 14px}
+  .ask-row{display:flex;gap:10px;justify-content:flex-end;margin-top:6px} .ask-row .btn,.ask-row .ghost{min-width:96px}
+  .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+  .rectime{font-variant-numeric:tabular-nums;color:var(--muted);font-size:var(--fs-sec);margin-left:8px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .safety-emoji{font-size:1.9rem;letter-spacing:.18em;text-align:center;margin:10px 0 4px}
   .safety-code{font-family:var(--mono);font-size:1.15rem;letter-spacing:.14em;text-align:center;color:var(--accent);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-s);padding:12px;margin:2px 0 6px;word-break:break-all}
   .verify-row{display:flex;align-items:center;gap:10px;justify-content:space-between;margin-top:10px}
@@ -532,7 +543,7 @@
   .cmp th,.cmp td{padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
   .cmp th{font-size:var(--fs-cap);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
   .cmp td:first-child{color:var(--fg);font-weight:600;width:34%}
-  .cmp td.y{color:#16a34a} .cmp td.n{color:var(--muted)} .cmp td.g{color:var(--accent);font-weight:600}
+  .cmp td.y{color:#15803d} .cmp td.n{color:var(--muted)} .cmp td.g{color:var(--accent);font-weight:600}
   .cmp .sub{display:block;font-weight:400;color:var(--muted);font-size:var(--fs-cap)}
   .sb-list{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:2px 6px 12px;display:flex;flex-direction:column;gap:1px}
   /* conversation rows, WhatsApp/Signal style: avatar · name + time · last message + unread */
@@ -571,9 +582,7 @@
   .newsep{align-self:stretch;display:flex;align-items:center;gap:10px;margin:10px 2px 4px;color:var(--accent);font-size:var(--fs-cap);font-weight:700;letter-spacing:.05em;text-transform:uppercase}
   .newsep::before,.newsep::after{content:"";flex:1;height:1px;background:currentColor;opacity:.4}
   @media (max-width:720px){ .sb-list{padding:0 4px 80px} .ct{border-radius:0;padding:11px 12px;border-bottom:1px solid var(--line)} .ct:last-child{border-bottom:none} }
-  .ct .cx{border:none;background:none;color:var(--muted);font-size:1rem;cursor:pointer;opacity:0;padding:0 2px}
-  .ct:hover .cx{opacity:1}
-  .ct .cx:hover{color:var(--bad)}
+  .ct:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
   .sb-empty{color:var(--muted);font-size:var(--fs-sec);padding:28px 18px;line-height:1.55;display:flex;flex-direction:column;align-items:center;text-align:center}
   .sb-empty-sub{margin:14px 0 0;font-size:var(--fs-cap);opacity:.8}
   .sb-backdrop{display:none}
@@ -637,7 +646,7 @@
   .bar .status{font-size:var(--fs-cap)}
   #chatBrand,#verifyBtn{display:none!important}
   .sb-head{font-size:var(--fs-display);font-weight:800;letter-spacing:-.01em;text-transform:none;color:var(--fg);padding:14px 14px 8px}
-  .sb-head button{width:38px;height:38px;border-radius:var(--r-m)}
+  .sb-head button{width:44px;height:44px;border-radius:var(--r-m)}
   .sb-actions #sbLock .ico,.sb-actions #sbSettings .ico,.sb-actions #sbNew .ico{width:19px;height:19px}
   @media (max-width:720px){ #sbNew{display:none} }            /* the round + at the bottom does it on a phone */
   /* the message menu: emojis on top, labelled actions below */
@@ -659,7 +668,8 @@
   .jump-n[hidden]{display:none}
   .composer{position:relative}
   /* incoming call: labels under the buttons, the caller's avatar breathing */
-  .call-ctl.incoming .cact{display:flex;flex-direction:column;align-items:center;gap:8px;color:#fff;font-size:var(--fs-sec);font-weight:600;opacity:.92}
+  .call-ctl .cact{display:flex;flex-direction:column;align-items:center;gap:8px;color:#fff;font-size:var(--fs-sec);font-weight:600;opacity:.92}
+  .call-ctl .cact[hidden]{display:none}
   .callui.ringing .call-stage .pav{animation:pavPulse 1.6s ease-in-out infinite}
   @keyframes pavPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.18)}50%{box-shadow:0 0 0 22px rgba(255,255,255,0)}}
   @media (prefers-reduced-motion:reduce){.callui.ringing .call-stage .pav{animation:none}}
@@ -846,7 +856,7 @@
   @media (prefers-reduced-motion:reduce){.bubble.jumbo.play .je{animation:none}}
   .cbtn.nocam{background:rgba(255,255,255,.2)}
   .call-ctl.incoming{gap:30px}
-  .call-ctl.incoming .cact[hidden]{display:none}
+
   .call-weak{position:absolute;left:50%;top:calc(96px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;background:rgba(180,83,9,.92);color:#fff;font-size:var(--fs-sec);font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.3);pointer-events:none;white-space:nowrap}
   .call-weak[hidden]{display:none}
   .call-weak .ico{width:17px;height:17px}
@@ -950,11 +960,11 @@
     </div>
     <div class="field" id="pwField">
       <label for="pwInput" id="pwLabel">Password</label>
-      <input id="pwInput" type="password" placeholder="••••••••" maxlength="128" autocomplete="current-password"/>
+      <input id="pwInput" type="password" placeholder="8 characters or more" maxlength="128" autocomplete="current-password"/>
     </div>
     <div class="field" id="pw2Field">
       <label for="pw2Input">Confirm password</label>
-      <input id="pw2Input" type="password" placeholder="••••••••" maxlength="128" autocomplete="new-password"/>
+      <input id="pw2Input" type="password" placeholder="The same again" maxlength="128" autocomplete="new-password"/>
     </div>
     <div class="nctabs" id="ncTabs" style="display:none">
       <button type="button" class="nctab" data-nc="direct">Invite</button>
@@ -998,7 +1008,7 @@
       <p class="hint" id="qrScanHint">Or point your phone's camera at your friend's QR code: the link opens here.</p>
     </div>
     <label class="remember" id="bioOptWrap" style="display:none"><input type="checkbox" id="bioOptIn"/> Enable Face ID / Touch ID for quick unlock</label>
-    <p class="authmsg" id="authMsg"></p>
+    <p class="authmsg" id="authMsg" role="alert"></p>
     <button class="btn" id="joinBtn" type="button">Continue</button>
     <button class="ghost" id="backBtn" type="button" style="display:none">← Back to chats</button>
     <p class="hint" id="joinHint"></p>
@@ -1013,7 +1023,7 @@
     </div>
   </div>
 </div>
-<script src="/boot.js?v=43"></script>
+<script src="/boot.js?v=44"></script>
 
 <!-- CHAT -->
 <div class="screen" id="app">
@@ -1080,7 +1090,8 @@
     <button class="icon" id="findDown" type="button" aria-label="Next result" title="Next result"><svg class="ico"><use href="#i-dn"/></svg></button>
     <button class="icon" id="findClose" type="button" aria-label="Close search" title="Close search"><svg class="ico"><use href="#i-x"/></svg></button>
   </div>
-  <div class="logs" id="logs" aria-live="polite"></div>
+  <div class="logs" id="logs"></div>
+  <div class="sr-only" id="srSay" role="status" aria-live="polite"></div>
 
   <div class="wire" id="wire">
     <div class="wl">what the relay carries (ciphertext only)</div>
@@ -1116,7 +1127,7 @@
     <button class="cmp-ico" id="attachBtn" type="button" title="Take a photo" aria-label="Take a photo" disabled><svg class="ico"><use href="#i-camera"/></svg></button>
     <button class="send" id="micBtn" type="button" title="Record a voice message" aria-label="Record a voice message" disabled><svg class="ico"><use href="#i-mic"/></svg></button>
     <button class="send" id="sendBtn" disabled aria-label="Send"><svg class="ico"><use href="#i-send"/></svg></button>
-    <div id="recBar" hidden><span class="recdot"></span><span class="rechint">Recording…</span>
+    <div id="recBar" hidden><span class="recdot"></span><span class="rechint" id="recHint">Recording…</span><span class="rectime" id="recTime" aria-live="off">0:00 / 2:00</span>
       <button class="attach" id="recCancel" type="button" aria-label="Cancel recording"><svg class="ico"><use href="#i-x"/></svg></button>
       <button class="send" id="recSend" type="button" aria-label="Send voice message"><svg class="ico"><use href="#i-send"/></svg></button></div>
   </div>
@@ -1154,7 +1165,7 @@
     </div>
     <div class="info-sec">
       <button class="info-row" type="button" id="ciVerify"><svg class="ico"><use href="#i-shield-check"/></svg><span class="il">Verify identity</span><span class="iv" id="ciVerifyV"></span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
-      <button class="info-row" type="button" id="ciMembers"><svg class="ico"><use href="#i-users"/></svg><span class="il">Members &amp; keys</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+      <button class="info-row" type="button" id="ciMembers"><svg class="ico"><use href="#i-users"/></svg><span class="il">Members and keys</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
       <button class="info-row" type="button" id="ciNotify"><svg class="ico"><use href="#i-bell"/></svg><span class="il">Notify contact</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
       <button class="info-row" type="button" id="ciToGroup"><svg class="ico"><use href="#i-users"/></svg><span class="il">Turn into a group</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
       <button class="info-row" type="button" id="ciMerge"><svg class="ico"><use href="#i-merge"/></svg><span class="il">Merge with another chat…</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
@@ -1213,13 +1224,13 @@
         </select>
       </label>
       <div class="set-row"><span>Typing indicators <span class="lbl-sub" id="typState">On</span><br><span class="lbl-sub">Shows when the other person is typing or recording a voice message — and shows them when you are. Off: neither.</span></span>
-        <button class="pill" id="typToggle" type="button">On</button>
+        <button class="tgl" id="typToggle" type="button" role="switch" aria-checked="true"><span class="tgl-k"></span></button>
       </div>
       <div class="set-row"><span>Message previews in the chats list <span class="lbl-sub" id="prevState">Shown</span></span>
-        <button class="pill off" id="prevToggle" type="button">Hide</button>
+        <button class="tgl" id="prevToggle" type="button" role="switch" aria-checked="true"><span class="tgl-k"></span></button>
       </div>
       <div class="set-row"><span>Privacy screen <span class="lbl-sub" id="shieldState">On</span><br><span class="lbl-sub">Hides the chat the moment you switch apps (app switcher, a glance). Screenshots can't be blocked by any web app — or by any app on iPhone.</span></span>
-        <button class="pill" id="shieldToggle" type="button">On</button>
+        <button class="tgl" id="shieldToggle" type="button" role="switch" aria-checked="true"><span class="tgl-k"></span></button>
       </div>
       <div class="set-row"><span>Lock now</span><button class="pill off" id="lockNowBtn" type="button">Lock</button></div>
       <div class="set-row"><span>Why Gizleme?</span><button class="pill off" id="whyBtn" type="button">Compare</button></div>
@@ -1281,8 +1292,8 @@
 <div class="sect-t2">Notifications</div>
       <p class="set-note">Get alerted when a contact reconnects to reach you — even when Gizleme is closed. <span id="notifyHint"></span></p>
       <div class="set-row">
-        <span id="notifyState">Off</span>
-        <button class="pill" id="notifyToggle" type="button">Enable</button>
+        <span>Notifications on this device <span class="lbl-sub" id="notifyState">Off</span></span>
+        <button class="tgl" id="notifyToggle" type="button" role="switch" aria-checked="false" aria-label="Notifications on this device"><span class="tgl-k"></span></button>
       </div>
     <div class="sect-t2">Sounds</div>
       <div class="set-row"><label for="soundSel">Play sounds for</label>
@@ -1335,16 +1346,16 @@
   <div class="call-stage" id="callStage"></div>
   <div class="call-top">
     <div class="call-name" id="callName">—</div>
-    <div class="call-status" id="callStatus">Calling…</div>
+    <div class="call-status" id="callStatus" role="status" aria-live="polite">Calling…</div>
   </div>
   <div class="call-weak" id="callWeak" role="status" hidden><svg class="ico"><use href="#i-wifi-low"/></svg><span>Weak connection</span></div>
   <video class="call-local" id="callLocal" autoplay playsinline muted hidden></video>
   <div class="call-ctl" id="callCtl">
-    <button class="cbtn" id="callMute" type="button" aria-label="Mute"><svg class="ico"><use href="#i-mic"/></svg></button>
-    <button class="cbtn" id="callCam" type="button" aria-label="Camera" hidden><svg class="ico"><use href="#i-video"/></svg></button>
-    <button class="cbtn" id="callFlip" type="button" aria-label="Switch camera" hidden><svg class="ico"><use href="#i-flip"/></svg></button>
-    <button class="cbtn" id="callFs" type="button" aria-label="Full screen" title="Full screen" hidden><svg class="ico"><use href="#i-expand"/></svg></button>
-    <button class="cbtn end" id="callEnd" type="button" aria-label="Hang up"><svg class="ico"><use href="#i-phone"/></svg></button>
+    <div class="cact"><button class="cbtn" id="callMute" type="button" aria-label="Mute" aria-pressed="false"><svg class="ico"><use href="#i-mic"/></svg></button><span id="callMuteLb">Mute</span></div>
+    <div class="cact" id="callCamWrap" hidden><button class="cbtn" id="callCam" type="button" aria-label="Camera"><svg class="ico"><use href="#i-video"/></svg></button><span>Camera</span></div>
+    <div class="cact" id="callFlipWrap" hidden><button class="cbtn" id="callFlip" type="button" aria-label="Switch camera"><svg class="ico"><use href="#i-flip"/></svg></button><span>Flip</span></div>
+    <div class="cact" id="callFsWrap" hidden><button class="cbtn" id="callFs" type="button" aria-label="Full screen" title="Full screen"><svg class="ico"><use href="#i-expand"/></svg></button><span>Full screen</span></div>
+    <div class="cact"><button class="cbtn end" id="callEnd" type="button" aria-label="Hang up"><svg class="ico"><use href="#i-phone"/></svg></button><span>Hang up</span></div>
   </div>
   <div class="call-ctl incoming" id="callIncoming" hidden>
     <div class="cact"><button class="cbtn end" id="callDecline" type="button" aria-label="Decline"><svg class="ico"><use href="#i-phone"/></svg></button><span>Decline</span></div>
@@ -1502,7 +1513,16 @@
   <div class="col-t" id="colTitle">Colour</div>
   <div class="col-grid" id="colGrid"></div>
 </div>
-<div class="toast" id="toast"></div>
+<!-- v44: the app's own question dialog (in place of the browser's confirm / prompt) -->
+<div class="modal" id="askModal" role="dialog" aria-modal="true" aria-labelledby="askTitle">
+  <div class="card ask-card">
+    <h2 id="askTitle">Are you sure?</h2>
+    <p id="askText" class="ask-text"></p>
+    <div class="field" id="askField" hidden><input id="askInput" autocomplete="off"/></div>
+    <div class="row ask-row"><button class="ghost" id="askCancel" type="button">Cancel</button><button class="btn" id="askOk" type="button">OK</button></div>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="upd-pill" id="updPill" role="status" hidden>
   <button type="button" class="upd-go" id="updGo"><svg class="ico"><use href="#i-refresh"/></svg><span>New version available — tap to update</span></button>
   <button type="button" class="upd-x" id="updX" aria-label="Later" title="Later">×</button>
@@ -1528,8 +1548,8 @@
         <tr><td>Disappearing messages</td><td class="g">On by default<span class="sub">24h, adjustable</span></td><td class="n">Off by default</td><td class="n">Off by default</td></tr>
         <tr><td>Auto-lock</td><td class="g">On by default</td><td class="n">Optional</td><td class="n">Optional</td></tr>
         <tr><td>Owned by</td><td class="g">Independent</td><td class="n">Meta</td><td class="y">Nonprofit</td></tr>
-        <tr><td>Open source &amp; audited</td><td class="n">Not yet</td><td class="n">No</td><td class="y">Yes</td></tr>
-        <tr><td>Voice &amp; video calls</td><td class="y">Yes<span class="sub">end-to-end; groups up to 4</span></td><td class="y">Yes</td><td class="y">Yes</td></tr>
+        <tr><td>Open source and audited</td><td class="n">Not yet</td><td class="n">No</td><td class="y">Yes</td></tr>
+        <tr><td>Voice and video calls</td><td class="y">Yes<span class="sub">end-to-end; groups up to 4</span></td><td class="y">Yes</td><td class="y">Yes</td></tr>
       </tbody>
     </table>
     <p class="set-note">Where they're ahead today: audited open-source code, and your friends are already there. Where Gizleme is different by design: nothing about you is required, and nothing has to stay on your device. Like any service, the relay sees connection times and encrypted traffic — never your messages, never your contact list (stored encrypted), and your username is never attached to a conversation.</p>
@@ -1547,7 +1567,7 @@
 </div>
 
 <script src="/vendor/supabase-2.117.2.js"></script>
-<script src="/i18n.js?v=43"></script>
-<script src="/app.min.js?v=43"></script>
+<script src="/i18n.js?v=44"></script>
+<script src="/app.min.js?v=44"></script>
 </body>
 </html>

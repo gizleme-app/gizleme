@@ -97,7 +97,18 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   merge, new keys, what the relay sees, remove or leave. The ⋮ menu keeps the quick ones: Chat info, search,
   mute, share my location (and invite, in a group).
 - Settings in pages: your name at the top (Profile), then Privacy, Chats, Notifications and sounds, Install
-  the app and Account, where "Delete account" sits at the very bottom, apart.
+  the app and Account, where "Delete account" sits at the very bottom, apart. The on/off settings are
+  switches (v44).
+- Usable with a keyboard and a screen reader (v44): the chats list rows are buttons with a spoken name
+  (name, unread, last message, time) that Enter opens; bubbles take the focus and Enter opens their menu;
+  every dialog has a role and a name, the focus goes in, stays in and comes back; Escape closes the dialog
+  or menu on top; the toast, the sign-in message and the call status are announced; photos have alt text;
+  colour names are in the app's language. Every question the app asks (remove a contact, leave or join a
+  group, accept an invite, open a link, log out, a nickname, a group name…) is its own dialog, with named
+  buttons — never the browser's confirm / prompt. Targets are at least 40×44 px in the chat header and
+  44×44 in the list header; secondary texts in sent bubbles, the offline banner and the comparison table
+  read at 4.5:1 or more; a muted microphone shows and says it; a voice recording shows its clock and stops
+  at two minutes instead of sending itself.
 - A first visit opens on a short welcome — the logo, one sentence, "Create my account" and "I already have
   an account", the three promises underneath — then the form alone. An invite link goes straight to the form.
 - A colour for each chat: every contact has its own colour from the start (worked out from the contact key,

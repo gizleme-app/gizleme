@@ -38,7 +38,7 @@ html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
-_app=_app[:_app.rstrip().rfind("})();")]+'window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad()};\n})();\n'
+_app=_app[:_app.rstrip().rfind("})();")]+'const _gzAsk0=gzAsk; gzAsk=(o)=>{ window.__asks=(window.__asks||[]).concat([String(o.text||"")]); const pol=window.__askPolicy; let v=pol?pol(String(o.text||""),o):undefined; if(v===undefined) v= o.input ? (window.__promptValue!==undefined ? window.__promptValue : (o.def||"")) : true; if(v==="__dialog__") return _gzAsk0(o); return Promise.resolve(v); }; window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad()};\n})();\n'
 (site/"app.js").write_text(_app)
 for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())
@@ -69,9 +69,9 @@ with sync_playwright() as pw:
     p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
     r["defaultAutoLock15"]= p.evaluate("()=>localStorage.getItem('gz-autolock')")=="900000"
     # --- contact removal asks first; dismiss keeps it ---
-    accept[0]=False; p.evaluate("()=>document.querySelector('.ct .cx').click()"); p.wait_for_timeout(300)
-    r["remove_asked"]= any("Remove Bob" in m for m in dialogs); r["remove_dismissKeeps"]= p.evaluate("()=>window.__gz.contacts().length")==1
-    accept[0]=True
+    p.evaluate("()=>{ window.__askPolicy=()=>false; }"); p.click(".ct"); p.wait_for_timeout(500); p.click("#peerMeta"); p.wait_for_timeout(300); p.click("#ciRemove"); p.wait_for_timeout(400)
+    r["remove_asked"]= any("Remove Bob" in m for m in p.evaluate("()=>window.__asks||[]")); r["remove_dismissKeeps"]= p.evaluate("()=>window.__gz.contacts().length")==1
+    p.evaluate("()=>{ window.__askPolicy=null; }"); p.click("#ciBack"); p.wait_for_timeout(200); p.evaluate("()=>document.getElementById('backHome').click()"); p.wait_for_timeout(300)
     # --- lock screen: compact, biometrics-first layout, forgot link ---
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
     r["lock_head"]= p.is_visible("#lockHead"); r["lock_heroHidden"]= not p.is_visible(".brandhero"); r["lock_forgotLink"]= p.is_visible("#forgotLink")

@@ -9,13 +9,13 @@
 // names carry that version in their URL (?v=NN, stamped by tools/build.py) and are served cache-first from the
 // precache (v43): an installed app opens from the device, and a new version arrives through this worker — a new
 // CACHE name installs the new files (fetched past the HTTP cache), then the "new version" pill reloads the page.
-const CACHE = "gizleme-v43";
-const SHELL = ["/index.html", "/app.min.js?v=43", "/i18n.js?v=43", "/boot.js?v=43", "/sb.js?v=43", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
+const CACHE = "gizleme-v44";
+const SHELL = ["/index.html", "/app.min.js?v=44", "/i18n.js?v=44", "/boot.js?v=44", "/sb.js?v=44", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
                "/watermark.webp", "/watermark-eyes.webp", "/logo-head.webp", "/logo-word.webp", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png",
                "/call-icon.png", "/call-badge.png"];
 // the files without which the app cannot open at all: their absence fails the install (the previous worker stays);
 // the others are fetched when first used (v43 — before, any failure left the worker with no offline copy at all)
-const CRITICAL = ["/index.html", "/app.min.js?v=43", "/i18n.js?v=43", "/boot.js?v=43", "/sb.js?v=43"];
+const CRITICAL = ["/index.html", "/app.min.js?v=44", "/i18n.js?v=44", "/boot.js?v=44", "/sb.js?v=44"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => c.add(new Request(u, { cache: "reload" })).catch(err => { if (CRITICAL.includes(u)) throw err; })))));
   self.skipWaiting();
