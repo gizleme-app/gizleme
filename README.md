@@ -109,6 +109,15 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   44×44 in the list header; secondary texts in sent bubbles, the offline banner and the comparison table
   read at 4.5:1 or more; a muted microphone shows and says it; a voice recording shows its clock and stops
   at two minutes instead of sending itself.
+- Robust to the edges (v45): removing a contact or leaving a group erases that chat's records and media from
+  the device (not only its row); a chat left open across midnight UTC follows its rendezvous room, on both
+  sides; the account backup answering 401 is said (after the session has been checked twice), a backup that
+  couldn't be opened at log-in is opened at the next "online" and the empty list says so meanwhile; while
+  the account marker is unknown a message waits in the queue instead of reaching your other devices as the
+  contact's; the composer keeps a draft per chat; the composer of a group you were removed from is off, and
+  being invited back no longer trips over the old rotation; photos' blob URLs are revoked when their
+  bubbles go, documents over 1 MB are decrypted on the tap; the chats list's preview is the newest message
+  by time; a full storage is said once; the pull at unlock no longer races the cached backup key.
 - A first visit opens on a short welcome — the logo, one sentence, "Create my account" and "I already have
   an account", the three promises underneath — then the form alone. An invite link goes straight to the form.
 - A colour for each chat: every contact has its own colour from the start (worked out from the contact key,
