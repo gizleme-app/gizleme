@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "jsr:@supabase/supabase-js@2": "./fake_supabase.ts",
+    "npm:web-push@3.6.7": "./fake_webpush.ts"
+  }
+}

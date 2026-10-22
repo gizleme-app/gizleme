@@ -2,6 +2,7 @@
 # send states (sent / received receipt / failed→retry), unviewed photo persisted across lock, own-device
 # copies, push independent of the sender's own setting.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, re, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -65,7 +66,7 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     mk=lambda: p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
@@ -74,7 +75,7 @@ with sync_playwright() as pw:
     # two messages wait in Camille's mailbox before we even log in (one from yesterday)
     p.evaluate("([ck])=>window.__drop(ck,{t:'txt',body:'Coucou, tu es là ?',n:'Camille'},'cam-acct',-82800000)",[CKC])
     p.evaluate("([ck])=>window.__drop(ck,{t:'txt',body:'Rappelle-moi stp',n:'Camille'},'cam-acct',-1000)",[CKC])
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p, 1500)
     def rows(): return p.eval_on_selector_all(".ct","els=>els.map(e=>({name:e.querySelector('.cn').textContent.trim(),prev:e.querySelector('.cm').textContent,badge:(e.querySelector('.ubadge')||{}).textContent||''}))")
     rw=rows()
     r["inbox_badgeWithoutOpening"]= [x for x in rw if x["name"]=="Camille"][0]["badge"]=="2"
@@ -83,30 +84,30 @@ with sync_playwright() as pw:
     r["inbox_persistedUnread"]= p.evaluate("()=>Object.values(window.__gz.meta().unread)")==[2]
     # open Camille: messages are there with times and a day separator; unread cleared; receipt deposited
     p.click(".ct >> text=Camille"); p.wait_for_timeout(1500)
-    r["open_recv"]= p.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
+    r["open_recv"]= (p.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)"))==['Coucou, tu es là ?', 'Rappelle-moi stp']
     r["open_timesShown"]= p.eval_on_selector_all(".log .bubble.recv .meta .time","els=>els.every(e=>/\\d{1,2}:\\d{2}/.test(e.textContent))")
-    r["open_daySeps"]= p.eval_on_selector_all(".log .daysep","els=>els.map(e=>e.textContent)")
+    r["open_daySeps"]= (p.eval_on_selector_all(".log .daysep","els=>els.map(e=>e.textContent)"))==['Yesterday', 'Today']
     r["open_unreadCleared"]= [x for x in rows() if x["name"]=="Camille"][0]["badge"]==""
     p.wait_for_timeout(1200)
     rc=p.evaluate("()=>window.__puts.filter(x=>x.mid.startsWith('r'))")
     r["receipt_deposited"]= len(rc)==1
-    r["receipt_content"]= p.evaluate("([ck,d])=>window.__open(ck,d)",[CKC,rc[0]["data"]]) if rc else None
-    r["receipt_coversBothMids"]= bool(rc) and sorted(r["receipt_content"]["mids"])==sorted(p.evaluate("()=>Object.values(window.__MBOX).flat().map(x=>x.mid)"))
+    r["receipt_content_v"]= p.evaluate("([ck,d])=>window.__open(ck,d)",[CKC,rc[0]["data"]]) if rc else None
+    r["receipt_coversBothMids"]= bool(rc) and sorted(r["receipt_content_v"]["mids"])==sorted(p.evaluate("()=>Object.values(window.__MBOX).flat().map(x=>x.mid)"))
     # send to Camille (offline): bubble shows time + ✓, push sent WITHOUT our own notifications being on
     p.fill("#msgInput","Je te rappelle ce soir"); p.click("#sendBtn"); p.wait_for_timeout(800)
-    r["sent_state"]= p.eval_on_selector(".log .bubble.sent:last-of-type .st","e=>e.dataset.st")
+    r["sent_state"]= (p.eval_on_selector(".log .bubble.sent:last-of-type .st","e=>e.dataset.st"))=='sent'
     r["push_sentWithoutOwnPush"]= p.evaluate("()=>!!(window.__notify && window.__notify.kind==='msg' && window.__notify.notify_key)")   # v42: kind and key only; the relay's text is fixed
     mySent=p.evaluate("()=>window.__puts.filter(x=>!x.mid.startsWith('r')).map(x=>x.mid)")
     myAcct=p.evaluate("()=>window.__puts[0].from")
     # Camille's device acknowledges: a receipt lands in the mailbox → ✓✓
     p.evaluate("([ck,mids])=>window.__drop(ck,{t:'rcpt',mids},'cam-acct',500)",[CKC,mySent]); p.wait_for_timeout(300)
     p.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); p.wait_for_timeout(1500)
-    r["sent_receivedState"]= p.eval_on_selector(".log .bubble.sent .st","e=>e.dataset.st")
+    r["sent_receivedState"]= (p.eval_on_selector(".log .bubble.sent .st","e=>e.dataset.st"))=='rcvd'
     r["rcpt_persisted"]= p.evaluate("([m])=>!!window.__gz.meta().rcpt[m]",[mySent[0]])
     # our other device wrote to Camille: shows here as our own message, no badge
     p.evaluate("([ck,me])=>window.__drop(ck,{t:'txt',body:'(depuis mon iPad)',n:'oguz'},me,800)",[CKC,myAcct]); p.wait_for_timeout(200)
     p.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); p.wait_for_timeout(1500)
-    r["ownDeviceCopy_asSent"]= p.eval_on_selector_all(".log .bubble.sent .txt","els=>els.map(e=>e.textContent)")
+    r["ownDeviceCopy_asSent"]= (p.eval_on_selector_all(".log .bubble.sent .txt","els=>els.map(e=>e.textContent)"))==['Je te rappelle ce soir']
     # failure → tap to retry
     p.evaluate("()=>{ window.__putFail=true; }")
     p.fill("#msgInput","ça passe ?"); p.click("#sendBtn"); p.wait_for_timeout(800)
@@ -120,7 +121,7 @@ with sync_playwright() as pw:
     r["photo_badgeOnBob"]= [x for x in rows() if x["name"]=="Bob"][0]["badge"]=="1"
     r["photo_previewOnBob"]= [x for x in rows() if x["name"]=="Bob"][0]["prev"]=="Photo" and p.evaluate("()=>!![...document.querySelectorAll('.ct')].find(e=>e.querySelector('.cn').textContent.trim()==='Bob').querySelector('.cm use[href=\"#i-camera\"]')")   # v38: a drawn camera
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p, 2500)
     r["afterUnlock_badgeKept"]= [x for x in rows() if x["name"]=="Bob"][0]["badge"]=="1"
     p.click(".ct >> text=Bob"); p.wait_for_timeout(1200)
     r["afterUnlock_photoTapToView"]= p.eval_on_selector_all(".log .tapview","els=>els.length")==1

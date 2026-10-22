@@ -1,5 +1,6 @@
 # Photos: chunked base64 (no "Maximum call stack size exceeded"), re-encoding to JPEG within the relay cap.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -57,7 +58,7 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e)))
     p.on("dialog",lambda d: d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
@@ -75,11 +76,11 @@ with sync_playwright() as pw:
         p.set_input_files("#fileInput", f); p.wait_for_timeout(4000)
         blobs=p.evaluate("()=>window.__blobs"); st=p.eval_on_selector_all(".bubble.sent, .msg.sent, .sent","els=>els.map(e=>e.getAttribute('data-st')||(e.querySelector('.st')&&e.querySelector('.st').textContent)||'')")
         r[name+"_uploaded"]= len(blobs)==before+1 and 0<blobs[-1]<=2000000
-        r[name+"_rawBytes"]= blobs[-1] if len(blobs)>before else None
-    r["small_reencoded"]= r["small_rawBytes"] is not None and abs(r["small_rawBytes"]-(SMALL_SIZE+16))>=64 and r["small_rawBytes"]<60000   # always re-encoded: EXIF/GPS never leaves the phone
-    r["states"]= p.evaluate("()=>[...document.querySelectorAll('.st')].map(e=>e.className+':'+e.textContent).slice(-3)")
-    r["toast"]= p.eval_on_selector("#toast","e=>e.textContent") if p.query_selector("#toast") else ""
-    r["noStackOverflow"]= not any("call stack" in e for e in errs) and "call stack" not in (r["toast"] or "")
+        r[name+"_rawBytes_v"]= blobs[-1] if len(blobs)>before else None
+    r["small_reencoded"]= r["small_rawBytes_v"] is not None and abs(r["small_rawBytes_v"]-(SMALL_SIZE+16))>=64 and r["small_rawBytes_v"]<60000   # always re-encoded: EXIF/GPS never leaves the phone
+    r["states"]= (p.evaluate("()=>[...document.querySelectorAll('.st')].map(e=>e.className+':'+e.textContent).slice(-3)"))==['st:✓', 'st:✓', 'st:✓']
+    r["toast_v"]= p.eval_on_selector("#toast","e=>e.textContent") if p.query_selector("#toast") else ""
+    r["noStackOverflow"]= not any("call stack" in e for e in errs) and "call stack" not in (r["toast_v"] or "")
     r["errors"]= errs[:3]
     print("RESULTS")
     for k,v in r.items(): print(f"  {k}: {v}")

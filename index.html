@@ -24,18 +24,9 @@
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)"/>
 <meta name="theme-color" content="#040509" media="(prefers-color-scheme: dark)"/>
-<script src="/sb.js?v=45"></script>
+<script src="/sb.js?v=46"></script>
 <style>
-  :root{
-    --bg:#f3f4f6; --surface:#ffffff; --surface-2:#eef0f3;
-    --fg:#161a1f; --muted:#5a6572; --line:#e1e4ea;
-    --me:#4338ca; --peer:#334155; --accent:#4338ca; --accent-bg:#4338ca;
-    --ok:#15803d; --bad:#b91c1c; --warn:#b45309;
-    --wire:#0e1116; --wire-fg:#c9d4df; --wire-line:#232a33;
-    --r:14px; --r-s:8px; --r-m:14px; --r-full:999px; --fs-cap:.72rem; --fs-sec:.84rem; --fs-body:.95rem; --fs-title:1.15rem; --fs-display:1.4rem; --r-sm:8px;
-    --ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
-    --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  }
+  :root{--bg:#f3f4f6;--surface:#ffffff;--surface-2:#eef0f3;--fg:#161a1f;--muted:#5a6572;--line:#e1e4ea;--me:#4338ca;--peer:#334155;--accent:#4338ca;--accent-bg:#4338ca;--ok:#15803d;--bad:#b91c1c;--warn:#b45309;--wire:#0e1116;--wire-fg:#c9d4df;--wire-line:#232a33;--r:14px;--r-s:8px;--r-m:14px;--r-full:999px;--fs-cap:.72rem;--fs-sec:.84rem;--fs-body:.95rem;--fs-title:1.15rem;--fs-display:1.4rem;--r-sm:8px;--ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;--users-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E");}
   @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
     --bg:#0d1117; --surface:#161b22; --surface-2:#1c222b;
     --fg:#e6edf3; --muted:#8b949e; --line:#273039;
@@ -66,17 +57,17 @@
      margins so that, when the keyboard shrinks the visible area, it becomes scrollable instead of being
      clipped — every button stays reachable. */
   #join{align-items:center;justify-content:flex-start;padding:24px 16px;position:relative;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:#07070c;color:#e8e6f0}
-  #join .card{margin:auto;flex:none}
+  #join .card{margin:auto;flex:none;position:relative;z-index:1;background:rgba(20,18,32,.74);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.09);box-shadow:0 24px 70px rgba(0,0,0,.55);}
   body.in-auth{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
   body.in-auth #join{height:100%;height:100dvh;min-height:0;max-height:100dvh}
   #join .glow{position:fixed;border-radius:50%;filter:blur(72px);pointer-events:none;z-index:0}
   #join .g1{width:420px;height:420px;background:#6d28d9;opacity:.5;top:-130px;left:-110px;animation:gfloatA 15s ease-in-out 2}
   #join .g2{width:380px;height:380px;background:#4338ca;opacity:.45;bottom:-140px;right:-100px;animation:gfloatB 18s ease-in-out 2}
   #join .g3{width:260px;height:260px;background:#a855f7;opacity:.3;top:38%;left:58%;animation:gfloatA 22s ease-in-out 2 reverse}
-  @media (prefers-reduced-motion:reduce){ #join .glow{animation:none} }
+  @media (prefers-reduced-motion:reduce){ #join .glow{animation:none!important;} }
   @keyframes gfloatA{0%,100%{transform:translate(0,0)}50%{transform:translate(44px,34px)}}
   @keyframes gfloatB{0%,100%{transform:translate(0,0)}50%{transform:translate(-44px,-30px)}}
-  #join .card{position:relative;z-index:1;background:rgba(20,18,32,.74);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.09);box-shadow:0 24px 70px rgba(0,0,0,.55)}
+  
   #join label{color:#b9b4cc}
   #join .field input{background:rgba(0,0,0,.34);border-color:rgba(255,255,255,.12);color:#fff}
   #join .field input::placeholder{color:#6f6a84}
@@ -84,8 +75,8 @@
   #join .ghost{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.13);color:#e8e6f0}
   #join .ghost.bio{border-color:rgba(168,85,247,.5);color:#d8b4fe;font-weight:600}
   .share-row{display:flex;gap:8px;margin:0 0 14px}
-  .inv-opts{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:8px 0 2px;font-size:var(--fs-sec)}
-  .inv-opt{display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+  .inv-opts{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:8px 0 2px;font-size:var(--fs-sec);row-gap:8px;}
+  .inv-opt{display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap;min-width:0;}
   .inv-opt select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-s);padding:3px 6px}
   .inv-pin{margin:6px 0 2px;font-size:var(--fs-sec);line-height:1.35}
   .inv-pin b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:1.25rem;letter-spacing:.25em;color:var(--accent);margin-left:4px}
@@ -156,8 +147,7 @@
   .logo h1{margin:0;font-size:var(--fs-display);font-weight:600;letter-spacing:-.02em}
   .logo p{margin:0;font-size:var(--fs-cap);color:var(--muted)}
   label{font-size:var(--fs-cap);font-weight:500;color:var(--muted);display:block;margin-bottom:5px}
-  .field input{width:100%;font-size:1rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);
-    border-radius:var(--r-s);padding:11px 13px}
+  .field input{width:100%;font-size:1rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-s);padding:11px 13px;}
   .field input:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
   #roomInput{font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase}
   #pinInput{font-family:var(--mono);letter-spacing:.3em}
@@ -170,7 +160,7 @@
     padding:12px 14px;font-weight:500;font-size:var(--fs-sec)}
 
   /* chat */
-  #app{display:none}
+  #app{display:none;flex-direction:row;height:100dvh;overflow:hidden;align-items:stretch;}
   .bar{position:relative;flex:none;background:var(--surface);border-bottom:1px solid var(--line);
     padding:9px 14px;padding-top:calc(9px + env(safe-area-inset-top,0px));display:flex;align-items:center;gap:10px;z-index:5}
   .bar .avatar{width:34px;height:34px;border-radius:50%;background:var(--peer);color:#fff;flex:none;display:grid;place-items:center;font-weight:600;font-size:.9rem}
@@ -178,7 +168,7 @@
   .peer-row{display:flex;align-items:center;gap:6px;min-width:0}
   .peer-logo{width:18px;height:18px;flex:none;border-radius:4px;opacity:.92}
   .bar .peer-name{font-weight:600;font-size:var(--fs-body);line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .bar .status{font-size:var(--fs-cap);color:var(--muted);display:flex;align-items:center;gap:6px;font-family:var(--mono);min-width:0}
+  .bar .status{color:var(--muted);display:flex;align-items:center;gap:6px;font-family:var(--mono);min-width:0;font-size:var(--fs-cap);}
   .bar .status #statusText{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   /* one dot says it all: red offline, green online, amber while connecting; the full explanation is a tap away */
   .bar .status .led{width:8px;height:8px;border-radius:50%;background:var(--bad);flex:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--bad) 22%,transparent)}
@@ -209,9 +199,9 @@
   .tabadd{flex:none;border:1px dashed var(--line);background:none;color:var(--muted);border-radius:50%;width:30px;height:30px;font-size:1.1rem;cursor:pointer}
   .tabadd:hover{border-color:var(--accent);color:var(--accent)}
   #join.adding #pinField,#join.adding #rememberWrap,#join.adding #bioBtn{display:none!important}
-  .log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;min-height:0;position:relative;z-index:1;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+  .log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;min-height:0;position:relative;z-index:1;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:manipulation;}
   .bubble{max-width:82%;padding:9px 12px;border-radius:var(--r-m);font-size:var(--fs-body);word-wrap:break-word;overflow-wrap:anywhere;position:relative;touch-action:pan-y}
-  .log{touch-action:manipulation}
+  
   /* swipe right to reply: the bubble follows the finger, an arrow appears once it is far enough */
   .bubble.swiping{will-change:transform}
   .bubble.swipe-ready::before{content:"↩";position:absolute;left:-30px;top:50%;transform:translateY(-50%);font-size:1.1rem;color:var(--accent)}
@@ -229,7 +219,7 @@
   .rx{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;font-size:var(--fs-sec);line-height:1.4;padding:2px 9px;min-height:26px;cursor:pointer;font-family:inherit}
   .rx.mine{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
   /* the reaction picker (double tap / double click on a message) */
-  .rx-pick{position:fixed;z-index:70;display:flex;flex-wrap:wrap;align-items:center;gap:0;padding:5px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:0 10px 30px rgba(0,0,0,.28);max-width:calc(100vw - 16px)}
+  .rx-pick{position:fixed;z-index:70;display:flex;gap:0;background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.28);flex-direction:column;align-items:stretch;flex-wrap:nowrap;border-radius:var(--r-m);padding:6px;width:max-content;max-width:calc(100vw - 16px);}
   .rx-pick[hidden]{display:none}
   .rx-quick{display:flex}
   .rx-pick button{width:40px;height:40px;border:0;border-radius:50%;background:transparent;font-size:1.4rem;line-height:1;cursor:pointer;display:grid;place-items:center;font-family:inherit;color:var(--fg)}
@@ -256,7 +246,7 @@
   .exp-menu .exp-note{margin:6px 8px 2px;font-size:var(--fs-cap);color:var(--muted);line-height:1.35}
   /* a kept photo, in the chat */
   /* the composer: + / keyboard, a rounded field, camera and mic while empty, send once typed */
-  .composer{gap:6px;align-items:flex-end;padding-left:8px;padding-right:10px}
+  .composer{padding-left:8px;padding-right:10px;flex:none;display:flex;gap:8px;align-items:center;padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--surface);position:relative;}
   .cmp-plus,.cmp-ico{width:40px;height:44px;flex:none;border:0;background:transparent;color:var(--fg);display:grid;place-items:center;cursor:pointer;border-radius:50%;padding:0;-webkit-tap-highlight-color:transparent}
   .cmp-plus .ico{width:27px;height:27px;stroke-width:1.7} .cmp-ico .ico{width:25px;height:25px;stroke-width:1.7}
   .cmp-plus .ic-kbd{display:none;width:26px;height:26px} .composer.panel .cmp-plus .ic-plus{display:none} .composer.panel .cmp-plus .ic-kbd{display:block}
@@ -303,7 +293,7 @@
   .voteb .po.rsvp.on{opacity:1;background:rgba(127,127,127,.22)}
   .evt .ics{margin-top:10px}
   .poll-opts{display:flex;flex-direction:column;gap:8px}
-  .poll-opts input{width:100%;font-size:1rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-s);padding:10px 12px}
+  .poll-opts input{width:100%;font-size:1rem;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-s);padding:10px 12px;}
   .chk{display:flex;align-items:center;gap:8px;font-size:var(--fs-sec);color:var(--fg);margin:0;cursor:pointer}
   .chk input{width:18px;height:18px;accent-color:var(--accent)}
   .evt-sel{width:100%;padding:10px 12px;font-size:1rem}
@@ -362,7 +352,7 @@
   .call-stage .pname{position:absolute;left:10px;bottom:10px;font-size:var(--fs-sec);font-weight:600;background:rgba(0,0,0,.45);padding:3px 9px;border-radius:999px}
   .call-top{position:absolute;top:0;left:0;right:0;padding:calc(18px + env(safe-area-inset-top,0px)) 20px 18px;text-align:center;background:linear-gradient(rgba(7,7,12,.85),rgba(7,7,12,0));z-index:2;pointer-events:none}
   .call-name{font-size:var(--fs-display);font-weight:700}
-  .call-status{font-size:var(--fs-sec);opacity:.8;margin-top:3px;font-family:var(--mono)}
+  .call-status{font-size:var(--fs-sec);opacity:.8;margin-top:3px;font-family:var(--mono);}
   .call-local{position:absolute;right:14px;top:calc(96px + env(safe-area-inset-top,0px));width:28%;max-width:150px;aspect-ratio:3/4;object-fit:cover;border-radius:var(--r-m);background:#000;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:3;transform:scaleX(-1)}
   .call-local[hidden]{display:none}
   .call-ctl{position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:center;gap:18px;padding:22px 20px calc(28px + env(safe-area-inset-bottom,0px));background:linear-gradient(rgba(7,7,12,0),rgba(7,7,12,.85));z-index:3}
@@ -374,7 +364,7 @@
   .cbtn.on{background:#fff;color:#111}
   .cbtn.end{background:#dc2626} .cbtn.end .ico{transform:rotate(135deg)}
   .cbtn.ok{background:#16a34a;animation:ringPulse 1.2s ease-in-out infinite}
-  .call-ctl.incoming{gap:56px}
+  .call-ctl.incoming{gap:30px;}
   @keyframes ringPulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(22,163,74,.6)}50%{transform:scale(1.06);box-shadow:0 0 0 16px rgba(22,163,74,0)}}
   .call-banner{display:flex;align-items:center;gap:10px;padding:8px 12px;background:color-mix(in srgb,var(--ok) 14%,var(--surface));border-bottom:1px solid var(--line);font-size:var(--fs-sec);font-weight:600}
   .call-banner[hidden]{display:none}
@@ -423,17 +413,16 @@
   .wire .wl{font-size:var(--fs-cap);letter-spacing:.06em;text-transform:uppercase;color:#6f7f8f;margin-bottom:3px}
   .wire .wc{word-break:break-all;max-height:52px;overflow-y:auto;color:#8aa0b4}
 
-  .composer{flex:none;display:flex;gap:8px;align-items:center;padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--surface)}
   body.kb .composer{padding-bottom:10px}          /* keyboard open: it covers the home-indicator area */
   /* While the app is shown, the document itself never scrolls: the keyboard must not be able to push the
      header off-screen (iOS shifts the page to reveal the input otherwise). Lists scroll inside. */
   body.in-app{position:fixed;inset:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
   body.in-app #app{height:100%;height:100dvh;min-height:0;max-height:100dvh;transform-origin:top left}   /* min-height:0 — .screen's min-height:100dvh would otherwise keep the app behind the keyboard */
-  .composer textarea{flex:1;min-width:0;font-size:1rem;font-family:var(--ui);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:22px;padding:10px 15px;resize:none;max-height:120px;line-height:1.35;overflow-y:auto}
+  .composer textarea{flex:1;min-width:0;font-size:1rem;font-family:var(--ui);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:22px;padding:10px 15px;resize:none;max-height:120px;line-height:1.35;overflow-y:auto;}
   .composer textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
   .composer textarea:disabled{opacity:.6}
   .attach{width:42px;height:42px;flex:none;border:1px solid var(--line);border-radius:50%;background:var(--surface-2);color:var(--fg);font-size:1.15rem;display:grid;place-items:center}
-  .attach:disabled{opacity:.5}
+  .attach:disabled{opacity:.5;}
   #recBar{display:none}
   .composer.rec>:not(#recBar){display:none}
   .composer.rec #recBar{display:flex;flex:1;align-items:center;gap:10px;min-width:0}
@@ -449,7 +438,7 @@
   .bubble.sent .vfill{background:#fff}
   .vdur{font-size:var(--fs-cap);opacity:.8;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
   .attach.armed{background:var(--accent-bg);color:#fff;border-color:transparent}
-  .attach:disabled{opacity:.5}
+  
   .send{width:44px;height:44px;flex:none;border:none;border-radius:50%;background:var(--accent-bg);color:#fff;font-size:1.1rem;display:grid;place-items:center}
   .send:disabled{opacity:.5}
 
@@ -504,7 +493,7 @@
   .tgl:disabled{opacity:.45;cursor:default} .tgl:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .ask-card{max-width:400px} .ask-card h2{font-size:var(--fs-title);margin:0 0 8px} .ask-text{white-space:pre-line;color:var(--muted);font-size:var(--fs-sec);line-height:1.45;margin:0 0 14px}
   .ask-row{display:flex;gap:10px;justify-content:flex-end;margin-top:6px} .ask-row .btn,.ask-row .ghost{min-width:96px}
-  .btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+  .btn.danger{border-color:var(--bad);color:#fff;background:var(--bad);}
   .rectime{font-variant-numeric:tabular-nums;color:var(--muted);font-size:var(--fs-sec);margin-left:8px}
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   .safety-emoji{font-size:1.9rem;letter-spacing:.18em;text-align:center;margin:10px 0 4px}
@@ -516,17 +505,17 @@
   .ubadge{display:inline-block;margin-left:6px;min-width:18px;padding:0 6px;border-radius:999px;background:var(--accent-bg);color:#fff;font-size:.7em;font-weight:700;line-height:18px;text-align:center;vertical-align:middle}
   #verifyClose{margin-top:14px}
   /* contacts sidebar */
-  #app{flex-direction:row;height:100dvh;overflow:hidden;align-items:stretch}
+  
   .main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;height:100%}
   .sidebar{width:236px;flex:none;display:flex;flex-direction:column;background:var(--surface);border-right:1px solid var(--line);min-height:0;height:100%;position:relative;padding-top:env(safe-area-inset-top,0px)}
   .fab{display:none;position:absolute;right:18px;bottom:calc(20px + env(safe-area-inset-bottom,0px));width:56px;height:56px;border-radius:50%;background:var(--accent-bg);color:#fff;border:none;font-size:1.9rem;line-height:1;box-shadow:0 10px 26px rgba(67,56,202,.5);cursor:pointer;z-index:10}
   .sb-brand{display:flex;align-items:center;justify-content:center;gap:9px;padding:16px 12px 12px;border-bottom:1px solid var(--line)}
   .sb-logo{width:30px;height:30px;filter:drop-shadow(0 2px 6px rgba(0,0,0,.3))}
   .sb-word{font-weight:800;font-size:1.2rem;letter-spacing:.01em;background:linear-gradient(90deg,var(--fg),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
-  .sb-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px 4px;font-weight:700;font-size:var(--fs-cap);color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
-  .sb-head button{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:var(--r-s);width:28px;height:28px;font-size:1.1rem;line-height:1;cursor:pointer}
+  .sb-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--fs-display);font-weight:800;letter-spacing:-.01em;text-transform:none;color:var(--fg);padding:14px 14px 8px;}
+  .sb-head button{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);font-size:1.1rem;line-height:1;cursor:pointer;width:44px;height:44px;border-radius:var(--r-m);}
   .sb-head button:hover{border-color:var(--accent);color:var(--accent)}
-  .sb-actions{display:flex;gap:6px;align-items:center}
+  .sb-actions{display:flex;gap:6px;align-items:center;flex:none;margin-left:auto;}
   .inv-link{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--fs-cap);text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
   .lbl-sub{font-weight:400;opacity:.65}
   #invLinkField .linkbtn{margin-top:6px}
@@ -547,13 +536,12 @@
   .cmp .sub{display:block;font-weight:400;color:var(--muted);font-size:var(--fs-cap)}
   .sb-list{flex:1;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:2px 6px 12px;display:flex;flex-direction:column;gap:1px}
   /* conversation rows, WhatsApp/Signal style: avatar · name + time · last message + unread */
-  .ct{display:flex;align-items:center;gap:12px;padding:10px 10px;border-radius:var(--r-m);cursor:pointer;color:var(--fg);text-align:left}
+  .ct{display:flex;align-items:center;gap:12px;padding:10px 10px;border-radius:var(--r-m);cursor:pointer;color:var(--fg);text-align:left;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}   /* no selection, no callout: a long press opens the colour palette */
   .ct:hover{background:var(--surface-2)}
   .ct.active{background:color-mix(in srgb, var(--accent) 14%, transparent)}
   .ct.active .cn{color:var(--accent)}
   .ct .ava{width:46px;height:46px;border-radius:50%;background:var(--accent-bg);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:1.1rem;flex:none}
   .ct .ava.grp{background:linear-gradient(135deg,#7c3aed,#4338ca);font-size:1.25rem}
-  .ct{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}   /* a long press opens the colour palette */
   .col-pick{position:fixed;z-index:70;width:236px;padding:10px 10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-m);box-shadow:0 10px 30px rgba(0,0,0,.28)}
   .col-pick[hidden]{display:none}
   .col-pick .col-t{font-size:var(--fs-cap);font-weight:700;color:var(--muted);margin:0 2px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -617,7 +605,7 @@
   .menu-sub .menu-item{padding:9px 12px;font-size:var(--fs-sec)}
   .menu-item[hidden]{display:none}
   /* the "no chat open" placeholder inside .main — scoped to the element, NOT the .home state class on #app */
-  #home{display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px;text-align:center}
+  #home{display:none;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:30px;text-align:center;min-height:0;overflow-y:auto;}
   #home .hlogo{width:72px;height:72px}
   #home h2{color:var(--fg);font-size:var(--fs-title);margin:4px 0 0}
   #home p{color:var(--muted);font-size:var(--fs-sec);max-width:300px;line-height:1.5;margin:0}
@@ -640,17 +628,16 @@
     #app.home .fab{display:flex;align-items:center;justify-content:center}
     .sb-backdrop{display:none!important}
   }
-  @media (prefers-reduced-motion:reduce){*{transition:none!important} #join .glow{animation:none!important}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important} }
   /* ---- v36: calmer, more readable ---- */
   .bar .status,.call-status{font-family:var(--ui)}
-  .bar .status{font-size:var(--fs-cap)}
+  
   #chatBrand,#verifyBtn{display:none!important}
-  .sb-head{font-size:var(--fs-display);font-weight:800;letter-spacing:-.01em;text-transform:none;color:var(--fg);padding:14px 14px 8px}
-  .sb-head button{width:44px;height:44px;border-radius:var(--r-m)}
+
   .sb-actions #sbLock .ico,.sb-actions #sbSettings .ico,.sb-actions #sbNew .ico{width:19px;height:19px}
   @media (max-width:720px){ #sbNew{display:none} }            /* the round + at the bottom does it on a phone */
   /* the message menu: emojis on top, labelled actions below */
-  .rx-pick{flex-direction:column;align-items:stretch;flex-wrap:nowrap;border-radius:var(--r-m);padding:6px;width:max-content;max-width:calc(100vw - 16px)}
+  
   .rx-top{display:flex;align-items:center}
   .rx-acts{display:flex;flex-direction:column;border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
   .rx-pick .rx-act{width:100%;height:auto;border-radius:var(--r-s);display:flex;align-items:center;justify-content:flex-start;gap:12px;padding:9px 12px;font-size:var(--fs-body);font-weight:500}
@@ -666,7 +653,7 @@
   .jump .ico{width:20px;height:20px}
   .jump-n{position:absolute;top:-6px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--accent-bg);color:#fff;font-size:var(--fs-cap);font-weight:700;display:grid;place-items:center}
   .jump-n[hidden]{display:none}
-  .composer{position:relative}
+  
   /* incoming call: labels under the buttons, the caller's avatar breathing */
   .call-ctl .cact{display:flex;flex-direction:column;align-items:center;gap:8px;color:#fff;font-size:var(--fs-sec);font-weight:600;opacity:.92}
   .call-ctl .cact[hidden]{display:none}
@@ -750,7 +737,7 @@
   #join[data-mode="welcome"] .promise b,#join[data-boot="welcome"]:not([data-mode]) .promise b{font-size:var(--fs-sec)}
   #join[data-mode="welcome"] .promise .ps,#join[data-boot="welcome"]:not([data-mode]) .promise .ps{font-size:var(--fs-cap)}
   /* ---- v38: delete a message, search, icons instead of emojis ---- */
-  :root{--users-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E")}
+  
   .ico.ii{width:1.05em;height:1.05em;vertical-align:-.17em;margin-right:.3em}
   .sys .ico.ii{width:13px;height:13px;vertical-align:-2px}
   .cm .ico.ii,.sr-s .ico.ii{width:14px;height:14px;vertical-align:-2px;margin-right:3px;opacity:.85}
@@ -804,29 +791,28 @@
   .rx-pick.no-rx .rx-acts{border-top:none;margin-top:0;padding-top:0}
   .del-card{max-width:340px}
   .del-h{font-size:var(--fs-title);font-weight:700;margin:0}
-  .btn.danger{background:var(--bad)}
+  
   .ghost.danger-t{color:var(--bad)}
   .del-card [hidden]{display:none}
   .bubble.gone{background:var(--surface-2)!important;color:var(--muted)!important;border:1px solid var(--line)}
   .bubble.gone .gone-t{display:flex;align-items:center;gap:6px;font-style:italic;font-size:var(--fs-body)}
   .bubble.gone .gone-t .ico{width:15px;height:15px}
   .bubble.gone .meta{color:var(--muted)!important}
-  [hidden]{display:none!important}
+  [hidden]{display:none!important}   /* hidden means hidden, whatever display a class gives (v39: the iPhone row and the Face ID button showed) */
   .bubble .lnk{color:inherit;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px;word-break:break-all}
   /* v40: a checkbox inside a .field is a checkbox, not a text field (it took the full width: "4-digit code" was pushed off screen) */
   .field input[type=checkbox],#join .field input[type=checkbox]{width:20px;height:20px;min-width:20px;padding:0;margin:0;flex:none;border:none;background:none;border-radius:4px;accent-color:var(--accent-bg);font-size:inherit}
-  .inv-opts{row-gap:8px}
+  
   /* v40: the chats list beside a chat (computer, iPad, a phone on its side): title and buttons always fit */
   .sb-head>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .sb-actions{flex:none;margin-left:auto}
+  
   @media (min-width:721px){
     .sidebar{width:clamp(264px,27vw,330px)}
     .sb-head{font-size:var(--fs-title);flex-wrap:wrap;row-gap:8px}
     .sb-head button{width:34px;height:34px}
   }
-  #home{min-height:0;overflow-y:auto}
+  
   @media (max-height:520px){ #home{justify-content:flex-start;padding:14px 20px;gap:8px} #home .hlogo{display:none} }
-  .inv-opt{min-width:0}   /* hidden means hidden, whatever display a class gives (v39: the iPhone row and the Face ID button showed) */
   /* ---- v39: big animated emojis, answer without camera, weak connection ---- */
   .bubble.jumbo{background:transparent!important;box-shadow:none!important;border:none!important;padding:0 2px 2px}
   .bubble.jumbo>.txt{display:block;line-height:1.12;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",var(--ui)}
@@ -834,13 +820,13 @@
   .bubble.jumbo .meta,.bubble.jumbo .meta .st{color:var(--muted)!important}
   .bubble.jumbo.sent .meta{justify-content:flex-end}
   .bubble.jumbo .je{display:inline-block;transform-origin:50% 75%}
-  .bubble.jumbo.play .je{will-change:transform}
-  .bubble.jumbo .je[data-anim=wave]{transform-origin:75% 85%}
+  .bubble.jumbo.play .je{will-change:transform;animation:jpop .55s cubic-bezier(.3,1.6,.5,1) var(--jd,0ms) both, var(--ja,jhop) 1.05s ease-in-out calc(var(--jd,0ms) + .5s) 2;}
+  .bubble.jumbo .je[data-anim=wave]{transform-origin:75% 85%;}
   .bubble.jumbo .je[data-anim=hop]{--ja:jhop} .bubble.jumbo .je[data-anim=beat]{--ja:jbeat} .bubble.jumbo .je[data-anim=laugh]{--ja:jlaugh}
   .bubble.jumbo .je[data-anim=nod]{--ja:jnod} .bubble.jumbo .je[data-anim=wave]{--ja:jwave} .bubble.jumbo .je[data-anim=flare]{--ja:jflare}
   .bubble.jumbo .je[data-anim=party]{--ja:jparty} .bubble.jumbo .je[data-anim=sad]{--ja:jsad} .bubble.jumbo .je[data-anim=wow]{--ja:jwow}
   .bubble.jumbo .je[data-anim=bow]{--ja:jbow} .bubble.jumbo .je[data-anim=angry]{--ja:jangry}
-  .bubble.jumbo.play .je{animation:jpop .55s cubic-bezier(.3,1.6,.5,1) var(--jd,0ms) both, var(--ja,jhop) 1.05s ease-in-out calc(var(--jd,0ms) + .5s) 2}
+  
   @keyframes jpop{0%{transform:scale(.15);opacity:0}60%{transform:scale(1.18);opacity:1}100%{transform:scale(1)}}
   @keyframes jhop{0%,100%{transform:translateY(0)}35%{transform:translateY(-16%)}60%{transform:translateY(0)}78%{transform:translateY(-5%)}}
   @keyframes jbeat{0%,100%{transform:scale(1)}18%{transform:scale(1.2)}32%{transform:scale(.95)}48%{transform:scale(1.14)}64%{transform:scale(1)}}
@@ -855,7 +841,6 @@
   @keyframes jangry{0%,100%{transform:translateX(0)}15%,55%{transform:translateX(-6%) rotate(-3deg)}35%,75%{transform:translateX(6%) rotate(3deg)}}
   @media (prefers-reduced-motion:reduce){.bubble.jumbo.play .je{animation:none}}
   .cbtn.nocam{background:rgba(255,255,255,.2)}
-  .call-ctl.incoming{gap:30px}
 
   .call-weak{position:absolute;left:50%;top:calc(96px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:7px;padding:7px 13px;border-radius:999px;background:rgba(180,83,9,.92);color:#fff;font-size:var(--fs-sec);font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.3);pointer-events:none;white-space:nowrap}
   .call-weak[hidden]{display:none}
@@ -1023,7 +1008,7 @@
     </div>
   </div>
 </div>
-<script src="/boot.js?v=45"></script>
+<script src="/boot.js?v=46"></script>
 
 <!-- CHAT -->
 <div class="screen" id="app">
@@ -1567,7 +1552,7 @@
 </div>
 
 <script src="/vendor/supabase-2.117.2.js"></script>
-<script src="/i18n.js?v=45"></script>
-<script src="/app.min.js?v=45"></script>
+<script src="/i18n.js?v=46"></script>
+<script src="/app.min.js?v=46"></script>
 </body>
 </html>

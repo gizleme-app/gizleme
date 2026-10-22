@@ -4,18 +4,33 @@ End-to-end scenarios: each `testNN.py` serves the app from the repository root, 
 small in-process emulator of the relay (Realtime presence + broadcast) and of the Edge Functions (accounts,
 vault, mailbox, push, TURN), and drives real Chromium instances with Playwright — two or three users
 pairing, writing, calling, locking, logging out. Every check prints `name: True/False`; a scenario passes
-when every check is `True` and no page error was recorded.
+when every check is `True` and no page error was recorded. A check whose value is neither (a string, a
+list) cannot fail, so `run.py` counts it as an error of the scenario — a value kept for the eye ends in
+`_v`. What every scenario does the same way (wait for the app after a sign-in, wait on a condition) comes
+from `harness.py`; the waits are conditional, so a loaded machine makes a scenario slower, not red.
 
 ```
-pip install playwright pillow numpy
+pip install playwright pillow numpy opencv-python-headless
 python -m playwright install --with-deps chromium
-python3 tests/run.py            # every scenario (≈ 10 min)
+python3 tests/run.py            # every scenario (≈ 20 min on a free machine)
 python3 tests/run.py 32 36      # a selection
 ```
 
-Node.js is needed for `test24` (it runs the service worker's notification composer in a VM). Scratch
-files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose names start with
-`safariIos_` only hold on iOS Safari and are reported but not counted.
+Node.js is needed for `test24` (it runs the service worker's notification composer in a VM) and `test33`
+(the voice codec straight from the source); OpenCV for `test35` (the QR code). Scratch files go to
+`$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`); every scenario's full output is kept there under
+`out/`. The contexts run in the Europe/Paris time zone whatever the machine's.
+
+The Edge Functions have their own tests, in Deno, against a stand-in for supabase-js (`tests/edge/`):
+
+```
+deno test --allow-env --allow-read --import-map=tests/edge/import_map.json tests/edge/
+```
+
+They load each function's `index.ts` unchanged (the import map points `jsr:@supabase/supabase-js@2` and
+`npm:web-push` to the fakes; `Deno.serve` is captured) and drive its handler with requests: accounts,
+sessions, rate limits, the mailbox and its batched read, blobs and acks with the session, the vault's
+set-once key and versioned contacts, push endpoints and targets, TURN credentials. No network needed.
 
 | Scenario | What it covers |
 |----------|----------------|

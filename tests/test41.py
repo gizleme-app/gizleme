@@ -1,6 +1,7 @@
 # Turkish: detected from the browser, every string translated (placeholders intact), switchable in Settings,
 # Turkish dates and initials (i → İ), notification texts, and the Turkish section of the privacy page.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -54,18 +55,18 @@ console.log(JSON.stringify({n:Object.keys(tr).length, miss:miss.slice(0,5), miss
 out=subprocess.run(["node","-e",NODE,SRC+"i18n.js"],capture_output=True,text=True)
 try: d=json.loads(out.stdout.strip())
 except Exception: d={"err":(out.stdout+out.stderr)[:300]}
-r["dict"]=d
+r["dict_v"]=d
 r["dict_complete"]= d.get("missN")==0 and d.get("badN")==0 and d.get("n",0)>=500
 with sync_playwright() as pw:
     b=pw.chromium.launch()
-    ctx=b.new_context(viewport={"width":414,"height":820}, locale="tr-TR"); p=ctx.new_page()
+    ctx=b.new_context(timezone_id=TZ, viewport={"width":414,"height":820}, locale="tr-TR"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept("Ilık")); ctx.add_init_script("window.__promptValue='Ilık';")
     p.goto(f"http://127.0.0.1:{port}/#i={inv}"); p.wait_for_timeout(500)
     r["tr_htmlLang"]= p.evaluate("()=>document.documentElement.lang")=="tr"
-    r["tr_button"]= p.eval_on_selector("#joinBtn","e=>e.textContent")
-    r["tr_buttonOk"]= r["tr_button"] in ("Hesap oluştur","Devam","Bağlan")
+    r["tr_button_v"]= p.eval_on_selector("#joinBtn","e=>e.textContent")
+    r["tr_buttonOk"]= r["tr_button_v"] in ("Hesap oluştur","Devam","Bağlan")
     r["tr_inviteHeadline"]= "Camille seni özel bir sohbete davet etti" in p.evaluate("()=>document.body.innerText")
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","ilker"); p.fill("#dispInput","ilker"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","ilker"); p.fill("#dispInput","ilker"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p, 1500)
     p.click("#backHome"); p.wait_for_timeout(300)
     r["tr_listHeader"]= p.eval_on_selector(".sb-head > span:first-child","e=>e.textContent.trim()")=="Sohbetler"
     r["tr_initialDotted"]= p.evaluate("()=>window.__gz.up('i')")=="İ" and p.evaluate("()=>window.__gz.up('ı')")=="I"
@@ -91,18 +92,18 @@ with sync_playwright() as pw:
     p.select_option("#langSel","tr"); p.wait_for_timeout(250)
     r["switch_backTr"]= p.eval_on_selector("#settingsModal h1","e=>e.textContent")=="Ayarlar" and p.evaluate("()=>localStorage.getItem('gz-lang')")=="tr"
     # the saved choice wins over the browser locale
-    c2=b.new_context(viewport={"width":414,"height":820}, locale="en-US"); p2=c2.new_page(); p2.goto(f"http://127.0.0.1:{port}/"); p2.wait_for_timeout(200)
+    c2=b.new_context(timezone_id=TZ, viewport={"width":414,"height":820}, locale="en-US"); p2=c2.new_page(); p2.goto(f"http://127.0.0.1:{port}/"); p2.wait_for_timeout(200)
     p2.evaluate("()=>localStorage.setItem('gz-lang','tr')"); p2.reload(); p2.wait_for_timeout(400)
     r["saved_beats_locale"]= p2.evaluate("()=>window.__gz.lang()")=="tr"
     c2.close()
     # a browser whose first language is German but second Turkish → Turkish
-    c3=b.new_context(viewport={"width":414,"height":820}, locale="de-DE", extra_http_headers={"Accept-Language":"de-DE,tr;q=0.8"}); p3=c3.new_page()
+    c3=b.new_context(timezone_id=TZ, viewport={"width":414,"height":820}, locale="de-DE", extra_http_headers={"Accept-Language":"de-DE,tr;q=0.8"}); p3=c3.new_page()
     p3.add_init_script("Object.defineProperty(navigator,'languages',{get:()=>['de-DE','tr-TR','en']})")
     p3.goto(f"http://127.0.0.1:{port}/"); p3.wait_for_timeout(300)
     r["second_language_tr"]= p3.evaluate("()=>window.__gz.lang()")=="tr" and p3.eval_on_selector("#joinBtn","e=>e.textContent")!="Create account"
     c3.close()
     # privacy page: a Turkish reader lands on the Turkish section
-    c4=b.new_context(viewport={"width":414,"height":820}, locale="tr-TR"); p4=c4.new_page()
+    c4=b.new_context(timezone_id=TZ, viewport={"width":414,"height":820}, locale="tr-TR"); p4=c4.new_page()
     p4.goto(f"http://127.0.0.1:{port}/privacy.html"); p4.wait_for_timeout(300)
     r["privacy_tr"]= p4.evaluate("()=>location.hash")=="#tr" and p4.eval_on_selector("#tr h1","e=>getComputedStyle(e).display!=='none' && e.textContent")=="Gizlilik"
     c4.close()

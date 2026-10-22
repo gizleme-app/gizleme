@@ -7,6 +7,7 @@
 # contact can't come back from another device through the merge); a member removed then invited back is not thrown out
 # by the old rotation; the history's newest record is the newest by time (DB v3 index).
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -166,7 +167,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -213,7 +214,7 @@ def has(t): return "()=>[...document.querySelectorAll('"+OPEN+" .bubble .txt')].
 def count(t): return "()=>[...document.querySelectorAll('"+OPEN+" .bubble .txt')].filter(e=>e.textContent==="+json.dumps(t)+").length"
 def hist(P): return P.evaluate("()=>window.__gz.histOf()")
 def lock(P): P.evaluate("()=>document.getElementById('sbLock').click()"); P.wait_for_timeout(700)
-def unlock(P): P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(1500)
+def unlock(P): P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P)
 try:
  with sync_playwright() as pw:
     b=pw.chromium.launch()
@@ -221,19 +222,19 @@ try:
     def ctxp(w=390, h=780, scheme="dark", locale="en-US", ua=None, dialogs=True):
         kw=dict(viewport={"width":w,"height":h},locale=locale,color_scheme=scheme)
         if ua: kw["user_agent"]=ua
-        c=b.new_context(**kw); c.add_init_script(NOINST); p=c.new_page(); p.on("pageerror",lambda e:errs.append(str(e)+" @ "+str(getattr(e,"stack","") or "")[:300]))
+        c=b.new_context(timezone_id=TZ, **kw); c.add_init_script(NOINST); p=c.new_page(); p.on("pageerror",lambda e:errs.append(str(e)+" @ "+str(getattr(e,"stack","") or "")[:300]))
         if dialogs: p.on("dialog",lambda d:d.accept())
         return c,p
     def register(p, name):
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300); p.evaluate(SKIP)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
     def invite(P):
         P.evaluate("()=>{ const b=document.getElementById('backHome'); if(b) b.click(); }"); P.wait_for_timeout(200)
         P.click("#sbNew"); P.wait_for_timeout(300); l=P.eval_on_selector("#invLinkOut","e=>e.value"); P.click("#joinBtn"); P.wait_for_timeout(600); return l
     def open_link(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     def join_group(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?g=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?g=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     cA,A=ctxp(w=1000,h=820); register(A,"oguz")
     cB,B=ctxp(w=1000,h=820); register(B,"serap")
     l1=invite(A); open_link(B,l1)
@@ -252,7 +253,7 @@ try:
     r["newest_by_time"]= last=="salut toi"
     # ---- 2. the composer keeps a draft per chat ----
     A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(200)
-    A.click("#sbNew"); A.wait_for_timeout(300); A.click(".nctab[data-nc='group']"); A.wait_for_timeout(200); A.fill("#gnameInput","Les potes"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.click("#sbNew"); A.wait_for_timeout(300); A.click(".nctab[data-nc='group']"); A.wait_for_timeout(200); A.fill("#gnameInput","Les potes"); A.click("#joinBtn"); entered(A)
     r["group_open"]= wait_for(A,"()=>{ const x=window.__gz.room(); return x && x.group; }",8000)
     A.fill("#msgInput","brouillon du groupe")
     A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(200)
@@ -289,7 +290,7 @@ try:
     C.goto(f"http://127.0.0.1:{port}/"); C.wait_for_timeout(300); C.evaluate(SKIP); C.wait_for_timeout(200)
     C.evaluate("()=>{ window.__vaultDown=true; }")
     C.evaluate("()=>document.getElementById('switchLink').click()"); C.wait_for_timeout(200)
-    C.fill("#userInput","serap"); C.fill("#pwInput","password123"); C.click("#joinBtn"); C.wait_for_timeout(2500)
+    C.fill("#userInput","serap"); C.fill("#pwInput","password123"); C.click("#joinBtn"); entered(C, 1500)
     st=C.evaluate("()=>window.__gz.abk()")
     r["ak_kept_until_opened"]= st["ak"] and not st["abk"] and not st["acct"] and st["pending"]
     r["empty_list_says_so"]= "restored yet" in C.evaluate("()=>document.querySelector('.sb-list').textContent")

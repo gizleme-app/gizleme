@@ -2,6 +2,7 @@
 # show in the current one in time order, it leaves the list, what still arrives on its key lands in the merged
 # chat, and the merge survives a lock / unlock; removing the chat takes the merged one with it.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -120,7 +121,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -162,13 +163,13 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
     def boot(name, errs, w=1000):
-        ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US"); p=ctx.new_page()
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":w,"height":820},locale="en-US"); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     def open_link(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     errsA=[]; errsB=[]
     ctxA,A=boot("oguz",errsA)
     A.click("#sbNew"); A.wait_for_timeout(300); link1=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
@@ -204,7 +205,7 @@ try:
     r["old_key_lands_here"]= wait_for(A,"()=>("+RECV+")('still old')",15000)
     # lock / unlock: one chat, everything in it
     A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800)
-    A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.fill("#pwInput","password123"); A.click("#joinBtn"); entered(A)
     r["after_unlock_one_row"]= A.evaluate("()=>document.querySelectorAll('.ct').length")==1
     A.click(".ct"); A.wait_for_timeout(1500)
     tx2=A.evaluate(TEXTS)

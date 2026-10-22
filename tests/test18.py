@@ -1,6 +1,7 @@
 # Lot A checks: CSP compatibility, contacts encrypted at rest (lock/logout residue), anti-replay on the live
 # path, fragment deep links, photo upload through the relay function.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, re, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -72,26 +73,26 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}); p=ctx.new_page()
     errs=[]; csp_viol=[]; p.on("pageerror",lambda e:errs.append(str(e)))
     p.on("console",lambda m: csp_viol.append(m.text) if "Content Security Policy" in m.text else None)
     p.on("dialog",lambda d:d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Majins',ck:ck,ts:Date.now()}]))",[CK])   # legacy plaintext from an older build
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
     # --- contacts at rest ---
     r["legacyPlaintextRemoved"]= p.evaluate("()=>localStorage.getItem('gz-contacts')===null && localStorage.getItem('gz-groups')===null")
     r["encryptedBlobPresent"]= p.evaluate("()=>{const r=JSON.parse(localStorage.getItem('gz-local')||'null'); return !!(r&&r.ct&&r.iv);}")
     r["blobHasNoKeyInClear"]= p.evaluate("([ck])=>!(localStorage.getItem('gz-local')||'').includes(ck.slice(0,12))",[CK])
-    r["contactsInMemory"]= p.evaluate("()=>window.__gz.contacts().map(c=>c.name)")
+    r["contactsInMemory"]= (p.evaluate("()=>window.__gz.contacts().map(c=>c.name)"))==['Majins']
     # --- live chat with the fake peer: anti-replay ---
     p.click(".ct"); p.wait_for_timeout(600)
     me=p.evaluate("()=>window.__chan._me.id"); ourPub=p.evaluate("()=>window.__chan._me.pub")
     peerPub=p.evaluate("()=>window.__peer.init()")
     tag=p.evaluate("([ck,pub])=>window.__tag(ck,pub)",[CK,peerPub])
     p.evaluate("([a,t])=>window.__sync({k1:[{id:'a1',name:'Majins',u:'other-acct',pub:a,tag:t}]})",[peerPub,tag]); p.wait_for_timeout(600)
-    r["pairedVerified"]= p.eval_on_selector("#statusText","e=>e.textContent")
+    r["pairedVerified"]= (p.eval_on_selector("#statusText","e=>e.textContent"))=='online'
     p.evaluate("([pub])=>window.__peer.root(pub)",[ourPub])
     def recv(): return p.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
     def fails(): return p.eval_on_selector_all(".log .bubble.fail","els=>els.map(e=>e.textContent)")
@@ -128,11 +129,11 @@ with sync_playwright() as pw:
     r["lockedContactsCleared"]= p.evaluate("()=>window.__gz.contacts().length")==0
     r["lockedBlobStays"]= p.evaluate("()=>!!localStorage.getItem('gz-local')")
     p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1200)
-    r["unlockContactsBack"]= p.evaluate("()=>window.__gz.contacts().map(c=>c.name)")
+    r["unlockContactsBack"]= (p.evaluate("()=>window.__gz.contacts().map(c=>c.name)"))==['Majins']
     # --- deep links in the fragment ---
     nk=p.evaluate("([ck])=>(async()=>{const enc=new TextEncoder();const k=await crypto.subtle.importKey('raw',Uint8Array.from(atob(ck),c=>c.charCodeAt(0)),'HKDF',false,['deriveBits']);const bits=await crypto.subtle.deriveBits({name:'HKDF',hash:'SHA-256',salt:enc.encode('vesper/v1'),info:enc.encode('gz-notify/v1')},k,256);return btoa(String.fromCharCode(...new Uint8Array(bits))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');})()",[CK])
     p.goto(f"http://127.0.0.1:{port}/?x=2#n={nk}"); p.wait_for_timeout(500)
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p)
     r["hashNotifyOpensContact"]= p.eval_on_selector("#peerName","e=>e.textContent").startswith("Majins")
     p.click("#sbNew"); p.wait_for_timeout(300); p.click("#advRoom"); p.wait_for_timeout(150); p.fill("#roomInput","QRST23"); p.click("#joinBtn"); p.wait_for_timeout(600)
     r["roomInFragment"]= p.evaluate("()=>location.hash==='#room=QRST23' && location.search===''")
@@ -140,7 +141,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.wait_for_timeout(150); p.click("#logoutBtn"); p.wait_for_timeout(1500)
     r["logoutLocalGone"]= p.evaluate("()=>localStorage.getItem('gz-local')===null && localStorage.getItem('gz-mkpin')===null && localStorage.getItem('gz-abk')===null")
     r["logoutIdbGone"]= p.evaluate("async()=>!(await indexedDB.databases()).some(d=>d.name==='vesper')")
-    r["cspViolations"]= csp_viol[:3]
+    r["cspViolations"]= (csp_viol[:3])==[]
     r["errors"]= errs[:3]
     print("RESULTS")
     for k,v in r.items(): print(f"  {k}: {v}")

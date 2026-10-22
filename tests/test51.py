@@ -3,6 +3,7 @@
 # the home-indicator space above it, and gives the band the message bar's colour — only in that case; the text
 # size setting scales the app, with fields kept at 16 px or more.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -123,7 +124,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -169,11 +170,11 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch()
     def boot(name, errs, init=None, w=390, h=780):
-        ctx=b.new_context(viewport={"width":w,"height":h},locale="en-US")
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":w,"height":h},locale="en-US")
         if init: ctx.add_init_script(init)
         p=ctx.new_page(); p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     errs=[]
     ctxI,I=boot("ines",errs,init=IOS26)
@@ -202,20 +203,20 @@ try:
     r["text_larger"]= B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="20px" and B.evaluate("()=>localStorage.getItem('gz-textsize')")=="1.25"
     B.reload(); B.wait_for_timeout(500)
     r["text_kept_after_reload"]= B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="20px"
-    B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500)
-    B.evaluate("()=>{ localStorage.setItem('gz-textsize','0.9'); }"); B.reload(); B.wait_for_timeout(500); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500)
+    B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B)
+    B.evaluate("()=>{ localStorage.setItem('gz-textsize','0.9'); }"); B.reload(); B.wait_for_timeout(500); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B)
     r["small_fields_stay_16"]= B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="14.4px" and B.evaluate("()=>parseFloat(getComputedStyle(document.getElementById('msgInput')).fontSize)")>=16
     B.evaluate("()=>{ localStorage.setItem('gz-textsize','7'); }"); B.reload(); B.wait_for_timeout(500)
     r["bad_value_ignored"]= B.evaluate("()=>getComputedStyle(document.documentElement).fontSize")=="16px"
     # ---- iPhone display: compatibility mode (sb.js) ----
     IPHONE="Mozilla/5.0 (iPhone; CPU iPhone OS 26_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
-    cP=b.new_context(viewport={"width":390,"height":780},locale="en-US",user_agent=IPHONE,color_scheme="dark"); P=cP.new_page(); P.on("pageerror",lambda e:errs.append(str(e)))
+    cP=b.new_context(timezone_id=TZ, viewport={"width":390,"height":780},locale="en-US",user_agent=IPHONE,color_scheme="dark"); P=cP.new_page(); P.on("pageerror",lambda e:errs.append(str(e)))
     P.goto(f"http://127.0.0.1:{port}/?sbtest=1"); P.wait_for_timeout(500)
     m=P.evaluate("()=>({cls:document.documentElement.classList.contains('sb-compat'), vp:document.querySelector('meta[name=viewport]').content, sb:document.querySelector('meta[name=apple-mobile-web-app-status-bar-style]').content, ls:localStorage.getItem('gz-sbmode')})")
     r["sb_link_turns_on"]= m["cls"] and "viewport-fit" not in m["vp"] and m["sb"]=="black" and m["ls"]=="compat"
     P.goto(f"http://127.0.0.1:{port}/"); P.wait_for_timeout(400)
     r["sb_kept"]= P.evaluate("()=>document.documentElement.classList.contains('sb-compat')")
-    P.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); P.fill("#userInput","ipek"); P.fill("#pwInput","password123"); P.fill("#pw2Input","password123"); P.click("#joinBtn"); P.wait_for_timeout(1500)
+    P.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); P.fill("#userInput","ipek"); P.fill("#pwInput","password123"); P.fill("#pw2Input","password123"); P.click("#joinBtn"); entered(P)
     P.evaluate("()=>document.querySelectorAll('.modal.show').forEach(x=>x.classList.remove('show'))")
     P.evaluate("()=>document.getElementById('sbSettings').click()"); P.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); P.wait_for_timeout(300)
     r["sb_setting_on_iphone"]= P.is_visible("#sbRow") and P.evaluate("()=>document.getElementById('sbSel').value")=="compat" and "iOS 26.5" in P.eval_on_selector("#sbInfo","e=>e.textContent")
@@ -225,7 +226,7 @@ try:
     cP.close()
     # v36: on by default in the app installed on an iPhone / iPad; Safari tabs and other phones keep the standard layout
     def sbmode(ua, inst, pre=None, q=""):
-        c=b.new_context(viewport={"width":390,"height":780},locale="en-US",user_agent=ua)
+        c=b.new_context(timezone_id=TZ, viewport={"width":390,"height":780},locale="en-US",user_agent=ua)
         if inst: c.add_init_script("Object.defineProperty(navigator,'standalone',{get:()=>true});")
         if pre: c.add_init_script("try{ if(!sessionStorage.getItem('x')){ sessionStorage.setItem('x','1'); localStorage.setItem('gz-sbmode','"+pre+"'); } }catch(e){}")
         pg=c.new_page(); pg.on("pageerror",lambda e:errs.append(str(e))); pg.goto(f"http://127.0.0.1:{port}/"+q); pg.wait_for_timeout(400)

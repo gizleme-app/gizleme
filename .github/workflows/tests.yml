@@ -21,9 +21,22 @@ jobs:
       - name: Install Playwright and image tools
         run: |
           python -m pip install --upgrade pip
-          pip install playwright==1.56.0 pillow numpy
+          pip install playwright==1.56.0 pillow numpy opencv-python-headless
           python -m playwright install --with-deps chromium
       - name: Syntax check
         run: for f in app.js app.min.js boot.js sb.js sw.js i18n.js privacy.js; do node --check "$f"; done
       - name: Run all scenarios
         run: python3 tests/run.py
+  edge:
+    # the Edge Functions: type-checked by Deno, then driven with requests against a stand-in for supabase-js
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type check
+        run: for f in supabase/functions/*/index.ts; do deno check "$f"; done
+      - name: Function tests
+        run: deno test --allow-env --allow-read --import-map=tests/edge/import_map.json tests/edge/

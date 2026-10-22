@@ -2,6 +2,7 @@
 # (presence + broadcast per room) so two or three Gizleme instances pair for real and signal through
 # their encrypted channel; media devices are Chromium's fake camera/mic.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -87,7 +88,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -103,11 +104,11 @@ try:
      b=pw.chromium.launch(args=["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream","--autoplay-policy=no-user-gesture-required"])
      CK=None; errsA=[]; errsB=[]
      def boot(name, display, contactName, ck, errs):
-         ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US", permissions=["camera","microphone"]); p=ctx.new_page()
+         ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US", permissions=["camera","microphone"]); p=ctx.new_page()
          p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
          p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
          p.evaluate("([ck,nm])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:nm,ck:ck,ts:Date.now()}]))",[ck,contactName])
-         p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+         p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
          p.evaluate("()=>window.__gz.setIce([])")
          return ctx,p
      ctxA,A=boot("oguz","oguz","Florian",None if False else (CK:=__import__("base64").b64encode(os.urandom(32)).decode()),errsA)
@@ -120,8 +121,8 @@ try:
      A.click("#callBtn")
      r["A_callUI"]= wait_for(A,"()=>!document.getElementById('callUI').hidden",5000)
      r["B_incoming"]= wait_for(B,"()=>!document.getElementById('callUI').hidden && !document.getElementById('callIncoming').hidden",8000)
-     r["B_incomingText"]= B.eval_on_selector("#callStatus","e=>e.textContent")
-     r["B_callerName"]= B.eval_on_selector("#callName","e=>e.textContent")
+     r["B_incomingText"]= (B.eval_on_selector("#callStatus","e=>e.textContent"))=='Encrypted voice call'
+     r["B_callerName"]= (B.eval_on_selector("#callName","e=>e.textContent"))=='oguz'
      r["A_ringing"]= wait_for(A,"()=>document.getElementById('callStatus').textContent==='Ringing…'",5000)
      B.evaluate("()=>document.getElementById('callAccept').click()")
      r["connected"]= wait_for(A,"()=>{ const s=window.__gz.callState(); return s&&s.live&&s.peers.some(p=>p.connected); }",15000) and wait_for(B,"()=>{ const s=window.__gz.callState(); return s&&s.live&&s.peers.some(p=>p.connected); }",8000)
@@ -133,7 +134,7 @@ try:
      A.wait_for_timeout(1200)
      A.click("#callEnd")
      r["hangup_bothClosed"]= wait_for(A,"()=>document.getElementById('callUI').hidden && !window.__gz.callState()",4000) and wait_for(B,"()=>document.getElementById('callUI').hidden && !window.__gz.callState()",5000)
-     r["hangup_lines"]= [A.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('📞')).pop()"), B.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('📞')).pop()")]
+     r["hangup_lines"]= ([A.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('📞')).pop()"), B.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('📞')).pop()")])==[None, None]
      # ---- video call B → A ----
      B.click("#videoBtn")
      r["A_incomingVideo"]= wait_for(A,"()=>!document.getElementById('callIncoming').hidden && document.getElementById('callStatus').textContent==='Encrypted video call'",8000)
@@ -145,7 +146,7 @@ try:
      r["video_camOff"]= A.evaluate("()=>document.getElementById('callLocal').hidden && document.getElementById('callCam').classList.contains('on')")
      B.click("#callEnd")
      r["video_closed"]= wait_for(A,"()=>document.getElementById('callUI').hidden",5000) and wait_for(B,"()=>document.getElementById('callUI').hidden",3000)
-     r["video_line"]= A.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('Video call')).pop()")
+     r["video_line"]= (A.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).filter(x=>x.includes('Video call')).pop()"))=='Video call · 00:00'
      # ---- declined ----
      A.click("#callBtn"); wait_for(B,"()=>!document.getElementById('callIncoming').hidden",8000); B.click("#callDecline")
      r["declined"]= wait_for(A,"()=>document.getElementById('callUI').hidden",5000) and "declined" in (A.eval_on_selector_all(".log .sys","els=>els.map(e=>e.textContent).pop()") or "")

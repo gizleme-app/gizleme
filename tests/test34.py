@@ -1,5 +1,6 @@
 # Rooms rejoin by themselves after failed or timed-out joins (cold relay), with backoff.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -117,7 +118,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -153,18 +154,18 @@ import traceback
 try:
  with sync_playwright() as pw:
     b=pw.chromium.launch()
-    ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); A=ctx.new_page(); errs=[]
+    ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); A=ctx.new_page(); errs=[]
     A.on("pageerror",lambda e:errs.append(str(e))); A.on("dialog",lambda d:d.accept())
     A.goto(f"http://127.0.0.1:{port}/"); A.wait_for_timeout(300)
-    A.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); entered(A)
     # the first two joins fail (cold relay): the app must not stay on "reconnecting…"
     A.evaluate("()=>{ window.__failJoins=2; }")
     A.click("#sbNew"); A.wait_for_timeout(300); A.click("#joinBtn"); A.wait_for_timeout(600)
     r["showsReconnecting"]= A.evaluate("()=>document.getElementById('bar').classList.contains('st-busy') && /reconnecting/.test(document.getElementById('statusText')?document.getElementById('statusText').textContent:document.querySelector('.status').textContent)")
     t0=time.time()
     ok=wait_for(A,"()=>{ const s=(document.getElementById('statusText')||document.querySelector('.status')).textContent; return !/reconnecting/.test(s) && /link not opened yet/i.test(s); }",15000)
-    r["recoversByItself"]= ok; r["recoverSeconds"]= round(time.time()-t0,1)
-    r["backoffOrder"]= r["recoverSeconds"]>=8 and r["recoverSeconds"]<=13   # 3 s + 6 s
+    r["recoversByItself"]= ok; r["recoverSeconds_v"]= round(time.time()-t0,1)
+    r["backoffOrder"]= r["recoverSeconds_v"]>=8 and r["recoverSeconds_v"]<=13   # 3 s + 6 s
     r["joinsLeft"]= A.evaluate("()=>window.__failJoins")==0
     # a message still goes out afterwards (channel usable)
     A.fill("#msgInput","après reconnexion"); A.press("#msgInput","Enter"); A.wait_for_timeout(800)

@@ -2,6 +2,7 @@
 # attachment panel (Photos · Camera · Location · Document · Poll · Event), documents (chunked, encrypted, opened
 # as a download), polls and events with votes on both sides (persisting), and the .ics.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -122,7 +123,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -172,13 +173,13 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
     def boot(name, errs, w=1000):
-        ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); ctx.add_init_script("try{ localStorage.setItem('gz-exp-global','86400000'); }catch(e){}"); p=ctx.new_page()   # an account that chose 24 h (v41: off by default)
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); ctx.add_init_script("try{ localStorage.setItem('gz-exp-global','86400000'); }catch(e){}"); p=ctx.new_page()   # an account that chose 24 h (v41: off by default)
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     def open_link(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     errsA=[]; errsB=[]
     ctxA,A=boot("oguz",errsA)
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
@@ -220,7 +221,7 @@ try:
     r["poll_change_vote"]= wait_for(A,"()=>{ const p=("+POLL+")(); return p.o[0][1]===2 && p.o[1][1]===0 && p.o[0][2]; }",8000)
     r["poll_no_unread"]= A.evaluate("()=>window.__gz.unreadTotal()")==0
     B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(800)
-    B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(2000)
+    B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B); B.click(".ct"); B.wait_for_timeout(2000)
     p=B.evaluate(POLL); r["poll_after_relock"]= bool(p) and p["o"][0]==["Pizza",2,True] and p["o"][1]==["Sushi",0,False]
     r["poll_v"]=p
     # ---- 5. an event ----

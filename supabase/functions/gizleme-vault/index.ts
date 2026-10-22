@@ -15,7 +15,7 @@ const cors = {   // the base; each request gets its own copy with its (allowed) 
 const json = (o: unknown, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 function corsFor(req: Request){ const o = req.headers.get("origin") || ""; return { ...cors, "Access-Control-Allow-Origin": ORIGINS.includes(o) ? o : ORIGINS[0] }; }
 function b64(bytes: ArrayBuffer | Uint8Array){ return btoa(String.fromCharCode(...new Uint8Array(bytes))); }
-function unb64(s: string){ return Uint8Array.from(atob(s), c => c.charCodeAt(0)); }
+function unb64(s: string){ try { return Uint8Array.from(atob(s), c => c.charCodeAt(0)); } catch { return new Uint8Array(0); } }   // bad input: an empty value never matches
 async function sha256b64(bytes: Uint8Array){ return b64(await crypto.subtle.digest("SHA-256", bytes)); }
 function sizeOk(o: unknown, max = 300000){ try { return JSON.stringify(o).length <= max; } catch { return false; } }
 

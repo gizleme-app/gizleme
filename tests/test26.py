@@ -1,5 +1,6 @@
 # Phone layout: the page never scrolls, the header stays when the keyboard opens; tone chips unlock audio.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -55,7 +56,7 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 IPHONE="Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":390,"height":780}, user_agent=IPHONE, has_touch=True, is_mobile=True, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":390,"height":780}, user_agent=IPHONE, has_touch=True, is_mobile=True, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e)))
     p.on("dialog",lambda d: d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
@@ -71,7 +72,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>{ for(let i=0;i<60;i++){ const ta=document.getElementById('msgInput'); ta.value='message '+i; ta.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true})); } }"); p.wait_for_timeout(2500)
     r["sixtyMsgs"]= p.eval_on_selector_all(".log:not([style*='display: none']) .bubble, .log:not([style*='display: none']) .msg","els=>els.length")>=60
     r["pageNotScrolled"]= p.evaluate("()=>window.scrollY===0 && document.documentElement.scrollHeight<=window.innerHeight+1")
-    r["logDebug"]= p.evaluate("()=>{ const l=[...document.querySelectorAll('.log')].find(e=>e.style.display!=='none'); return l?[l.scrollTop,l.scrollHeight,l.clientHeight]:'none'; }")
+    r["logDebug_v"]= p.evaluate("()=>{ const l=[...document.querySelectorAll('.log')].find(e=>e.style.display!=='none'); return l?[l.scrollTop,l.scrollHeight,l.clientHeight]:'none'; }")
     r["logScrolledToBottom"]= p.evaluate("()=>{ const l=[...document.querySelectorAll('.log')].find(e=>e.style.display!=='none'); return l && l.scrollTop>100 && (l.scrollHeight-l.scrollTop-l.clientHeight)<4; }")
     r["backBtnVisible"]= p.evaluate("()=>{ const b=document.getElementById('backHome').getBoundingClientRect(); return b.top>=0 && b.bottom<120 && b.width>0; }")
     r["composerAtBottom"]= p.evaluate("()=>{ const c=document.querySelector('.composer').getBoundingClientRect(); return Math.abs(c.bottom-window.innerHeight)<2; }")
@@ -104,7 +105,7 @@ with sync_playwright() as pw:
     r["kb_closed_restored"]= p.evaluate("()=>document.getElementById('app').style.transform==='' && !document.body.classList.contains('kb') && document.getElementById('app').style.height===window.innerHeight+'px'")
     # tone chips: a tap selects, previews (audio unlocked in the gesture), persists; iOS hint shown
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=notif]').click()"); p.wait_for_timeout(100)
-    r["chips"]= p.eval_on_selector_all("#toneSel .tone","els=>els.map(e=>e.dataset.tone)")
+    r["chips"]= (p.eval_on_selector_all("#toneSel .tone","els=>els.map(e=>e.dataset.tone)"))==['gizleme', 'classic', 'pop', 'chime', 'marimba', 'soft']
     r["hintOnIOS"]= p.is_visible("#toneHint")
     p.evaluate("()=>{ window.__beeps.length=0; }"); p.click("#toneSel .tone[data-tone=chime]"); p.wait_for_timeout(400)
     r["chime_selected"]= p.eval_on_selector("#toneSel .tone[data-tone=chime]","e=>e.getAttribute('aria-checked')")=="true" and p.evaluate("()=>localStorage.getItem('gz-tone')")=="chime"

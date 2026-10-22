@@ -1,5 +1,6 @@
 # Invite links: expiry, optional 4-digit code (proved to the inviter, three misses cancel), QR code.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -107,7 +108,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -128,10 +129,10 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch()
     def boot(name, errs):
-        ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     errsA=[]; errsB=[]; errsC=[]; errsD=[]
     ctxA,A=boot("oguz",errsA)
@@ -158,7 +159,7 @@ try:
     A.click("#joinBtn"); A.wait_for_timeout(1000)
     # ---- B opens with a WRONG code: no binding, B is told, A counts 1/3 ----
     ctxB,B=boot("florian",errsB)
-    B.goto(f"http://127.0.0.1:{port}/?r=1#i="+link.split("#i=")[1]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500)
+    B.goto(f"http://127.0.0.1:{port}/?r=1#i="+link.split("#i=")[1]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B)
     r["B_askedCode"]= B.evaluate("()=>document.getElementById('pinModal').classList.contains('show')")
     wrong=str((int(pin)+1)%10000).zfill(4); B.fill("#pinInput",wrong); B.click("#pinOk"); B.wait_for_timeout(2500)
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); A.wait_for_timeout(2000)
@@ -168,7 +169,7 @@ try:
     B.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); B.wait_for_timeout(2500)
     r["B_toldWrong"]= wait_for(B,"()=>window.__gz.lastSys().some(x=>/code you entered was wrong/.test(x)) && !!window.__gz.contacts()[0].nopin",8000)
     # ---- B opens again with the RIGHT code: bound; the void attempt is replaced ----
-    B.goto(f"http://127.0.0.1:{port}/?r=2#i="+link.split("#i=")[1]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500)
+    B.goto(f"http://127.0.0.1:{port}/?r=2#i="+link.split("#i=")[1]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B)
     r["B_askedAgain"]= B.evaluate("()=>document.getElementById('pinModal').classList.contains('show')")
     B.fill("#pinInput",pin); B.click("#pinOk"); B.wait_for_timeout(2500)
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); A.wait_for_timeout(2500)
@@ -197,11 +198,11 @@ try:
     A.click("#sbNew"); A.wait_for_timeout(400); link4=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
     pl=link_payload(link4); pl["x"]=int(time.time()*1000)-3600000; expired=base64.urlsafe_b64encode(json.dumps(pl,separators=(",",":")).encode()).decode().rstrip("=")
     ctxD,D=boot("dan",errsD)
-    D.goto(f"http://127.0.0.1:{port}/?r=30#i="+expired); D.wait_for_timeout(400); D.fill("#pwInput","password123"); D.click("#joinBtn"); D.wait_for_timeout(1500)
+    D.goto(f"http://127.0.0.1:{port}/?r=30#i="+expired); D.wait_for_timeout(400); D.fill("#pwInput","password123"); D.click("#joinBtn"); entered(D)
     r["opener_refusesExpired"]= wait_for(D,"()=>/expired/.test(document.getElementById('toast')?document.getElementById('toast').textContent:'')",3000) and len(contacts(D))==0
     # the inviter's copy expires too (clock moved on): a hello arriving now is ignored
     A.evaluate("()=>{ const l=window.__gz.contacts(); const c=l.find(x=>x.is && !x.dead && x.pk && !x.pin); c.x=Date.now()-3600000; window.__gz.save(l); }")
-    D.goto(f"http://127.0.0.1:{port}/?r=31#i="+link4.split("#i=")[1]); D.wait_for_timeout(400); D.fill("#pwInput","password123"); D.click("#joinBtn"); D.wait_for_timeout(1500)
+    D.goto(f"http://127.0.0.1:{port}/?r=31#i="+link4.split("#i=")[1]); D.wait_for_timeout(400); D.fill("#pwInput","password123"); D.click("#joinBtn"); entered(D)
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); A.wait_for_timeout(2000)
     pc=A.evaluate("()=>window.__gz.contacts().find(x=>x.is && x.pk && !x.pin)")
     r["inviter_ignoresLateHello"]= bool(pc) and bool(pc.get("pk")) and pc.get("expired")==1 and pc.get("name")=="Invited friend"

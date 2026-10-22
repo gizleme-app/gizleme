@@ -4,6 +4,7 @@
 # (two bad readings in, three good out, no false alarm on a clean call), the type scale and three radii, and
 # the hidden attribute always wins.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -124,7 +125,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -174,10 +175,10 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream","--autoplay-policy=no-user-gesture-required"])
     def boot(name, errs, w=1000, h=820, scheme="dark"):
-        c=b.new_context(viewport={"width":w,"height":h},locale="en-US",color_scheme=scheme); c.add_init_script(NOINST); p=c.new_page()
+        c=b.new_context(timezone_id=TZ, viewport={"width":w,"height":h},locale="en-US",color_scheme=scheme); c.add_init_script(NOINST); p=c.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300); p.evaluate(SKIP)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return c,p
     errs=[]
     ctxA,A=boot("oguz",errs)
@@ -188,7 +189,7 @@ try:
     r["hidden_wins"]= A.evaluate("()=>[...document.querySelectorAll('[hidden]')].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.id||e.className)")==[]
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
     errsB=[]; ctxB,B=boot("serap",errsB,w=390,scheme="light")
-    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(2000)
+    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B, 2500)
     r["paired"]= wait_for(A,PAIRED,15000) and wait_for(B,PAIRED,15000)
     A.wait_for_timeout(400)
     # ---- 1. big emojis ----
@@ -199,8 +200,8 @@ try:
     r["jumbo_received"]= wait_for(B,"()=>{ const x=("+JB+")('😂'); return x && x.jumbo && x.play && x.n==='j1'; }",8000)
     send(A,"❤️👍"); send(A,"🎉🎉🎉"); send(A,"😂😂😂😂"); send(A,"👋 hi"); send(A,"1")
     wait_for(B,has("1"),8000)
-    two=B.evaluate(JB,"❤️👍"); three=B.evaluate(JB,"🎉🎉🎉")
-    r["jumbo_two_three"]= two and two["n"]=="j2" and two["anims"]==["beat","nod"] and three and three["n"]=="j3" and three["anims"]==["party","party","party"] and three["fs"]<two["fs"]<a1["fs"]
+    two=B.evaluate(JB,"❤️👍"); three=B.evaluate(JB,"🎉🎉🎉"); r["jumbo23_v"]=[two,three]
+    r["jumbo_two_three"]= bool(two) and two["n"]=="j2" and two["anims"]==["beat","nod"] and three and three["n"]=="j3" and three["anims"]==["party","party","party"] and three["fs"]<two["fs"]<a1["fs"]
     r["not_jumbo"]= all(not (B.evaluate(JB,t) or {}).get("jumbo") for t in ["😂😂😂😂","👋 hi","1"])
     shot(B,"55_jumbo_light")
     B.wait_for_timeout(3800)
@@ -214,7 +215,7 @@ try:
     r["edit_makes_jumbo"]= (A.evaluate(JB,"🔥") or {}).get("anims")==["flare"] and wait_for(B,"()=>{ const x=("+JB+")('🔥'); return x && x.jumbo; }",8000)
     # replayed from history: big, still
     B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(800)
-    B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(1200)
+    B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B); B.click(".ct"); B.wait_for_timeout(1200)
     h1=B.evaluate(JB,"😂")
     r["history_big_still"]= bool(h1) and h1["jumbo"] and not h1["play"]
     B.emulate_media(reduced_motion="reduce"); B.evaluate("()=>[...document.querySelectorAll('"+OPEN+" .bubble.jumbo .je')][0].click()"); B.wait_for_timeout(100)

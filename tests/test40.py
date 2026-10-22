@@ -1,5 +1,6 @@
 # Vault merge rules for the key chain: newer epoch wins, equal epochs converge on the smaller root, older never overrides.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -66,10 +67,10 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p, 2500)
     CK="Q"*43+"="
     # local: chain B at epoch 5 ; remote: chain A at epoch 5 (seeded at the same moment by two device pairs) -> both keep the smaller
     p.evaluate("([ck])=>window.__gz.save([{name:'Ami',ck,kc:'BBBB'+'x'.repeat(39)+'=',kce:5,ts:1}])",[CK])

@@ -1,5 +1,6 @@
 # Legacy (v2) invite links: the reconciliation window keeps a not-yet-rotated friend reachable, closes on mutual confirmation (rk), then moves rooms.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -65,12 +66,12 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     # Oguz invites; the friend has opened the link → both hold the LINK key
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
-    p.click("#sbNew"); p.wait_for_timeout(300); link=p.eval_on_selector("#invLinkOut","e=>e.value"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.evaluate("()=>window.__gz.legacyPending()")
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p, 2500)
+    p.click("#sbNew"); p.wait_for_timeout(300); link=p.eval_on_selector("#invLinkOut","e=>e.value"); p.click("#joinBtn"); entered(p); p.evaluate("()=>window.__gz.legacyPending()")
     secret=json.loads(base64.urlsafe_b64decode(link.split("#i=")[1]+"=="))["s"]
     CK0=p.evaluate("([s])=>window.__ckFromSecret(s)",[secret])
     oldRoom=p.evaluate("([ck])=>window.__rv(ck)",[CK0])
@@ -89,7 +90,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>window.__sync({})"); p.wait_for_timeout(300)   # everyone briefly offline
     # we re-open the chat: the rendezvous room is still the OLD one while reconciling
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.click(".ct"); p.wait_for_timeout(800)
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p); p.click(".ct"); p.wait_for_timeout(800)
     joinedRoom=p.evaluate("()=>{ let code=null; return (async()=>{ return window.__lastJoin; })(); }")
     r["meetsOnOldRoomWhileReconciling"]= p.evaluate("()=>window.__lastJoin")==oldRoom
     # the friend (still on the LINK key) writes while we were away → it lands in the OLD mailbox → we DO get it
@@ -109,7 +110,7 @@ with sync_playwright() as pw:
     r["windowClosesOnMutual"]= not p.evaluate("()=>window.__gz.contacts()[0].recon")
     # after closing, we move to the NEW room and the new mailbox only
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.click(".ct"); p.wait_for_timeout(800)
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p); p.click(".ct"); p.wait_for_timeout(800)
     r["movesToNewRoomAfterReconcile"]= p.evaluate("()=>window.__lastJoin")==newRoom
     p.evaluate("()=>{ window.__puts.length=0; }"); p.fill("#msgInput","fini"); p.click("#sendBtn"); p.wait_for_timeout(800)
     puts2=p.evaluate("()=>window.__puts.filter(x=>!x.mid.startsWith('r')).map(x=>x.mbox)")

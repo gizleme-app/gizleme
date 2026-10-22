@@ -168,6 +168,19 @@ v45 took the code review's robustness findings (the ones v41 had left): covered 
 | C12 | Low | A message deposited while the account marker was unknown (backup not yet opened) reached the account's other devices as the contact's. Also the pull at unlock raced the cached key: `recoverABK` found `gABK` set before `gContactsKey` was and `syncPull` skipped. | **Fixed.** Signed in and no marker → the message waits in the queue (sent once the backup opens); `setABK` exposes a promise that `syncPull` and the recover paths await. |
 | C13 | Low | Composer re-enabled in a group one was removed from; one draft shared by every chat; `histLast` in insertion order (the list's preview could be an older message caught up late); `inviteT` and `_syncT` cleaned by accident of `call` / `clearTimeout`; a corrupt unlock record read as a wrong password; a pairing bumped the contact's `ts` (a removed contact could come back through the merge); a mailbox row without its chain key held the cursor forever. | **Fixed.** `composerFor` on rotation and switch; `R._draft`; DB v3 `[room, ts]` index; the interval captures its call; `localFlush`; "unlock record unreadable — log in again"; `ts` bumped only when the name changes; the hold is 48 h; a write that fails (storage full) is said once; `_meta` is flushed when the page hides. |
 
+v46 took the tests-and-maintenance review's findings (the ones v41 had left): covered by `tests/edge/` and
+the suite itself.
+
+| # | Sev. | Finding | Status |
+|---|------|---------|--------|
+| T1 | High | `import cv2` in test35 with OpenCV absent from every install line: CI red by construction. | **Fixed.** `opencv-python-headless` in the workflow, CONTRIBUTING and tests/README. |
+| T2 | High | No test of the Edge Functions (633 lines), no `deno check`; the scenarios' mocks never answer an error. | **Fixed.** `tests/edge/`: a stand-in for supabase-js (tables, unique keys, rpc, storage) and web-push; 31 tests drive the five handlers unchanged — accounts, sessions, limits, the batched mailbox read, blobs and acks with the session, the vault's set-once key and versioned contacts, push endpoints and targets, TURN; a CI job type-checks and runs them. Two small things they found: a renamed display name could end in a space, a malformed `av` to the vault was a 500 instead of a 401 (gizleme-auth v4, gizleme-vault v3). |
+| T3 | High | The harness copied in 39 files (3 900 lines), already diverging. | **Partly.** `tests/harness.py` holds what every scenario does the same way (the conditional waits); each scenario keeps its own relay/mock where it needs its own. |
+| T4 | Medium | 51 checks held a string or a list and could not fail. | **Fixed.** Equality with the expected value, or `_v` for a value kept for the eye; `run.py` counts any other non-boolean as an error of the scenario. |
+| T5 | Medium | 703 s of fixed waits; under load 12 scenarios of 39 failed on timing. | **Fixed where it bit.** The sign-in waits are conditional (`entered`), the contexts run in one time zone, the pairing-then-write scenarios settle; `run.py` keeps every scenario's output and prints the whole RESULTS block on a failure. |
+| T6 | Medium | 236 rules in "v36–v40" blocks at the end of the stylesheet, 20 selectors declared twice, 25 properties rewritten by the cascade. | **Fixed.** The later declarations of a selector merged into its first rule, in cascade order, only where no rule in between could contest the property (779 → 759 rules, 33 → 15 repeated selectors, the rest groups). |
+| T7 | Low | `app.js` as one file with no module boundary. | **Not done** — CONTRIBUTING says the one file is on purpose, so that the whole client can be read top to bottom; a split is the owner's call. |
+
 ## What is deliberately not fixed yet (roadmap)
 
 1. **Forward secrecy for the mailbox** — done at week granularity on 15 Oct 2026 (one-way key chain per

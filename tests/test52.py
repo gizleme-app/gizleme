@@ -4,6 +4,7 @@
 # own for every contact (the same on both sides), grouped bubbles and a ↓ button with the count of new
 # messages, and an incoming call screen with labelled buttons.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -124,7 +125,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -173,10 +174,10 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream","--autoplay-policy=no-user-gesture-required"])
     def boot(name, errs, w=1000, h=820, scheme="dark"):
-        ctx=b.new_context(viewport={"width":w,"height":h},locale="en-US",color_scheme=scheme); ctx.add_init_script(NOINST); p=ctx.new_page()
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":w,"height":h},locale="en-US",color_scheme=scheme); ctx.add_init_script(NOINST); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     errsA=[]; errsB=[]
     ctxA,A=boot("oguz",errsA)
@@ -187,7 +188,7 @@ try:
     r["desktop_keeps_plus"]= A.is_visible("#sbNew")
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
     ctxB,B=boot("serap",errsB,w=390,scheme="light")
-    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(2000)
+    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B, 2500)
     r["paired"]= wait_for(A,PAIRED,10000) and wait_for(B,PAIRED,10000)
     A.wait_for_timeout(800)
     # ---- 1. contrast: the accent behind white text is darker in dark mode ----

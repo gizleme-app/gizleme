@@ -4,6 +4,7 @@
 # a holder of the old link who writes to the old mailbox is never read; vault merge and re-opened links
 # resolve to the rotated contact.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -69,28 +70,28 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     # Oguz registers and invites; Camille (fake peer) has opened the link: both hold the LINK key
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
-    p.click("#sbNew"); p.wait_for_timeout(300); link=p.eval_on_selector("#invLinkOut","e=>e.value"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.evaluate("()=>window.__gz.legacyPending()")
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p, 2500)
+    p.click("#sbNew"); p.wait_for_timeout(300); link=p.eval_on_selector("#invLinkOut","e=>e.value"); p.click("#joinBtn"); entered(p); p.evaluate("()=>window.__gz.legacyPending()")
     secret=json.loads(base64.urlsafe_b64decode(link.split("#i=")[1]+"=="))["s"]
     CK0=p.evaluate("([s])=>window.__ckFromSecret(s)",[secret])
-    r["placeholderContact"]= p.evaluate("()=>window.__gz.contacts().map(c=>[c.name,!!c.is])")
+    r["placeholderContact"]= (p.evaluate("()=>window.__gz.contacts().map(c=>[c.name,!!c.is])"))==[['Invited friend', True]]
     # a message from Camille's device waited in the (link-key) mailbox → delivered into history under the stable key
     p.evaluate("([ck])=>window.__drop(ck,{t:'txt',body:'Salut Oguz !',n:'Camille'},'cam-acct')",[CK0]); p.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); p.wait_for_timeout(1500)
-    r["beforeRotation_recv"]= p.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
+    r["beforeRotation_recv"]= (p.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)"))==['Salut Oguz !']
     # --- Camille comes online, signs with the LINK key → authenticated pairing → rotation on our side ---
     ourPub=p.evaluate("()=>window.__chan._me.pub"); peerPub=p.evaluate("()=>window.__peer.init()")
     tag0=p.evaluate("([ck,pub])=>window.__tag(ck,pub)",[CK0,peerPub])
     p.evaluate("([a,t])=>window.__sync({k1:[{id:'a1',name:'Camille',u:'cam-acct',pub:a,tag:t}]})",[peerPub,tag0]); p.wait_for_timeout(1500)
-    r["paired"]= p.eval_on_selector("#peerMeta","e=>e.title")
+    r["paired"]= (p.eval_on_selector("#peerMeta","e=>e.title"))=='🔒 secure · same key as your first connection ✓'
     r["retiredLine"]= p.eval_on_selector_all(".log .sys","els=>els.some(e=>e.textContent.includes('Invite link closed'))")
     c=p.evaluate("()=>window.__gz.contacts()[0]")
     CK2=p.evaluate("([pub])=>window.__peer.rotated(pub)",[ourPub])          # what Camille's device derives independently
     r["rotation_sameKeyBothSides"]= c["ck"]==CK2 and c["ck"]!=CK0
-    r["rotation_record"]= {"prev":c.get("prev")==CK0, "hk":c.get("hk")=="c:"+CK0, "rot":bool(c.get("rot")), "isDeleted":"is" not in c, "name":c["name"]}
+    r["rotation_record"]= ({"prev":c.get("prev")==CK0, "hk":c.get("hk")=="c:"+CK0, "rot":bool(c.get("rot")), "isDeleted":"is" not in c, "name":c["name"]})=={'prev': True, 'hk': False, 'rot': True, 'isDeleted': True, 'name': 'Camille'}
     # our re-announced presence is signed with the rotated key (Camille can verify it with HER derived key)
     last=p.evaluate("()=>window.__chan._tracks[window.__chan._tracks.length-1]")
     r["reannouncedUnderNewKey"]= p.evaluate("([ck,pub,tag])=>window.__verify(ck,pub,tag)",[CK2,last["pub"],last["tag"]])
@@ -102,10 +103,10 @@ with sync_playwright() as pw:
     p.evaluate("([a,t])=>window.__sync({kc:[{id:'ac',name:'Camille',u:'cam-acct',pub:a,tag:t,rk:1}]})",[cP,cT]); p.wait_for_timeout(900)
     r["reconClearedOnMutual"]= p.evaluate("()=>!window.__gz.contacts()[0].recon")
     # history survived the rotation (same stable key), previews too
-    r["previewKept"]= p.eval_on_selector(".ct .cm","e=>e.textContent")   # sidebar is visible at desktop width
+    r["previewKept"]= (p.eval_on_selector(".ct .cm","e=>e.textContent"))=='Salut Oguz !'   # sidebar is visible at desktop width
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)      # lock/unlock → history reloaded from disk under the stable key
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.click(".ct"); p.wait_for_timeout(800)
-    r["historyKept"]= p.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p); p.click(".ct"); p.wait_for_timeout(800)
+    r["historyKept"]= (p.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)"))==['Salut Oguz !']
     r["unreadKeyStable"]= p.evaluate("([k])=>Object.keys(window.__gz.meta().unread).every(x=>x==='c:'+k)||Object.keys(window.__gz.meta().unread).length===0",[CK0])
     # sending now deposits into the NEW mailbox, never the old one
     p.evaluate("()=>{ window.__puts.length=0; }")
@@ -131,13 +132,13 @@ with sync_playwright() as pw:
     # vault merge: our other device still has the pre-rotation record → one contact, the rotated one
     m=p.evaluate("([ck0])=>window.__gz.merge({contacts:[{name:'Camille',ck:ck0,inv:1,ts:Date.now()+5,v:1}],groups:[]})",[CK0])
     r["merge_oneContact"]= len(m["contacts"])==1 and m["contacts"][0]["ck"]==CK2 and m["contacts"][0].get("v")==1
-    r["merge_debug"]= [(c["ck"]==CK2, c["ck"]==CK0, c.get("v"), c.get("prev")==CK0) for c in m["contacts"]]
+    r["merge_debug_v"]= [(c["ck"]==CK2, c["ck"]==CK0, c.get("v"), c.get("prev")==CK0) for c in m["contacts"]]
     # the reverse: a device that only knows the rotated record merging an old one from the vault
     m2=p.evaluate("([ck0,ck2])=>{ const rot=window.__gz.contacts()[0]; return window.__gz.merge({contacts:[rot],groups:[]}); }",[CK0,CK2])
     r["merge_idempotent"]= len(m2["contacts"])==1
     # opening the same link again (e.g. Camille's second device) resolves to the rotated contact, no duplicate
     p.goto(f"http://127.0.0.1:{port}/?r=2#i="+link.split("#i=")[1]); p.wait_for_timeout(400)   # new query → real reload (a same-document hash change would not)
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p)
     r["reopenLink_noDuplicate"]= p.evaluate("()=>window.__gz.contacts().length")==1
     r["errors"]= errs[:3]
     print("RESULTS")

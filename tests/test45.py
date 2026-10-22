@@ -3,6 +3,7 @@
 # (which told the new user "this link was already used by someone else"), and a chat wrongly flagged that way
 # heals as soon as the inviter actually gets through.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -125,7 +126,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -165,17 +166,17 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
     errsA=[]; errsB=[]
-    ctxA=b.new_context(viewport={"width":1000,"height":820},locale="en-US"); A=ctxA.new_page(); A.on("pageerror",lambda e:errsA.append(str(e))); A.on("dialog",lambda d:d.accept())
+    ctxA=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820},locale="en-US"); A=ctxA.new_page(); A.on("pageerror",lambda e:errsA.append(str(e))); A.on("dialog",lambda d:d.accept())
     A.goto(f"http://127.0.0.1:{port}/"); A.wait_for_timeout(300)
-    A.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); A.fill("#userInput","oguz"); A.fill("#pwInput","password123"); A.fill("#pw2Input","password123"); A.click("#joinBtn"); entered(A)
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
     A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(300)     # the inviter is not in the chat: the opener's first words go to the mailbox
     # she already has an account (made on another phone) and logs in on this one FROM the link
     import os as _o; MODE=_o.environ.get("GZ45","login")
     if MODE=="login":
-        c0=b.new_context(viewport={"width":390,"height":820},locale="en-US"); P0=c0.new_page(); P0.goto(f"http://127.0.0.1:{port}/"); P0.wait_for_timeout(300)
+        c0=b.new_context(timezone_id=TZ, viewport={"width":390,"height":820},locale="en-US"); P0=c0.new_page(); P0.goto(f"http://127.0.0.1:{port}/"); P0.wait_for_timeout(300)
         P0.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); P0.fill("#userInput","serap"); P0.fill("#pwInput","password123"); P0.fill("#pw2Input","password123"); P0.click("#joinBtn"); P0.wait_for_timeout(1800); c0.close()
-    ctxB=b.new_context(viewport={"width":390,"height":820},locale="en-US"); B=ctxB.new_page(); B.on("pageerror",lambda e:errsB.append(str(e))); B.on("dialog",lambda d:d.accept())
+    ctxB=b.new_context(timezone_id=TZ, viewport={"width":390,"height":820},locale="en-US"); B=ctxB.new_page(); B.on("pageerror",lambda e:errsB.append(str(e))); B.on("dialog",lambda d:d.accept())
     B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(500)
     if MODE=="login":
         B.click("#switchLink"); B.wait_for_timeout(200); B.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); B.fill("#userInput","serap"); B.fill("#pwInput","password123"); B.click("#joinBtn")

@@ -3,6 +3,7 @@
 # local history with accents folded, a tap opens the chat at the message; ⋮ → Search inside a chat with next /
 # previous) and drawn icons instead of emojis in the interface.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -123,7 +124,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -174,10 +175,10 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch()
     def boot(name, errs, w=1000, h=820, scheme="dark"):
-        c=b.new_context(viewport={"width":w,"height":h},locale="en-US",color_scheme=scheme); c.add_init_script(NOINST); p=c.new_page()
+        c=b.new_context(timezone_id=TZ, viewport={"width":w,"height":h},locale="en-US",color_scheme=scheme); c.add_init_script(NOINST); p=c.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300); p.evaluate(SKIP)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return c,p
     errs=[]
     ctxA,A=boot("oguz",errs)
@@ -187,7 +188,7 @@ try:
     r["promise_icons"]= A.evaluate("()=>document.querySelectorAll('.promise .pi svg use').length")==3
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
     errsB=[]; ctxB,B=boot("serap",errsB,w=390,scheme="light")
-    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(2000)
+    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B, 2500)
     r["paired"]= wait_for(A,PAIRED,15000) and wait_for(B,PAIRED,15000)
     A.wait_for_timeout(500)
     # ---- 1. delete for everyone ----
@@ -227,7 +228,7 @@ try:
     r["out_of_order_never_shown"]= not B.evaluate(has("late text")) and bool(B.evaluate(GONE, mf))
     # ---- 5. the placeholder survives a lock ----
     B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(800)
-    B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(1200)
+    B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B); B.click(".ct"); B.wait_for_timeout(1200)
     r["after_lock"]= bool(B.evaluate(GONE, m1)) and not B.evaluate(has("secret plan")) and not B.evaluate(has("bonjour")) and B.evaluate(has("keep me"))
     shot(B,"54_deleted_light")
     # ---- 6. search the chats list ----

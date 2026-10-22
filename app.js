@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 45;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 46;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -43,7 +43,7 @@ function applyI18n(){
     for(const a of ["placeholder","title","aria-label"]){ if(!el.hasAttribute(a)) continue; const k="data-i18n-"+a.replace("-","");
       let o=el.getAttribute(k); if(o===null){ o=el.getAttribute(a); el.setAttribute(k,o); } el.setAttribute(a, t(o)); } }
 }
-function setLang(l){ LANG=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} applyI18n(); renderContacts(); renderTabs(); updateNotifyUI(); updateVerifyUI(); if(typeof _refreshSettingsUI==="function") _refreshSettingsUI(); if(typeof swNamesSoon==="function") swNamesSoon(); }
+function setLang(l){ LANG=l; try{ localStorage.setItem(LS_LANG,l); }catch(e){} applyI18n(); if(typeof clearPreviews==="function") clearPreviews(); /* v46: the previews ("You: …", "Photo") are composed in a language — re-read */ renderContacts(); renderTabs(); updateNotifyUI(); updateVerifyUI(); if(typeof _refreshSettingsUI==="function") _refreshSettingsUI(); if(typeof swNamesSoon==="function") swNamesSoon(); }
 let _refreshSettingsUI=null;
 // ---------- text size (Settings → Appearance): scales every text in the app; fields stay at 16 px or more so an
 // iPhone doesn't zoom into them ----------
@@ -1702,7 +1702,7 @@ async function setupPin(pin){  // new master key wrapped by PIN
   return mk;
 }
 async function unlockPin(pin){  // -> master key, throws if wrong PIN (an unreadable record throws "corrupt": the device must log in again — v45)
-  let rec=null; try{ rec=JSON.parse(localStorage.getItem(LS_MKPIN)); }catch(e){} if(!rec || !rec.iv || !rec.ct || !rec.salt) throw new Error("corrupt");
+  let rec0=null; try{ rec0=JSON.parse(localStorage.getItem(LS_MKPIN)); }catch(e){} if(!rec0 || !rec0.iv || !rec0.ct || !rec0.salt) throw new Error("corrupt"); const rec=rec0;
   const mk=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(rec.iv)}, await pinWrapKey(pin, unb64(rec.salt)), unb64(rec.ct));
   return new Uint8Array(mk);
 }
@@ -3205,8 +3205,9 @@ async function establish(R, other, authed){
     root=await hkdf(secret,"root"); rootFp=await fp(root);
   }catch(e){ R.establishing=false; return; }
   R.establishing=false;
-  const changed=rootFp!==R.rootFp;
+  const changed=rootFp!==R.rootFp; const wasPaired=R.paired;
   R.peer=other; R.root=root; R.rootFp=rootFp; if(changed){ R.sendI=0; R.recvI=-1; } R.paired=true; R.authOk=!!authed;
+  if(!wasPaired && R.fromContact){ clearTimeout(R._pairFetchT); R._pairFetchT=setTimeout(()=>fetchMailbox(R), 1200); }   // v46: what they deposited while we weren't in the same room yet (a chat moving to its day's room right after pairing) — not at the next pass only
   const nm=String(other.name||"Peer").replace(/[\r\n\t]+/g," ").slice(0,40); R.peerName=dn(nm); R.avatar=up(nm[0]||"?");
   const alias=R.fromContact ? (contactFind(R.fromContact)||{}).alias : "";
   if(alias){ R.title=alias; R.peerName=alias; R.avatar=up(alias[0]||"?"); }

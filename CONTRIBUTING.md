@@ -14,7 +14,7 @@ script at runtime. Changes that keep it that way are the easiest to accept.
 
 1. `app.js` is one file on purpose (one IIFE, no modules) so the whole client can be read top to bottom.
    Keep new code next to the code it belongs with, and comment the *why*, not the *what*.
-2. Every user-visible string goes through `t("…")` with its French translation in `i18n.js`.
+2. Every user-visible string goes through `t("…")` with its French and Turkish translations in `i18n.js` (test41 checks both).
 3. Crypto: Web Crypto only (ECDH/ECDSA P-256, HKDF-SHA-256, AES-256-GCM). Every derivation gets its own
    info string (`"gz-<purpose>/v<n>"`). No new primitive without an issue first.
 4. If you change what is stored or sent, update [SECURITY.md](SECURITY.md) and `privacy.html` in the same
@@ -26,7 +26,7 @@ script at runtime. Changes that keep it that way are the easiest to accept.
 ## Tests
 
 ```
-pip install playwright pillow numpy && python -m playwright install --with-deps chromium
+pip install playwright pillow numpy opencv-python-headless && python -m playwright install --with-deps chromium
 python3 tests/run.py
 ```
 

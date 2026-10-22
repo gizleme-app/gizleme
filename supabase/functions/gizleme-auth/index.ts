@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
     }
     if (action === "rename") {
       // Display name (what friends see): free text up to 24 chars; needs a valid session.
-      const token = (body.token || "").toString(); const display = (body.display || "").toString().trim().slice(0, 24);
+      const token = (body.token || "").toString(); const display = (body.display || "").toString().trim().slice(0, 24).trim();
       if (!token || !display) return json({ error: "missing" }, 400);
       const th = await sha256b64(unb64(token));
       const { data: sess } = await db.from("gizleme_sessions").select("username_lc, expires_at").eq("token_hash", th).maybeSingle();

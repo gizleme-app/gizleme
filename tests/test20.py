@@ -2,6 +2,7 @@
 # server called with the old av), delete account (server + full local wipe), WhatsApp-iOS webview note,
 # contact removal confirmation, 15-min default auto-lock.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -56,7 +57,7 @@ SAFARI_IOS="Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/6
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":414,"height":820}); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":414,"height":820}); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e)))
     dialogs=[]; accept=[True]
     p.on("dialog",lambda d:(dialogs.append(d.message), d.accept() if accept[0] else d.dismiss()))
@@ -66,7 +67,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.wait_for_timeout(150)
     r["register_noResetWarning"]= "no password reset" in p.eval_on_selector("#joinHint","e=>e.textContent")
     p.evaluate("()=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Bob',ck:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))),ts:Date.now()}]))")
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2500)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p, 1500)
     r["defaultAutoLock15"]= p.evaluate("()=>localStorage.getItem('gz-autolock')")=="900000"
     # --- contact removal asks first; dismiss keeps it ---
     p.evaluate("()=>{ window.__askPolicy=()=>false; }"); p.click(".ct"); p.wait_for_timeout(500); p.click("#peerMeta"); p.wait_for_timeout(300); p.click("#ciRemove"); p.wait_for_timeout(400)
@@ -77,11 +78,11 @@ with sync_playwright() as pw:
     r["lock_head"]= p.is_visible("#lockHead"); r["lock_heroHidden"]= not p.is_visible(".brandhero"); r["lock_forgotLink"]= p.is_visible("#forgotLink")
     r["lock_bioBeforePassword"]= p.evaluate("()=>{const b=document.getElementById('bioBtn'), f=document.getElementById('pwField'); return !!(b.compareDocumentPosition(f) & Node.DOCUMENT_POSITION_FOLLOWING);}")
     p.click("#forgotLink"); p.wait_for_timeout(200); r["forgot_modal"]= p.is_visible("#forgotModal"); p.click("#forgotClose"); p.wait_for_timeout(100)
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p)
     # --- change password ---
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.wait_for_timeout(100); p.click("#chpwBtn"); p.wait_for_timeout(200)
     p.fill("#pwCur","wrongpass"); p.fill("#pwNew","newpass456"); p.fill("#pwNew2","newpass456"); p.click("#pwSave"); p.wait_for_timeout(1200)
-    r["chpw_wrongCurrentRefused"]= p.eval_on_selector("#pwMsg","e=>e.textContent")
+    r["chpw_wrongCurrentRefused"]= (p.eval_on_selector("#pwMsg","e=>e.textContent"))=='Current password is wrong'
     p.fill("#pwCur","password123"); p.click("#pwSave"); p.wait_for_timeout(2500)
     r["chpw_modalClosed"]= not p.is_visible("#pwModal")
     r["chpw_serverCalled"]= p.evaluate("()=>window.__calls.some(c=>c[0]==='gizleme-auth'&&c[1].action==='changepw'&&c[1].salt&&c[1].verifier)")
@@ -89,7 +90,7 @@ with sync_playwright() as pw:
     # lock → old password fails, new password unlocks and contacts are still there
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
     p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(800); r["chpw_oldPwFails"]= p.eval_on_selector("#authMsg","e=>e.textContent")=="Wrong password"
-    p.fill("#pwInput","newpass456"); p.click("#joinBtn"); p.wait_for_timeout(1500); r["chpw_newPwUnlocks"]= p.evaluate("()=>window.__gz.contacts().map(c=>c.name)")==["Bob"]
+    p.fill("#pwInput","newpass456"); p.click("#joinBtn"); entered(p); r["chpw_newPwUnlocks"]= p.evaluate("()=>window.__gz.contacts().map(c=>c.name)")==["Bob"]
     # --- delete account ---
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()"); p.wait_for_timeout(100); p.click("#delAcctBtn"); p.wait_for_timeout(200)
     p.fill("#delPw","newpass456"); p.click("#delConfirm"); p.wait_for_timeout(2500)
@@ -99,9 +100,11 @@ with sync_playwright() as pw:
     r["delete_idbGone"]= p.evaluate("async()=>!(await indexedDB.databases()).some(d=>d.name==='vesper')")
     # --- WhatsApp iOS in-app browser: note on the register screen; Safari: none ---
     for name,ua in [("waIos",WA_IOS),("safariIos",SAFARI_IOS)]:
-        c2=b.new_context(viewport={"width":390,"height":780}, user_agent=ua); p2=c2.new_page(); p2.goto(f"http://127.0.0.1:{port}/"); p2.wait_for_timeout(400)
-        r[name+"_iabNote"]= p2.is_visible("#iabNote") and ("Open in Safari" in p2.eval_on_selector("#iabNote","e=>e.textContent")) if name=="waIos" else p2.is_visible("#iabNote")
-        r[name+"_iabBar"]= p2.is_visible("#iabBar"); c2.close()
+        c2=b.new_context(timezone_id=TZ, viewport={"width":390,"height":780}, user_agent=ua); p2=c2.new_page(); p2.goto(f"http://127.0.0.1:{port}/"); p2.wait_for_timeout(400)
+        shown=p2.is_visible("#iabNote"); bar=p2.is_visible("#iabBar")
+        if name=="waIos": r["waIos_iabNote"]= shown and ("Open in Safari" in p2.eval_on_selector("#iabNote","e=>e.textContent")); r["waIos_iabBar"]= bar
+        else: r["safariIos_noNote"]= not shown; r["safariIos_noBar"]= not bar      # a real browser gets no "open in Safari" note
+        c2.close()
     r["errors"]= errs[:3]
     print("RESULTS")
     for k,v in r.items(): print(f"  {k}: {v}")

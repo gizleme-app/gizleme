@@ -1,5 +1,6 @@
 # Location sharing, turning a two-person chat into a group, and group invitations (opt-in: joining is the recipient's tap).
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -65,13 +66,13 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US", geolocation={"latitude":46.2728,"longitude":6.3612,"accuracy":18}, permissions=["geolocation","clipboard-read","clipboard-write"]); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US", geolocation={"latitude":46.2728,"longitude":6.3612,"accuracy":18}, permissions=["geolocation","clipboard-read","clipboard-write"]); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e)))
     dlg=[]; p.on("dialog",lambda d:(dlg.append((d.type,d.default_value)), d.accept()))
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Florian',ck:ck,ts:Date.now()}]))",[CK])
-    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(2000)
+    p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","oguz"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p, 2500)
     p.click(".ct"); p.wait_for_timeout(700)
     # --- menu entries ---
     p.click("#menuBtn"); p.wait_for_timeout(150)
@@ -83,7 +84,7 @@ with sync_playwright() as pw:
     r["loc_card"]= bool(card) and card["t"]=="My location" and "±18 m" in card["s"] and "46.27280, 6.36120" in card["s"]
     r["loc_mapsLink"]= bool(card) and "46.2728" in (card["href"] or "") and card["target"]=="_blank"
     r["loc_delivered"]= bool(card) and card["st"]=="✓" and p.evaluate("()=>window.__puts.filter(x=>!x.mid.startsWith('r')).length")==1
-    r["loc_preview"]= p.eval_on_selector(".ct .cm","e=>e.textContent")
+    r["loc_preview"]= (p.eval_on_selector(".ct .cm","e=>e.textContent"))=='You: Location'
     # --- inbound location from Florian (mailbox) ---
     p.evaluate("([ck])=>window.__drop(ck,{t:'loc',lat:48.8566,lng:2.3522,acc:30,n:'Florian'},'flo-acct')",[CK]); p.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); p.wait_for_timeout(1500)
     rc=p.evaluate("()=>{ const d=[...document.querySelectorAll('.log .bubble.recv')].pop(); if(!d) return null; const a=d.querySelector('.cl-btn'); return {t:d.querySelector('.cl-t').textContent, s:d.querySelector('.cl-s').textContent, href:a&&a.getAttribute('href')}; }")
@@ -131,8 +132,8 @@ with sync_playwright() as pw:
     p.click("#ciBack"); p.wait_for_timeout(150)
     # history survives lock/unlock (cards re-rendered)
     p.evaluate("()=>document.getElementById('sbLock').click()"); p.wait_for_timeout(400)
-    p.fill("#pwInput","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500); p.evaluate(FLO); p.wait_for_timeout(900)
-    r["history_cards"]= p.eval_on_selector_all(".log:not([style*='display: none']) .bubble .cl-t","els=>els.map(e=>e.textContent)")
+    p.fill("#pwInput","password123"); p.click("#joinBtn"); entered(p); p.evaluate(FLO); p.wait_for_timeout(900)
+    r["history_cards"]= (p.eval_on_selector_all(".log:not([style*='display: none']) .bubble .cl-t","els=>els.map(e=>e.textContent)"))==['My location', 'Location', 'Florian invited you to the group “Les potes”', 'Florian invited you to the group “Renamed by Flo”', 'Group “oguz & Florian” created']
     r["errors"]= errs[:3]
     print("RESULTS")
     for k,v in r.items(): print(f"  {k}: {v}")

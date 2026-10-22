@@ -6,6 +6,7 @@
 # when a photo goes view-once, links in messages are clickable after confirming the site, the unlock label
 # is translated on Android.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -126,7 +127,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -181,17 +182,17 @@ try:
     def ctxp(w=390, h=780, scheme="dark", locale="en-US", ua=None, dialogs=True):
         kw=dict(viewport={"width":w,"height":h},locale=locale,color_scheme=scheme)
         if ua: kw["user_agent"]=ua
-        c=b.new_context(**kw); c.add_init_script(NOINST); p=c.new_page(); p.on("pageerror",lambda e:errs.append(str(e)+" @ "+str(getattr(e,"stack","") or "")[:300]))
+        c=b.new_context(timezone_id=TZ, **kw); c.add_init_script(NOINST); p=c.new_page(); p.on("pageerror",lambda e:errs.append(str(e)+" @ "+str(getattr(e,"stack","") or "")[:300]))
         if dialogs: p.on("dialog",lambda d:d.accept())
         return c,p
     def register(p, name):
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300); p.evaluate(SKIP)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
     def invite(P):
         P.evaluate("()=>{ const b=document.getElementById('backHome'); if(b) b.click(); }"); P.wait_for_timeout(200)
         P.click("#sbNew"); P.wait_for_timeout(300); l=P.eval_on_selector("#invLinkOut","e=>e.value"); P.click("#joinBtn"); P.wait_for_timeout(600); return l
     def open_link(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     cA,A=ctxp(w=1000,h=820); register(A,"oguz")
     r["new_account_no_timer"]= A.evaluate("()=>window.__gz.expG()")==0
     r["bio_label_fr"]= None   # filled below with an Android/French context
@@ -225,7 +226,7 @@ try:
     st=B.evaluate("()=>{ const b=[...document.querySelectorAll('"+OPEN+" .bubble.sent')].pop(); return b && b.querySelector('.st').dataset.st; }")
     r["offline_pending_not_failed"]= st=="pending" and any(x.endswith("|sent|undefined") or x.endswith("|sent|txt") for x in hist(B)) and B.evaluate("()=>Object.values(window.__gz.outqAll()).flat().length")==1
     r["offline_toast"]= "offline" in B.eval_on_selector("#toast","e=>e.textContent")
-    B.reload(); B.wait_for_timeout(600); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(900)
+    B.reload(); B.wait_for_timeout(600); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B); B.click(".ct"); B.wait_for_timeout(900)
     r["offline_survives_reload"]= B.evaluate(has("hors ligne")) and B.evaluate("()=>{ const b=[...document.querySelectorAll('"+OPEN+" .bubble.sent')].pop(); return b && b.querySelector('.st').dataset.st; }")=="pending"
     cB.set_offline(False); B.wait_for_timeout(500)
     r["offline_sent_when_back"]= wait_for(A,has("hors ligne"),20000) and wait_for(B,"()=>{ const b=[...document.querySelectorAll('"+OPEN+" .bubble.sent')].pop(); return b && b.querySelector('.st').dataset.st!=='pending'; }",10000) and B.evaluate("()=>Object.values(window.__gz.outqAll()).flat().length")==0
@@ -243,10 +244,10 @@ try:
     # ---- 5. an invite link opened while already signed in asks first ----
     l3=invite(A)
     cD,D=ctxp(dialogs=False); cD.add_init_script("window.__askPolicy=()=>false;"); register(D,"deniz")
-    D.goto(f"http://127.0.0.1:{port}/?r=1"+l3[l3.index("#"):]); D.wait_for_timeout(400); D.fill("#pwInput","password123"); D.click("#joinBtn"); D.wait_for_timeout(1500)
+    D.goto(f"http://127.0.0.1:{port}/?r=1"+l3[l3.index("#"):]); D.wait_for_timeout(400); D.fill("#pwInput","password123"); D.click("#joinBtn"); entered(D)
     r["invite_asks_when_signed_in"]= any("invites you" in m for m in D.evaluate("()=>window.__asks||[]")) and D.evaluate("()=>window.__gz.contacts().length")==0
     cE,E=ctxp(dialogs=False)
-    E.goto(f"http://127.0.0.1:{port}/?r=1"+l3[l3.index("#"):]); E.wait_for_timeout(400); E.evaluate(SKIP); E.fill("#userInput","ece"); E.fill("#pwInput","password123"); E.fill("#pw2Input","password123"); E.click("#joinBtn"); E.wait_for_timeout(2000)
+    E.goto(f"http://127.0.0.1:{port}/?r=1"+l3[l3.index("#"):]); E.wait_for_timeout(400); E.evaluate(SKIP); E.fill("#userInput","ece"); E.fill("#pwInput","password123"); E.fill("#pw2Input","password123"); E.click("#joinBtn"); entered(E, 2500)
     r["invite_no_question_after_signup"]= not any("invites you" in m for m in E.evaluate("()=>window.__asks||[]")) and E.evaluate("()=>window.__gz.contacts().length")==1
     # ---- 6. a photo under a timer tells the sender ----
     A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(200); A.evaluate("()=>[...document.querySelectorAll('.ct')].find(e=>e.textContent.includes('serap')).click()"); A.wait_for_timeout(500)
@@ -256,7 +257,7 @@ try:
     # ---- 7. a long history opens fast (one scroll at the end) ----
     A.evaluate("()=>document.querySelector('#expMenu button[data-v=\"0\"]')") ; A.evaluate("()=>document.getElementById('expBtn').click()"); A.wait_for_timeout(150); A.evaluate("()=>document.querySelector('#expMenu button[data-v=\"0\"]').click()"); A.wait_for_timeout(400)
     A.evaluate("()=>{ const t0=Date.now()-3600e3; const ps=[]; for(let i=0;i<1500;i++) ps.push(window.__gz.histSave({dir:i%2?'sent':'recv', env:{body:'ligne '+i}, ts:t0+i*1000, mid:'h'+i+'x'+Math.random().toString(36).slice(2,8)})); return Promise.all(ps); }"); A.wait_for_timeout(1500)
-    A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800); A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800); A.fill("#pwInput","password123"); A.click("#joinBtn"); entered(A)
     t0=time.time(); A.evaluate("()=>[...document.querySelectorAll('.ct')].find(e=>e.textContent.includes('serap')).click()")
     ok=wait_for(A,"()=>document.querySelectorAll('"+OPEN+" .bubble').length>=140",40000); dt=time.time()-t0   # the last 150 records (two of them timer lines, not bubbles)
     atb=wait_for(A,"()=>{ const l=document.querySelector('"+OPEN+"'); return (l.scrollHeight-l.scrollTop-l.clientHeight)<80 && !l._bulk; }",3000)

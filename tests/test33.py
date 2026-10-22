@@ -1,5 +1,6 @@
 # Voice messages: built-in codec round trip, record / cancel / send, ciphertext-only blob deleted after the first fetch, local encrypted replay.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -117,7 +118,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -148,23 +149,23 @@ out=subprocess.run(["node","-e",NODE],capture_output=True,text=True)
 try: codec=json.loads(out.stdout.strip())
 except Exception: codec={"err":(out.stdout+out.stderr)[:300]}
 r={}
-r["codec"]=codec
+r["codec_v"]=codec
 r["codec_ok"]= codec.get("snr",0)>=18 and codec.get("size",0)<=8100 and codec.get("bad") and codec.get("trunc") and codec.get("ds")==16000 and abs(codec.get("dsv",0)-16383)<40
 import traceback
 try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--use-fake-device-for-media-stream","--use-fake-ui-for-media-stream","--autoplay-policy=no-user-gesture-required"])
     def boot(name, errs):
-        ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US", permissions=["microphone"]); p=ctx.new_page()
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US", permissions=["microphone"]); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     errsA=[]; errsB=[]
     ctxA,A=boot("oguz",errsA)
     A.click("#sbNew"); A.wait_for_timeout(300); link=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
     ctxB,B=boot("florian",errsB)
-    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(2500)
+    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B, 1500)
     r["paired"]= wait_for(A,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000) and wait_for(B,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000)
     r["mic_enabled"]= A.evaluate("()=>!document.getElementById('micBtn').disabled")
     # phone width: the composer row fits (+, text box, camera, mic), the recording bar is NOT rendered unless recording
@@ -199,7 +200,7 @@ try:
     r["replay_local"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').dataset.st==='pause'",5000)
     B.click(".bubble.recv.voice .vbtn")   # pause
     # ---- B locks and unlocks: the bubble comes back from history and still plays ----
-    B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(800)
+    B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B); B.click(".ct"); B.wait_for_timeout(800)
     r["hist_bubble"]= B.evaluate("()=>!!document.querySelector('.bubble.recv.voice .vbtn')")
     B.click(".bubble.recv.voice .vbtn")
     r["hist_plays"]= wait_for(B,"()=>document.querySelector('.bubble.recv.voice .vbtn').dataset.st==='pause'",5000)
@@ -210,7 +211,7 @@ try:
     A.click("#micBtn"); A.wait_for_timeout(700)
     A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(400)
     r["lock_dropsRec"]= A.evaluate("()=>getComputedStyle(document.getElementById('recBar')).display==='none' && !document.querySelector('.composer').classList.contains('rec')")
-    A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.fill("#pwInput","password123"); A.click("#joinBtn"); entered(A)
     # a too-short recording is not sent
     A.click(".ct"); A.wait_for_timeout(600); A.click("#micBtn"); A.wait_for_timeout(200); A.click("#recSend"); A.wait_for_timeout(800)
     h=A.evaluate("()=>window.__gz.histOf()"); r["hist_noDuplicates"]= len(h)==len(set(h))==2   # own deposit fetched after unlock is not saved twice

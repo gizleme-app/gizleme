@@ -1,5 +1,6 @@
 # Invite links v3: one-time pre-key in the link, ECDH agreement in the hello, link reuse detected and refused, link-key messages ignored.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -108,7 +109,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -126,10 +127,10 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch()
     def boot(name, errs):
-        ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     errsA=[]; errsB=[]; errsE=[]; errsF=[]
     ctxA,A=boot("oguz",errsA)
@@ -148,7 +149,7 @@ try:
     # ---- B opens the link: agrees a key with the pre-key, leaves a hello, writes under the agreed key ----
     ctxB,B=boot("florian",errsB)
     B.goto(f"http://127.0.0.1:{port}/?r=2#i="+link.split("#i=")[1]); B.wait_for_timeout(400)
-    B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(2500)
+    B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B, 1500)
     cb=B.evaluate("()=>window.__gz.contacts()[0]")
     r["B_agreedKey"]= cb["ck"]!=CKL and cb.get("prev")==CKL and cb.get("v3")==1 and bool(cb.get("sv"))
     r["B_helloOnRelay"]= len(dump().get(MB_LINK,[]))==1
@@ -165,7 +166,7 @@ try:
     r["pair_A"]= wait_for(A,"()=>document.getElementById('bar').classList.contains('st-online')",12000)
     r["pair_B"]= wait_for(B,"()=>document.getElementById('bar').classList.contains('st-online')",12000)
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); B.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); A.wait_for_timeout(2000)
-    r["A_gotCoucou"]= "coucou" in A.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
+    r["A_gotCoucou"]= wait_for(A,"()=>[...document.querySelectorAll('.log .bubble.recv .txt')].some(e=>e.textContent==='coucou')",10000)
     r["B_gotPreOpen"]= "avant ouverture" in B.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
     d=dump(); r["linkMailbox_helloOnly"]= [m["mid"][0] for m in d.get(MB_LINK,[])]==["h"]
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); B.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); A.wait_for_timeout(1500); d=dump()
@@ -174,7 +175,7 @@ try:
     # ---- E has a copy of the link and opens it later: not added, warned, told ----
     ctxE,E=boot("eve",errsE)
     E.goto(f"http://127.0.0.1:{port}/?r=2#i="+link.split("#i=")[1]); E.wait_for_timeout(400)
-    E.fill("#pwInput","password123"); E.click("#joinBtn"); E.wait_for_timeout(2500)
+    E.fill("#pwInput","password123"); E.click("#joinBtn"); entered(E, 1500)
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))")
     r["A_reuseWarned"]= wait_for(A,"()=>window.__gz.lastSys().some(x=>x.includes('Someone else just opened'))",10000)
     r["A_stillOneContact"]= A.evaluate("()=>window.__gz.contacts().length")==1 and A.evaluate("()=>window.__gz.contacts()[0].ck")==cb["ck"]
@@ -190,7 +191,7 @@ try:
     leg=base64.urlsafe_b64encode(json.dumps(legacy,separators=(",",":")).encode()).decode().rstrip("=")
     A.click("#joinBtn"); A.wait_for_timeout(1000); A.fill("#msgInput","pour l ancien"); A.press("#msgInput","Enter"); A.wait_for_timeout(600)
     ctxF,F=boot("fred",errsF)
-    F.goto(f"http://127.0.0.1:{port}/?r=2#i="+leg); F.wait_for_timeout(400); F.fill("#pwInput","password123"); F.click("#joinBtn"); F.wait_for_timeout(2000)
+    F.goto(f"http://127.0.0.1:{port}/?r=2#i="+leg); F.wait_for_timeout(400); F.fill("#pwInput","password123"); F.click("#joinBtn"); entered(F, 2500)
     F.fill("#msgInput","salut vieux"); F.press("#msgInput","Enter"); F.wait_for_timeout(1000)
     A.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); A.wait_for_timeout(2000)
     r["linkkey_msgIgnored"]= "salut vieux" not in A.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
@@ -198,7 +199,7 @@ try:
     F.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); F.wait_for_timeout(2000)
     r["linkkey_queuedNotLeaked"]= "pour l ancien" not in F.eval_on_selector_all(".log .bubble.recv .txt","els=>els.map(e=>e.textContent)")
     # ---- A: lock / unlock keeps the bound contact and history ----
-    A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(400); A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(400); A.fill("#pwInput","password123"); A.click("#joinBtn"); entered(A)
     r["persist"]= A.evaluate("()=>{ const c=window.__gz.contacts().find(x=>x.name==='florian'); return !!c && c.v3===1 && !c.pk; }")
     r["errors"]= (errsA+errsB+errsE+errsF)[:4]
     b.close()

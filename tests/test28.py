@@ -1,5 +1,6 @@
 # Chat header: logo beside the name, red/green status dot instead of status text, details on tap.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -53,7 +54,7 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d: d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
     CK=p.evaluate("()=>btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))")
@@ -64,7 +65,7 @@ with sync_playwright() as pw:
     r["nameStandsAlone"]= p.evaluate("()=>{ const n=document.getElementById('peerName'); return !n.nextElementSibling && !document.querySelector('.peer-logo') && getComputedStyle(document.getElementById('chatBrand')).display==='none'; }")   # v36: no logo or brand in a chat's header
     # offline: red dot, one short word, full explanation kept on the element (hover) and on tap (toast)
     r["offline_class"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-offline') && !e.classList.contains('st-online')")
-    r["offline_short"]= p.eval_on_selector("#statusText","e=>e.textContent")
+    r["offline_short"]= (p.eval_on_selector("#statusText","e=>e.textContent"))=='offline'
     r["offline_fullKept"]= "delivered when they reconnect" in p.eval_on_selector("#peerMeta","e=>e.title")
     r["offline_dotRed"]= p.evaluate("()=>{ const c=getComputedStyle(document.querySelector('#bar .led')).backgroundColor; const bad=getComputedStyle(document.documentElement).getPropertyValue('--bad').trim(); const d=document.createElement('div'); d.style.color=bad; document.body.appendChild(d); const want=getComputedStyle(d).color; d.remove(); return c===want; }")
     p.click("#peerMeta"); p.wait_for_timeout(250)      # v37: the name opens Chat info, which shows the full status
@@ -75,7 +76,7 @@ with sync_playwright() as pw:
     pub=p.evaluate("()=>window.__pub()"); tag=p.evaluate("([ck,pub])=>window.__tag(ck,pub)",[CK,pub])
     p.evaluate("([a,t])=>window.__sync({k1:[{id:'a1',name:'Florian',u:'flo-acct',pub:a,tag:t}]})",[pub,tag]); p.wait_for_timeout(1000)
     r["online_class"]= p.eval_on_selector("#bar","e=>e.classList.contains('st-online')")
-    r["online_short"]= p.eval_on_selector("#statusText","e=>e.textContent")
+    r["online_short"]= (p.eval_on_selector("#statusText","e=>e.textContent"))=='online'
     r["online_fullKept"]= "same key as your first connection" in p.eval_on_selector("#peerMeta","e=>e.title")
     r["connectIsSilent"]= p.evaluate("()=>window.__beeps.length===0")   # a contact coming online is shown by the green dot, not a chime
     r["connLineOnce"]= p.eval_on_selector_all(".log .sys","els=>els.filter(e=>e.textContent.includes('End-to-end encrypted with')).length")==1
@@ -90,7 +91,7 @@ with sync_playwright() as pw:
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); p.select_option("#langSel","fr"); p.wait_for_timeout(500)
     p.evaluate("()=>document.getElementById('settingsModal').classList.remove('show')")
     p.evaluate("()=>window.__sync({})"); p.wait_for_timeout(400)
-    r["fr_offline"]= p.eval_on_selector("#statusText","e=>e.textContent")
+    r["fr_offline"]= (p.eval_on_selector("#statusText","e=>e.textContent"))=='hors ligne'
     r["errors"]= errs[:3]
     print("RESULTS")
     for k,v in r.items(): print(f"  {k}: {v}")

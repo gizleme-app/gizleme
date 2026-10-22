@@ -1,5 +1,6 @@
 # Local nicknames ("Rename for me") and selectable message tones.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -53,7 +54,7 @@ threading.Thread(target=srv.serve_forever,daemon=True).start()
 
 r={}
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820}, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e)))
     nick=["Baba"]; p.on("dialog",lambda d: d.accept(nick[0]) if d.type=="prompt" else d.accept()); ctx.add_init_script("window.__promptValue='Baba';")
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
@@ -61,19 +62,19 @@ with sync_playwright() as pw:
     p.evaluate("([ck])=>localStorage.setItem('gz-contacts',JSON.stringify([{name:'Oz77',ck:ck,ts:Date.now()}]))",[CK])
     p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput","fille"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
     p.click(".ct"); p.wait_for_timeout(600)
-    r["before_header"]= p.eval_on_selector("#peerName","e=>e.textContent")
+    r["before_header"]= (p.eval_on_selector("#peerName","e=>e.textContent"))=='Oz77'
     # ⋮ → Rename for me → "Baba"
     p.click("#peerMeta"); p.wait_for_timeout(200); r["menuHasRename"]= p.is_visible("#ciRename")   # v37: in Chat info (tap the name)
     p.click("#ciRename"); p.wait_for_timeout(400); r["info_shows_nick"]= p.eval_on_selector("#ciName","e=>e.textContent")=="Baba"; p.click("#ciBack"); p.wait_for_timeout(150)
-    r["header_nick"]= p.eval_on_selector("#peerName","e=>e.textContent")
-    r["list_nick"]= p.eval_on_selector(".ct .cn","e=>e.textContent.trim()")
-    r["list_avatar"]= p.eval_on_selector(".ct .ava","e=>e.textContent")
-    c=p.evaluate("()=>window.__gz.contacts()[0]"); r["record"]= {"alias":c.get("alias"),"nameKept":c.get("name")}
+    r["header_nick"]= (p.eval_on_selector("#peerName","e=>e.textContent"))=='Baba'
+    r["list_nick"]= (p.eval_on_selector(".ct .cn","e=>e.textContent.trim()"))=='Baba'
+    r["list_avatar"]= (p.eval_on_selector(".ct .ava","e=>e.textContent"))=='B'
+    c=p.evaluate("()=>window.__gz.contacts()[0]"); r["record"]= ({"alias":c.get("alias"),"nameKept":c.get("name")})=={'alias': 'Baba', 'nameKept': 'Oz77'}
     # Oz77 comes online with his own display name → the nickname stays
     pub=p.evaluate("()=>window.__pub()"); tag=p.evaluate("([ck,pub])=>window.__tag(ck,pub)",[CK,pub])
     p.evaluate("([a,t])=>window.__sync({k1:[{id:'a1',name:'Oz77',u:'oz-acct',pub:a,tag:t}]})",[pub,tag]); p.wait_for_timeout(900)
     r["paired"]= "secure" in p.eval_on_selector("#peerMeta","e=>e.title") and p.eval_on_selector("#bar","e=>e.classList.contains('st-online')")
-    r["header_afterPairing"]= p.eval_on_selector("#peerName","e=>e.textContent")
+    r["header_afterPairing"]= (p.eval_on_selector("#peerName","e=>e.textContent"))=='Baba'
     r["verifiedLineUsesNick"]= p.eval_on_selector_all(".log .sys","els=>els.some(e=>e.textContent.includes('End-to-end encrypted with Baba'))")
     # vault merge from another device: the other device renamed later → its nickname wins; an older record → ours stays
     m=p.evaluate("([ck])=>window.__gz.merge({contacts:[{name:'Oz77',ck:ck,ts:Date.now(),alias:'Papa',ats:Date.now()+100000}],groups:[]})",[CK])
@@ -82,13 +83,13 @@ with sync_playwright() as pw:
     r["merge_olderIgnored"]= m2["contacts"][0].get("alias")=="Baba"
     # empty name restores his own name
     nick[0]=""; p.evaluate("()=>{ window.__promptValue=''; }"); p.click("#peerMeta"); p.wait_for_timeout(200); p.click("#ciRename"); p.wait_for_timeout(400); p.click("#ciBack"); p.wait_for_timeout(150)
-    r["cleared_header"]= p.eval_on_selector("#peerName","e=>e.textContent"); r["cleared_record"]= "alias" not in p.evaluate("()=>window.__gz.contacts()[0]")
+    r["cleared_header"]= (p.eval_on_selector("#peerName","e=>e.textContent"))=='Oz77'; r["cleared_record"]= "alias" not in p.evaluate("()=>window.__gz.contacts()[0]")
     # message tones: select → persisted + previewed; receive uses it
     p.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); p.evaluate("()=>document.querySelector('#settingsModal [data-go=notif]').click()"); p.wait_for_timeout(100)
-    r["toneOptions"]= p.eval_on_selector_all("#toneSel .tone","els=>els.map(e=>e.dataset.tone)")
+    r["toneOptions"]= (p.eval_on_selector_all("#toneSel .tone","els=>els.map(e=>e.dataset.tone)"))==['gizleme', 'classic', 'pop', 'chime', 'marimba', 'soft']
     p.evaluate("()=>{ window.__beeps.length=0; }"); p.click("#toneSel .tone[data-tone=chime]"); p.wait_for_timeout(400)
-    r["tonePersisted"]= p.evaluate("()=>localStorage.getItem('gz-tone')")
-    r["tonePreviewed"]= p.evaluate("()=>window.__beeps.slice(0,4)")
+    r["tonePersisted"]= (p.evaluate("()=>localStorage.getItem('gz-tone')"))=='chime'
+    r["tonePreviewed"]= (p.evaluate("()=>window.__beeps.slice(0,4)"))==[1046.5, 2093, 1318.51, 1567.98]
     r["errors"]= errs[:3]
     print("RESULTS")
     for k,v in r.items(): print(f"  {k}: {v}")

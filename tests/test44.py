@@ -3,6 +3,7 @@
 # WhatsApp or the share sheet opening the new chat (no blank page left behind on a phone), and the
 # "new version available" pill.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -121,7 +122,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -181,10 +182,10 @@ try:
     def boot(name, errs, w=1000, ua=None, extra=""):
         kw={"viewport":{"width":w,"height":820},"locale":"en-US"}
         if ua: kw["user_agent"]=ua
-        ctx=b.new_context(**kw); ctx.add_init_script(COUNT); ctx.add_init_script(STUB+extra); p=ctx.new_page()
+        ctx=b.new_context(timezone_id=TZ, **kw); ctx.add_init_script(COUNT); ctx.add_init_script(STUB+extra); p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     errsA=[]; errsB=[]; errsC=[]
     ctxA,A=boot("oguz",errsA)
@@ -195,7 +196,7 @@ try:
     r["wa_desktop_waMe"]= len(op)==1 and op[0].startswith("https://wa.me/?text=") and urllib.parse.quote(link[link.index("#"):],safe="") in op[0]
     r["wa_desktop_chatOpens"]= wait_for(A, INCHAT, 5000)
     ctxB,B=boot("florian",errsB,w=390)
-    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(2500)
+    B.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); B.wait_for_timeout(400); B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B, 1500)
     r["paired"]= wait_for(A,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000) and wait_for(B,"()=>{ const x=window.__gz.room(); return x && x.paired; }",10000)
     A.wait_for_timeout(600)
     # --- unread count in the title, and the "New messages" line when the chat is opened
@@ -298,7 +299,7 @@ try:
     B.click("#updX"); B.wait_for_timeout(200); B.evaluate("()=>window.__gz.checkUpdate()"); B.wait_for_timeout(500)
     r["upd_laterHolds"]= not B.is_visible("#updPill")
     # at the login screen with nothing typed, it just reloads
-    ctxD=b.new_context(viewport={"width":390,"height":820},locale="en-US"); D=ctxD.new_page(); D.on("pageerror",lambda e:errsC.append(str(e)))
+    ctxD=b.new_context(timezone_id=TZ, viewport={"width":390,"height":820},locale="en-US"); D=ctxD.new_page(); D.on("pageerror",lambda e:errsC.append(str(e)))
     D.goto(f"http://127.0.0.1:{port}/"); D.wait_for_timeout(600); D.evaluate("()=>{ window.__mark=1; }")
     D.evaluate("()=>window.__gz && window.__gz.checkUpdate ? window.__gz.checkUpdate() : null"); D.wait_for_timeout(1500)
     r["upd_reloadsWhenIdle"]= D.evaluate("()=>window.__mark===undefined")

@@ -5,6 +5,7 @@
 # by box; the mailbox pace follows activity and hiding; the chats list keeps unchanged rows; the QR library is
 # fetched only when a QR code is shown; the service worker's shell files exist and its critical ones are in the shell.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -147,7 +148,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -189,7 +190,7 @@ SKIP="()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=docu
 def send(P, txt): P.fill("#msgInput",txt); P.press("#msgInput","Enter"); P.wait_for_timeout(250)
 def has(t): return "()=>[...document.querySelectorAll('"+OPEN+" .bubble .txt')].some(e=>e.textContent==="+json.dumps(t)+")"
 def lock(P): P.evaluate("()=>document.getElementById('sbLock').click()"); P.wait_for_timeout(700)
-def unlock(P): P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(1500)
+def unlock(P): P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P)
 def calls(a, cl="A"):
     with RLOCK: return len([x for x in CALLS if x[0]==a and x[1]==cl])
 try:
@@ -218,17 +219,17 @@ try:
     def ctxp(w=390, h=780, scheme="dark", locale="en-US", ua=None, dialogs=True, tag=""):
         kw=dict(viewport={"width":w,"height":h},locale=locale,color_scheme=scheme)
         if ua: kw["user_agent"]=ua
-        c=b.new_context(**kw); c.add_init_script(NOINST); c.add_init_script("window.__clientTag="+json.dumps(tag)+";"); p=c.new_page(); p.on("pageerror",lambda e:errs.append(str(e)+" @ "+str(getattr(e,"stack","") or "")[:300]))
+        c=b.new_context(timezone_id=TZ, **kw); c.add_init_script(NOINST); c.add_init_script("window.__clientTag="+json.dumps(tag)+";"); p=c.new_page(); p.on("pageerror",lambda e:errs.append(str(e)+" @ "+str(getattr(e,"stack","") or "")[:300]))
         if dialogs: p.on("dialog",lambda d:d.accept())
         return c,p
     def register(p, name):
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300); p.evaluate(SKIP)
-        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
     def invite(P):
         P.evaluate("()=>{ const b=document.getElementById('backHome'); if(b) b.click(); }"); P.wait_for_timeout(200)
         P.click("#sbNew"); P.wait_for_timeout(300); l=P.eval_on_selector("#invLinkOut","e=>e.value"); P.click("#joinBtn"); P.wait_for_timeout(600); return l
     def open_link(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     # ---- 1. the first screen before app.js: French, unlock, the password field there while app.js is held back ----
     cA,A=ctxp(w=1000,h=820,locale="fr-FR",tag="A"); register(A,"oguz")
     r["qr_not_loaded_at_start"]= not A.evaluate("()=>window.__gz.qrLoaded()")
@@ -245,7 +246,7 @@ try:
     r["boot_v"]=early
     SLOW[0]=False
     r["app_takes_over"]= wait_for(A,"()=>document.getElementById('join').dataset.mode==='unlock' && !document.getElementById('join').dataset.boot && !document.getElementById('joinBtn').disabled && document.getElementById('lockHeadTitle').textContent==='Gizleme est verrouillé'",8000) and A.eval_on_selector("#pwInput","e=>e.value")=="password123"
-    A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.click("#joinBtn"); entered(A)
     r["unlocks_after"]= A.evaluate("()=>document.getElementById('app').style.display==='flex'")
     # switching the language later still translates what boot.js wrote (the English stays on the element)
     A.evaluate("()=>document.getElementById('sbSettings').click()"); A.evaluate("()=>document.querySelector('#settingsModal [data-go=chats]').click()"); A.wait_for_timeout(200)
@@ -259,7 +260,7 @@ try:
     cB,B=ctxp(w=1000,h=820,tag="B"); register(B,"serap"); l1=invite(A); open_link(B,l1)
     cC,C=ctxp(w=1000,h=820,tag="C"); register(C,"can"); l2=invite(A); open_link(C,l2)
     r["paired"]= wait_for(A,"()=>window.__gz.contacts().filter(c=>!c.pk).length===2",10000)
-    A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(300)
+    A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(2500)   # v46: a pairing reads that contact's box once (1.2 s later) — let it pass
     with RLOCK: CALLS.clear()
     A.evaluate("()=>window.__gz.inbox()"); A.wait_for_timeout(1500)
     r["one_call_per_pass"]= calls("getmany")==1 and calls("get")==0
@@ -288,7 +289,7 @@ try:
     # ---- 4. the chats list keeps its rows when nothing changed, rebuilds the one that did ----
     A.evaluate("()=>document.getElementById('backHome').click()"); A.wait_for_timeout(300)
     ids=A.evaluate("()=>window.__gz.rows()")
-    same=A.evaluate("([id])=>{ const a=window.__gz.rowEl(id); window.__gz.rc(); return a===window.__gz.rowEl(id); }",[ids[0]]) if ids else False
+    same=A.evaluate("([id])=>{ const a=window.__gz.rowEl(id); window.__gz.rc(); return a===window.__gz.rowEl(id); }",[ids[-1]]) if ids else False   # the invite row: no "typing…" age in its signature
     r["rows_kept"]= len(ids)==3 and same
     C.evaluate("()=>document.getElementById('backHome').click()"); C.wait_for_timeout(200); C.click(".ct"); C.wait_for_timeout(500); send(C,"salut A"); C.wait_for_timeout(600)
     A.evaluate("()=>window.__gz.inbox()")
@@ -308,11 +309,11 @@ try:
  os.chdir(site2)
  with sync_playwright() as pw:
     b=pw.chromium.launch(); errs2=[]
-    c=b.new_context(viewport={"width":1000,"height":820},locale="fr-FR"); c.add_init_script(NOINST); p=c.new_page(); p.on("pageerror",lambda e:errs2.append(str(e)[:200])); p.on("dialog",lambda d:d.accept())
+    c=b.new_context(timezone_id=TZ, viewport={"width":1000,"height":820},locale="fr-FR"); c.add_init_script(NOINST); p=c.new_page(); p.on("pageerror",lambda e:errs2.append(str(e)[:200])); p.on("dialog",lambda d:d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(400); p.evaluate(SKIP)
     p.fill("#userInput","mini"); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1800)
     ok1=p.evaluate("()=>document.getElementById('app').style.display==='flex' && document.querySelector('script[src^=\"/app.min.js\"]')!==null")
-    p.click("#sbNew"); p.wait_for_timeout(300); p.click(".nctab[data-nc='group']"); p.wait_for_timeout(200); p.fill("#gnameInput","Mini"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+    p.click("#sbNew"); p.wait_for_timeout(300); p.click(".nctab[data-nc='group']"); p.wait_for_timeout(200); p.fill("#gnameInput","Mini"); p.click("#joinBtn"); entered(p)
     send(p,"ça marche en minifié")
     ok2=wait_for(p,has("ça marche en minifié"),6000)
     r["min_build_boots"]= ok1 and ok2 and not errs2

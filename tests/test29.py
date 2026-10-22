@@ -1,5 +1,6 @@
 # Lock and log-out screens on a phone: the form stays above the keyboard, nothing hidden underneath.
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -56,7 +57,7 @@ IPHONE="Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1
 r={}
 JOIN_H="()=>document.getElementById('join').getBoundingClientRect().height"
 with sync_playwright() as pw:
-    b=pw.chromium.launch(); ctx=b.new_context(viewport={"width":390,"height":780}, user_agent=IPHONE, has_touch=True, is_mobile=True, locale="en-US"); p=ctx.new_page()
+    b=pw.chromium.launch(); ctx=b.new_context(timezone_id=TZ, viewport={"width":390,"height":780}, user_agent=IPHONE, has_touch=True, is_mobile=True, locale="en-US"); p=ctx.new_page()
     errs=[]; p.on("pageerror",lambda e:errs.append(str(e)))
     p.on("dialog",lambda d: d.accept())
     p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(400)

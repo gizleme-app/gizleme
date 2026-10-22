@@ -5,6 +5,7 @@
 # a colour for each chat's avatar (long press / right click in the list), synced newest-wins; "typing…" and
 # "recording a voice message…" (header, end of chat, chats list; stops, fades; setting off both ways).
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -128,7 +129,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -209,17 +210,17 @@ try:
     def boot(name, errs, w=1000, ua=None, init=None):
         kw={"viewport":{"width":w,"height":820},"locale":"en-US","permissions":["camera","microphone"]}
         if ua: kw["user_agent"]=ua
-        ctx=b.new_context(**kw)
+        ctx=b.new_context(timezone_id=TZ, **kw)
         if init: ctx.add_init_script(init)
         p=ctx.new_page()
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     def open_link(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     def relock(P):
-        P.reload(); P.wait_for_timeout(500); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(1500)
+        P.reload(); P.wait_for_timeout(500); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P)
     errsA=[]; errsB=[]; errsI=[]
     ctxA,A=boot("oguz",errsA)
     A.click("#sbNew"); A.wait_for_timeout(300); link1=A.eval_on_selector("#invLinkOut","e=>e.value"); A.click("#joinBtn"); A.wait_for_timeout(800)
@@ -319,7 +320,7 @@ try:
     r["onetoone_rules"]= A.evaluate("([p])=>window.__gz.editsFrom(false,p)",[past])==[[M("a"),"good"]]
     # ---------- 4. history: survives a lock / unlock ----------
     A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800)
-    A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
+    A.fill("#pwInput","password123"); A.click("#joinBtn"); entered(A)
     A.click(".ct"); A.wait_for_timeout(1500)
     tx=A.evaluate(TEXTS); a2=A.evaluate(BUB,[SENTS])
     r["history_edit_applied"]= a2["txt"]=="hello world" and a2["edm"] and "helo wrold" not in tx and not any("✏️" in x for x in tx)

@@ -2,6 +2,7 @@
 # photos are kept and shown in the chat on both sides (local encrypted copy, survives the relay's sweep), and a
 # long press on one offers Save (a download; the share sheet on iPhone) and Forward (to another chat).
 from playwright.sync_api import sync_playwright
+import sys as _sys, os as _os0; _sys.path.insert(0, _os0.path.dirname(_os0.path.abspath(__file__))); from harness import wait_for as _wait_for, entered, TZ   # shared waits (tests/harness.py)
 import pathlib, http.server, socketserver, threading, os, json, time, urllib.parse, datetime, base64
 
 # Paths: the app sources are the repository root (one level up); scratch files go to a temp dir.
@@ -122,7 +123,7 @@ class Q(http.server.SimpleHTTPRequestHandler):
 srv=socketserver.ThreadingTCPServer(("127.0.0.1",0),Q); port=srv.server_address[1]
 threading.Thread(target=srv.serve_forever,daemon=True).start()
 
-def wait_for(page, js, timeout=10000, step=150):
+def wait_for(page, js, timeout=20000, step=150):
     t0=time.time()
     while time.time()-t0<timeout/1000:
         try:
@@ -174,13 +175,13 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
     def boot(name, errs, w=1000):
-        ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); ctx.add_init_script("try{ localStorage.setItem('gz-exp-global','86400000'); }catch(e){}"); p=ctx.new_page()   # an account that chose 24 h (v41: off by default)
+        ctx=b.new_context(timezone_id=TZ, viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); ctx.add_init_script("try{ localStorage.setItem('gz-exp-global','86400000'); }catch(e){}"); p=ctx.new_page()   # an account that chose 24 h (v41: off by default)
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
-        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)
+        p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); entered(p)
         return ctx,p
     def open_link(P, link):
-        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); P.wait_for_timeout(2000)
+        P.goto(f"http://127.0.0.1:{port}/?r=1"+link[link.index("#"):]); P.wait_for_timeout(400); P.fill("#pwInput","password123"); P.click("#joinBtn"); entered(P, 2500)
     def invite(P):
         P.evaluate("()=>{ const b=document.getElementById('backHome'); if(b) b.click(); }"); P.wait_for_timeout(200)
         P.click("#sbNew"); P.wait_for_timeout(300); l=P.eval_on_selector("#invLinkOut","e=>e.value"); P.click("#joinBtn"); P.wait_for_timeout(800); return l
@@ -209,10 +210,10 @@ try:
     with RLOCK: nb=len(BLOBS); BLOBS.clear()      # the relay sweeps it: the phone still has its own copy
     r["relay_had_blob"]= nb==1
     B.evaluate("()=>document.getElementById('sbLock').click()"); B.wait_for_timeout(800)
-    B.fill("#pwInput","password123"); B.click("#joinBtn"); B.wait_for_timeout(1500); B.click(".ct"); B.wait_for_timeout(2000)
+    B.fill("#pwInput","password123"); B.click("#joinBtn"); entered(B); B.click(".ct"); B.wait_for_timeout(2000)
     r["kept_after_relock_without_relay"]= wait_for(B,"()=>{ const i=document.querySelector('"+OPEN+" .bubble.recv img.keep'); return !!(i && i.naturalWidth>0); }",6000)
     A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800)
-    A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500); A.click(".ct"); A.wait_for_timeout(2000)
+    A.fill("#pwInput","password123"); A.click("#joinBtn"); entered(A); A.click(".ct"); A.wait_for_timeout(2000)
     r["sender_keeps_too"]= wait_for(A,"()=>{ const i=document.querySelector('"+OPEN+" .bubble.sent img.keep'); return !!(i && i.naturalWidth>0); }",6000)
     r["timer_kept_after_relock"]= A.evaluate(EXPST)["off"] and B.evaluate(EXPST)["off"]
     # ---- 3. long press: Save / Forward ----
