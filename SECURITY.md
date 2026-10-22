@@ -174,7 +174,9 @@ rate-limit counters.
   and is still registered until 2027-02-01 so a device on an older build can wake us meanwhile; a sender falls
   back to it, with its marker, only when nobody is registered under the new key. The relay still sees which
   IP wakes which key and polls which mailboxes, and co-presence in rooms — timing metadata this design does
-  not hide. Presence fields other than the
+  not hide. Since v43 a device reads all its mailboxes in one relay call per pass (the relay still sees the
+  set of mailbox ids a device holds, now in one request instead of one per chat), at a pace that follows
+  activity (20 s while a chat is alive, 45–60 s when quiet, every two minutes while the app is hidden). Presence fields other than the
   signed public key (name, marker, call announcements) are not authenticated by the contact key.
 - **Invite links travel through whatever you share them with.** "Share on WhatsApp" hands the link to
   WhatsApp (its own `whatsapp://` link on a phone, wa.me on a computer); the v3 design is what limits what a

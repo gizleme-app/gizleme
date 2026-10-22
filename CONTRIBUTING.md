@@ -19,7 +19,9 @@ script at runtime. Changes that keep it that way are the easiest to accept.
    info string (`"gz-<purpose>/v<n>"`). No new primitive without an issue first.
 4. If you change what is stored or sent, update [SECURITY.md](SECURITY.md) and `privacy.html` in the same
    pull request — the documents describe what the code does, never more.
-5. Bump `CACHE` in `sw.js` when you change a file it caches, or installed apps keep the old one.
+5. Bump `APP_VERSION` in `app.js` when you change a file the service worker caches, then run
+   `python3 tools/build.py`: it writes the number into `sw.js` and `index.html` and rebuilds `app.min.js`
+   (the page loads the minified file; test59 fails when the build is older than `app.js`).
 
 ## Tests
 

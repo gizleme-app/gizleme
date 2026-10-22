@@ -122,6 +122,26 @@ Deno.serve(async (req) => {
       sweepSoon();
       return json({ ok: true, items: data || [] });
     }
+    if (action === "getmany") {
+      // v43: one call for every mailbox a device reads — boxes: [{mbox, since}] (150 at most). The rows come back
+      // oldest first across all boxes and capped, so what a box gets is always a prefix of what it is owed: its cursor
+      // moves to the last row returned and the next pass takes the rest.
+      const list: any[] = Array.isArray(body.boxes) ? body.boxes.slice(0, 150) : [];
+      const boxes: { mbox: string; since: number }[] = [];
+      for (const b of list) { const mbox = clean(b?.mbox, 64); if (!MBOX_RE.test(mbox)) continue;
+        const d = b?.since ? new Date(b.since) : null; boxes.push({ mbox, since: d && !isNaN(d.getTime()) ? d.getTime() : 0 }); }
+      if (!boxes.length) return json({ ok: true, items: {} });
+      if (ip && !(await rl("mbox:getip:" + ip, 400, 60))) return json({ error: "rate_limited" }, 429);
+      const minSince = new Date(Math.min(...boxes.map(b => b.since))).toISOString();
+      const { data, error } = await db.from(TABLE).select("mbox, mid, from_user, data, ts").in("mbox", boxes.map(b => b.mbox)).gt("ts", minSince).order("ts", { ascending: true }).limit(1500);
+      if (error) return json({ error: error.message }, 500);
+      const since: Record<string, number> = {}; boxes.forEach(b => since[b.mbox] = b.since);
+      const items: Record<string, unknown[]> = {}; boxes.forEach(b => items[b.mbox] = []);
+      // a row in the same millisecond as a box's cursor is returned again rather than lost (ids already seen are skipped)
+      for (const r of data || []) { const t = Date.parse(r.ts) || 0; if (t < (since[r.mbox] || 0)) continue; items[r.mbox].push({ mid: r.mid, from_user: r.from_user, data: r.data, ts: r.ts }); }
+      sweepSoon();
+      return json({ ok: true, items, more: (data || []).length >= 1500 });
+    }
     if (action === "putblob") {
       // Encrypted photo blob (AES-GCM ciphertext; the key travels inside the message, never here).
       // Uploads go through this function so the bucket accepts nothing from the public anon key.

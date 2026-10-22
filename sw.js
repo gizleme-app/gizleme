@@ -5,15 +5,19 @@
 // General Public License as published by the Free Software Foundation, version 3. It is distributed WITHOUT
 // ANY WARRANTY; see the LICENSE file for details.
 // Service worker — installability, offline shell, Web Push.
-// Network-first for everything (the app must always load the latest encrypted build); the precached
-// shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v42";
-const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
-               "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png",
-               "/call-icon.png", "/call-badge.png", "/sb.js"];
-
+// The page itself (/ and /index.html) is network-first: it names the version of everything else. The files it
+// names carry that version in their URL (?v=NN, stamped by tools/build.py) and are served cache-first from the
+// precache (v43): an installed app opens from the device, and a new version arrives through this worker — a new
+// CACHE name installs the new files (fetched past the HTTP cache), then the "new version" pill reloads the page.
+const CACHE = "gizleme-v43";
+const SHELL = ["/index.html", "/app.min.js?v=43", "/i18n.js?v=43", "/boot.js?v=43", "/sb.js?v=43", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
+               "/watermark.webp", "/watermark-eyes.webp", "/logo-head.webp", "/logo-word.webp", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png",
+               "/call-icon.png", "/call-badge.png"];
+// the files without which the app cannot open at all: their absence fails the install (the previous worker stays);
+// the others are fetched when first used (v43 — before, any failure left the worker with no offline copy at all)
+const CRITICAL = ["/index.html", "/app.min.js?v=43", "/i18n.js?v=43", "/boot.js?v=43", "/sb.js?v=43"];
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => c.add(new Request(u, { cache: "reload" })).catch(err => { if (CRITICAL.includes(u)) throw err; })))));
   self.skipWaiting();
 });
 self.addEventListener("activate", e => {
@@ -28,14 +32,19 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;          // Supabase requests pass straight through
+  const key = url.pathname + url.search;
+  const shellNav = req.mode === "navigate" && (url.pathname === "/" || url.pathname === "/index.html");
+  const shellFile = !shellNav && (SHELL.includes(key) || SHELL.includes(url.pathname));
   e.respondWith((async () => {
+    if (shellFile) {   // a versioned (or fixed) file of the shell: from the device, fetched once if not there yet
+      const hit = await caches.match(req); if (hit) return hit;
+      try { const res = await fetch(req); if (res && res.ok) { try { const c = await caches.open(CACHE); c.put(req, res.clone()); } catch (_) {} } return res; }
+      catch (_) { return Response.error(); }
+    }
     try {
       const res = await fetch(req);
       // only the app itself may become the offline shell (a visit to /privacy.html must not replace it)
-      const shellNav = req.mode === "navigate" && (url.pathname === "/" || url.pathname === "/index.html");
-      if (res && res.ok && (shellNav || SHELL.includes(url.pathname))) {
-        try { const c = await caches.open(CACHE); c.put(shellNav ? "/index.html" : req, res.clone()); } catch (_) {}
-      }
+      if (res && res.ok && shellNav) { try { const c = await caches.open(CACHE); c.put("/index.html", res.clone()); } catch (_) {} }
       return res;
     } catch (_) {
       const cached = await caches.match(req.mode === "navigate" ? "/index.html" : req);

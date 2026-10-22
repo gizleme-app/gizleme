@@ -49,19 +49,21 @@ window.__peer={ async init(){ this.kp=await crypto.subtle.generateKey({name:"ECD
     return {from:opts.from||opts.me,name:"Majins",dir,i,iv:b64(iv),ct:b64(ct),mid:opts.outerMid||mid}; } };
 </script>'''
 (site/"mock.js").write_text(MOCK.replace('<script>','').replace('</script>',''))   # same-origin file: the CSP forbids inline scripts
+html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable app.js here (hooked below), not the minified build
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 html=html.replace('<meta charset="utf-8"/>','<meta charset="utf-8"/>\n<meta http-equiv="Content-Security-Policy" content="'+csp_meta.replace('"','&quot;')+'"/>')
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
 _app=_app[:_app.rstrip().rfind("})();")]+'window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad()};\n})();\n'
 (site/"app.js").write_text(_app)
-for f in ["watermark.png","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg"]:
+for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())
 png=base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 (site/"tiny.png").write_bytes(png)
 (site/"vendor").mkdir(exist_ok=True)
 for _v in _os.listdir(SRC+"vendor"):
     if _v.endswith(".js") and not _v.startswith("supabase") and not _v[0].isdigit(): (site/"vendor"/_v).write_bytes(_pl.Path(SRC+"vendor/"+_v).read_bytes())
+(site/"sw.js").write_text(pathlib.Path(SRC+"sw.js").read_text().replace("/app.min.js?v=","/app.js?v="))   # the worker precaches what the page loads
 os.chdir(site)
 class Q(http.server.SimpleHTTPRequestHandler):
     def log_message(self,*a): pass

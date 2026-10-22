@@ -52,6 +52,7 @@ window.supabase={createClient:()=>({
 })};
 '''
 (site/"mock.js").write_text(MOCK)
+html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable app.js here (hooked below), not the minified build
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
@@ -65,11 +66,12 @@ HOOK='''window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),
 '''
 _app=_app[:_app.rstrip().rfind("})();")]+HOOK+'})();\n'
 (site/"app.js").write_text(_app)
-for f in ["watermark.png","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg","logo-head.png","logo-word.png","logo-dot.png","call-icon.png","call-badge.png"]:
+for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg","logo-head.png","logo-word.png","logo-dot.png","call-icon.png","call-badge.png"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())
 (site/"vendor").mkdir(exist_ok=True)
 for _v in _os.listdir(SRC+"vendor"):
     if _v.endswith(".js") and not _v.startswith("supabase") and not _v[0].isdigit(): (site/"vendor"/_v).write_bytes(_pl.Path(SRC+"vendor/"+_v).read_bytes())
+(site/"sw.js").write_text(pathlib.Path(SRC+"sw.js").read_text().replace("/app.min.js?v=","/app.js?v="))   # the worker precaches what the page loads
 os.chdir(site)
 
 RELAY={}; RLOCK=threading.Lock(); MBOX={}; ACKS=[]; BLOBS={}
@@ -255,10 +257,16 @@ try:
     A.evaluate("()=>{ const t0=Date.now()-3600e3; const ps=[]; for(let i=0;i<1500;i++) ps.push(window.__gz.histSave({dir:i%2?'sent':'recv', env:{body:'ligne '+i}, ts:t0+i*1000, mid:'h'+i+'x'+Math.random().toString(36).slice(2,8)})); return Promise.all(ps); }"); A.wait_for_timeout(1500)
     A.evaluate("()=>document.getElementById('sbLock').click()"); A.wait_for_timeout(800); A.fill("#pwInput","password123"); A.click("#joinBtn"); A.wait_for_timeout(1500)
     t0=time.time(); A.evaluate("()=>[...document.querySelectorAll('.ct')].find(e=>e.textContent.includes('serap')).click()")
-    ok=wait_for(A,"()=>document.querySelectorAll('"+OPEN+" .bubble').length>=1500",40000); dt=time.time()-t0
-    atb=A.evaluate("()=>{ const l=document.querySelector('"+OPEN+"'); return (l.scrollHeight-l.scrollTop-l.clientHeight)<80 && !l._bulk; }")
+    ok=wait_for(A,"()=>document.querySelectorAll('"+OPEN+" .bubble').length>=140",40000); dt=time.time()-t0   # the last 150 records (two of them timer lines, not bubbles)
+    atb=wait_for(A,"()=>{ const l=document.querySelector('"+OPEN+"'); return (l.scrollHeight-l.scrollTop-l.clientHeight)<80 && !l._bulk; }",3000)
     r["long_history_opens"]= ok and dt<15 and atb
-    r["long_history_v"]={"s":round(dt,1),"atBottom":atb}
+    # v43: the last 150 at once, the rest by pages from the top (the button, or scrolling up)
+    pages=0
+    while pages<15 and A.evaluate("()=>!!document.querySelector('"+OPEN+" .older')"):
+        A.evaluate("()=>document.querySelector('"+OPEN+" .older').click()"); pages+=1; A.wait_for_timeout(150)
+    n_all=A.evaluate("()=>document.querySelectorAll('"+OPEN+" .bubble').length")
+    r["long_history_pages"]= pages>=9 and n_all>=1500 and not A.evaluate("()=>!!document.querySelector('"+OPEN+" .older')")
+    r["long_history_v"]={"s":round(dt,1),"atBottom":atb,"pages":pages,"n":n_all}
     # ---- 8. the unlock label on Android, in French ----
     cF,F=ctxp(locale="fr-FR", ua="Mozilla/5.0 (Linux; Android 15; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36"); register(F,"fatma")
     r["bio_label_fr"]= F.evaluate("()=>window.__gz.bioLabel()")=="l'empreinte ou le visage"

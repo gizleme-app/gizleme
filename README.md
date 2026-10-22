@@ -27,7 +27,9 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   after 14 days) under a per-contact one-way key chain that moves forward weekly — old keys are destroyed,
   so a later compromise cannot read earlier weeks (see SECURITY.md); real inbox with unread counts and
   previews, receipts
-  (✓ sent / ✓✓ received), offline banner, tap-to-retry.
+  (✓ sent / ✓✓ received), offline banner, tap-to-retry. The mailboxes of all chats are read in one relay call
+  per pass, at a pace that follows activity (20 s while the chat is alive, 45–60 s when quiet, every two
+  minutes while the app is hidden — pushes wake the device meanwhile) (v43).
 - Disappearing messages (off by default since v41; one tap turns them on), set per chat from the timer in its header — red and crossed out
   when off, blue with 5 / 30 / 60 (minutes) or 24 (hours) when on — and applied to both sides. While the
   timer runs, photos are view-once; with it off they stay in the chat on both phones, and a long press on one
@@ -135,10 +137,13 @@ https://gizleme.com/privacy.html for what the server keeps and for how long.
 
 ```
 index.html            markup + styles
-app.js                application code (crypto, UI, sync)
+app.js                application code (crypto, UI, sync) — the readable source
+app.min.js            the same, minified by tools/build.py: what the page loads (v43)
+boot.js               the first screen (unlock / log in / welcome) drawn before app.js has loaded (v43)
 i18n.js               translations (English keys → French, Turkish)
 sb.js                 iPhone display mode, read before the page is drawn (see v35)
-sw.js                 service worker (offline shell, Web Push)
+sw.js                 service worker (offline shell served cache-first, Web Push)
+tools/build.py        the release step: stamps the version into sw.js and index.html, builds app.min.js
 _headers              Cloudflare security headers (CSP, HSTS, …)
 manifest.webmanifest  PWA manifest
 vendor/               supabase-js and qrcode-generator (pinned versions, served same-origin)
@@ -147,8 +152,13 @@ supabase/             the server: database schema (migrations/) and the five Edg
 tests/                end-to-end scenarios (Playwright) and their runner
 ```
 
-There is no build step: the files at the root are what gizleme.com serves (Cloudflare static assets,
-`wrangler.jsonc`; `.assetsignore` keeps the docs, tests and server code off the site). To run your own,
+The files at the root are what gizleme.com serves (Cloudflare static assets, `wrangler.jsonc`;
+`.assetsignore` keeps the docs, tests, tools and server code off the site). One step before a release:
+`python3 tools/build.py` (needs node) writes `APP_VERSION` from `app.js` into `sw.js` and `index.html` and
+rebuilds `app.min.js`; test59 fails when that was forgotten. The scripts are loaded with `?v=NN`, cached for
+a year by the CDN and served cache-first by the service worker, so an installed app opens from the device;
+only the page itself and `sw.js` are revalidated on every load, and a new version arrives through the
+worker (new cache name, fresh files, the "new version" pill). To run your own,
 see [supabase/README.md](supabase/README.md) and point `SB_URL`/`SB_KEY` in `app.js` and `connect-src` in
 `_headers` at your project. To check your changes, see [tests/README.md](tests/README.md).
 

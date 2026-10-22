@@ -127,6 +127,20 @@ test38 updated); the suite is 41 scenarios.
 | S14 | Low | At lock, hidden dialogs kept their text (safety code, members and fingerprints, caller name, merge previews). | **Fixed.** Emptied in `lockApp`. |
 | S19 | Low | A group's disappearing timer and "X is typing" were accepted unsigned. | **Fixed.** Group typing is signed; exp/react/vote/edit/del need `vf==="ok"`. |
 
+v43 took the performance review (measured on an iPhone-class CPU 4× slower and a slow 4G, see the review's
+numbers in the plan): covered by test59, test57 updated.
+
+| # | Sev. | Finding | Status |
+|---|------|---------|--------|
+| P1 | Critical | Every 20 s, one relay call per chat (two during reconciliation) and the whole history of each closed chat decrypted again: 200 chats = 201 calls and 22 s per pass; 1 contact = 8 640 calls a day. | **Fixed.** One `getmany` call per pass for all mailboxes (150 a call); the seen ids seeded once per unlock; the pace follows activity (20 s alive, 45–60 s quiet, 120 s hidden). |
+| P2 | High | Nothing on screen before 800 KB of JavaScript had run (first content at 4.9 s on slow 4G). | **Fixed.** `boot.js` draws the unlock / log-in / welcome card at once from what the device holds, in its language; the password can be typed meanwhile. |
+| P3 | High | Service worker network-first for everything: an installed app made ≥10 revalidation requests before showing anything (2.0 s on slow 4G vs 0.8 s offline). | **Fixed.** Versioned URLs (`?v=NN`, `tools/build.py`), cache-first for the shell files, a year of CDN cache, the page and `sw.js` revalidated; precache fetched past the HTTP cache; the install fails only on the critical files. |
+| P4 | High | The chats list rebuilt every row at every render (31 call sites) and re-read every chat's last message each time; `contactFind` copied the whole list (52 call sites). | **Fixed.** Rows kept when their signature is unchanged (moved, not rebuilt); previews re-read only for chats whose history changed; an index by key. |
+| P5 | Medium | A 2 000-message chat rendered 8 768 nodes at once (after v41's one-scroll fix: 3.6 s / 6.6 s). | **Fixed.** The last 150 records at once, earlier ones by pages from the top (button or scroll); a search loads the whole chat first. |
+| P6 | Medium | `app.js` 400 KB unminified parsed at each start (≈80 % of start-up CPU); `qrcode.js` loaded for a rarely used button; 203 KB of PNG for 35 KB of WebP; a 21 KB favicon in the head. | **Fixed.** `app.min.js` (261 KB, 85 KB gzipped) built by `tools/build.py`, hash-checked by test59 and smoke-tested; QR library on demand; WebP logos and watermark; favicon as a link. |
+| P7 | Medium | The 15-second sweep walked every bubble and ran an IndexedDB cursor over the whole chat even when nothing could expire; the welcome halos animated forever under a backdrop blur; `will-change` kept a compositing layer per big emoji. | **Fixed.** The sweep looks at the oldest bubble first and sweeps the store every 5 minutes; halos play twice then rest (none with reduced motion); `will-change` only while an emoji plays. |
+| P8 | Medium | No `storage.persist()` (Safari drops the data of an uninstalled site after 7 days); `theme-color` fixed dark. | **Fixed.** Persistence asked at first unlock; the theme colour follows the scheme and the toggle. |
+
 ## What is deliberately not fixed yet (roadmap)
 
 1. **Forward secrecy for the mailbox** — done at week granularity on 15 Oct 2026 (one-way key chain per

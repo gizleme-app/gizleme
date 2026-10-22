@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 42;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 43;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -37,7 +37,7 @@ function applyI18n(){
   document.documentElement.lang=LANG;
   const walker=document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode:n=>{ const p=n.parentNode; if(!p||/^(SCRIPT|STYLE)$/.test(p.nodeName)) return NodeFilter.FILTER_REJECT; return n.nodeValue.trim()?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_SKIP; } });
   const nodes=[]; while(walker.nextNode()) nodes.push(walker.currentNode);
-  for(const n of nodes){ let o=_i18nOrig.get(n); if(o===undefined){ o=n.nodeValue; _i18nOrig.set(n,o); }
+  for(const n of nodes){ let o=_i18nOrig.get(n); if(o===undefined){ const pe=n.parentNode; const en=(pe && pe.getAttribute) ? pe.getAttribute("data-en") : null; o=(en!==null && pe.childNodes.length===1) ? en : n.nodeValue; _i18nOrig.set(n,o); }   // v43: boot.js may have shown this text already, in the device's language
     const key=o.trim(); const tr=t(key); if(tr!==key || n.nodeValue!==o) n.nodeValue=o.replace(key, tr); }
   for(const el of document.body.querySelectorAll("[placeholder],[title],[aria-label]")){
     for(const a of ["placeholder","title","aria-label"]){ if(!el.hasAttribute(a)) continue; const k="data-i18n-"+a.replace("-","");
@@ -48,6 +48,7 @@ let _refreshSettingsUI=null;
 // ---------- text size (Settings → Appearance): scales every text in the app; fields stay at 16 px or more so an
 // iPhone doesn't zoom into them ----------
 const LS_TEXT="gz-textsize", TEXT_SIZES=[0.9,1,1.12,1.25,1.4];
+function textSizeKey(){ try{ return localStorage.getItem(LS_TEXT)||""; }catch(e){ return ""; } }
 function textScale(){ try{ const v=+localStorage.getItem(LS_TEXT); return TEXT_SIZES.includes(v) ? v : 1; }catch(e){ return 1; } }
 function applyTextScale(v){ document.documentElement.style.fontSize = v===1 ? "" : (100*v)+"%"; }
 applyTextScale(textScale());
@@ -138,7 +139,7 @@ async function ensureHistKeys(){
   }catch(e){} }
   if(changed){ const cur=contactsLoad(); l.forEach(c=>{ const x=cur.find(y=>y.ck===c.ck); if(x) x.hk=c.hk; }); contactsSave(cur); }   // re-read: a patch may have landed meanwhile
 }
-async function histRename(oldRoom, newRoom){
+async function histRename(oldRoom, newRoom){ previewDirty(oldRoom); previewDirty(newRoom);
   if(!oldRoom || oldRoom===newRoom) return;
   try{ const db=await idb(); await new Promise((res,rej)=>{ const tx=db.transaction("msgs","readwrite"); const idx=tx.objectStore("msgs").index("room");
     const rq=idx.openCursor(IDBKeyRange.only(oldRoom)); rq.onsuccess=e=>{ const c=e.target.result; if(!c){ return; } const v=c.value; v.room=newRoom; c.update(v); c.continue(); };
@@ -197,7 +198,7 @@ const LS_LOCAL="gz-local";
 let _contacts=[], _groups=[], _localT=null;
 let _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{},sids:{}};   // per-chat unread counts, receipts by message id, viewed view-once photos, queued sends, mailbox cursors, push-nudge times
 function contactsLoad(){ return _contacts.map(c=>Object.assign({},c)); }
-function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); try{ _chainCache.clear(); }catch(e){} localSaveSoon(); renderContacts(); syncPushSoon();
+function contactsSave(list){ _contacts=(list||[]).filter(c=>c&&c.ck).map(c=>Object.assign({},c)); contactsReindex(); try{ _chainCache.clear(); }catch(e){} localSaveSoon(); renderContacts(); syncPushSoon();
   if(_contacts.some(c=>!(c.hk && c.hk.startsWith("h:")))) scheduleHistKeys(); }   // mailbox keys are derived from what is saved here: never reuse one across a change
 function localSaveSoon(){ clearTimeout(_localT); _localT=setTimeout(()=>{ localSave().catch(()=>{}); swNamesSoon(); },250); }
 // The service worker composes notification text itself ("New message from Baba"), so it needs the names
@@ -233,7 +234,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
     lc.forEach(x=>{ if(x&&x.ck&&!c.find(y=>y.ck===x.ck)){ c.push(x); legacy=true; } });
     lg.forEach(x=>{ if(x&&x.rid&&!g.find(y=>y.rid===x.rid)){ g.push(x); legacy=true; } }); }catch(e){}
   try{ localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){}
-  _contacts=c; _groups=g; if(legacy) localSaveSoon();
+  _contacts=c; _groups=g; contactsReindex(); if(legacy) localSaveSoon();
   nkRoleMigrate();
   await ensureHistKeys();
   try{ await advanceChains(); }catch(e){}      // forget mailbox keys of weeks the relay no longer holds
@@ -242,7 +243,7 @@ async function localLoad(){   // at unlock: decrypt the local copy, and import (
   // cached backup key first — the inbox pass must not read our own messages as theirs
   abkCacheLoad().catch(()=>false).then(()=>inboxPull(true));   // deliver what arrived while the app was closed, for every chat
 }
-function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{},sids:{}}; _identKeys=null; for(const k in _hid) delete _hid[k]; for(const k in _seenByKey) delete _seenByKey[k]; try{ _chainCache.clear(); }catch(e){} }                       // lock: out of memory, ciphertext stays on disk
+function localClear(){ clearTimeout(_localT); _contacts=[]; _groups=[]; contactsReindex(); _meta={unread:{},rcpt:{},viewed:{},outq:{},mbts:{},notified:{},sids:{}}; _identKeys=null; for(const k in _hid) delete _hid[k]; for(const k in _seenByKey) delete _seenByKey[k]; try{ _chainCache.clear(); }catch(e){} }                       // lock: out of memory, ciphertext stays on disk
 function localWipe(){ localClear(); try{ updateBadge(true); }catch(e){} try{ localStorage.removeItem(LS_LOCAL); localStorage.removeItem(LS_CONTACTS); localStorage.removeItem(LS_GROUPS); }catch(e){} }
 function realName(n){ return n && n!=="Peer" && n!=="Contact" && n!=="Anon" && n!=="Waiting for peer…" ? n : ""; }
 function contactUpsert(name, ckB64){
@@ -304,7 +305,10 @@ async function pinTag(secret, pin){ return b64(await hkdf(secret, "gz-pin/v1|"+S
 // and the link's private key can reach: a copy with those fields stripped or changed is refused by the inviter
 const HELLO_TAG_FROM=Date.parse("2026-12-15T00:00:00Z");
 async function helloTag(secret, fs, ke, m){ return b64(await hkdf(secret, "gz-hello/v1|"+(fs?1:0)+"|"+(typeof ke==="number"?ke:"")+"|"+(m||""), 16)); }
-function contactFind(ck){ return contactsLoad().find(c=>c.ck===ck)||null; }
+// v43: an index by key — contactFind is called from everywhere (52 sites), and copied the whole list each time
+let _ckIndex=new Map();
+function contactsReindex(){ _ckIndex=new Map(); for(const c of _contacts) if(c && c.ck) _ckIndex.set(c.ck, c); }
+function contactFind(ck){ const c=_ckIndex.get(ck); return c ? Object.assign({},c) : null; }
 // ----- two chats with the same person, merged -----
 // Each conversation has its own key and a name proves nothing, so Gizleme never merges chats by itself. You can
 // fold an older chat into the one you are in: its messages (already on this device) are filed under this chat's
@@ -313,7 +317,7 @@ function contactFind(ck){ return contactsLoad().find(c=>c.ck===ck)||null; }
 // account to its other devices (each moves its own copy at unlock). Nothing is sent; the other side's app is
 // not changed.
 function mergedTarget(c){ return c && c.into ? (_contacts.find(x=>x.hk===c.into && !x.into)||null) : null; }
-async function histMove(fromRoom, toRoom){ if(!fromRoom || !toRoom || fromRoom===toRoom) return;
+async function histMove(fromRoom, toRoom){ if(!fromRoom || !toRoom || fromRoom===toRoom) return; previewDirty(fromRoom); previewDirty(toRoom);
   try{ const db=await idb(); await new Promise((res,rej)=>{ const tx=db.transaction(["msgs","media"],"readwrite");
     for(const st of ["msgs","media"]){ const rq=tx.objectStore(st).index("room").openCursor(IDBKeyRange.only(fromRoom));
       rq.onsuccess=e=>{ const c=e.target.result; if(!c) return; const v=c.value; v.room=toRoom; c.update(v); c.continue(); }; }
@@ -365,7 +369,13 @@ function persistPendingInvite(){   // the inviter keeps a placeholder contact th
     if(pi.x) c.x=pi.x; if(pi.c) c.pin=pi.pin; l.push(c); contactsSave(l); }
   pi.saved=true; refreshInviteUrl(); if(pushOn()) registerAllContacts();
 }
-function drawQr(url){
+// v43: qrcode.js (57 KB) is fetched the first time a QR code is shown, not at every start (same origin: the CSP allows it)
+let _qrLoad=null;
+function ensureQr(){ if(typeof qrcode==="function") return Promise.resolve(true); if(_qrLoad) return _qrLoad;
+  _qrLoad=new Promise(res=>{ const sc=document.createElement("script"); sc.src="/vendor/qrcode-1.4.4.js"; sc.onload=()=>res(typeof qrcode==="function"); sc.onerror=()=>{ _qrLoad=null; res(false); }; document.head.appendChild(sc); });
+  return _qrLoad; }
+function drawQr(url){ ensureQr().then(ok=>{ if(ok) drawQrNow(url); else toast(t("Couldn't load the QR code — check your connection")); }); }
+function drawQrNow(url){
   const cv=$("qrCanvas"); if(!cv || typeof qrcode!=="function") return;
   try{ const q=qrcode(0,"L"); q.addData(url,"Byte"); q.make(); const n=q.getModuleCount(); const cell=6; const size=cell*n;   // crisp bitmap, shown at 240 css px
     cv.width=size; cv.height=size; cv.style.width="240px"; cv.style.height="240px"; const ctx=cv.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,size,size); ctx.fillStyle="#000";
@@ -606,6 +616,7 @@ function openFind(){ const R=A(); if(!R || !R.logEl) return; $("findBar").hidden
 function closeFind(){ const fb=$("findBar"); if(!fb || fb.hidden) return; fb.hidden=true; clearFind(); }
 function runFind(){ const R=A(); clearFind(); const q=fold($("findInput").value.trim()); _find.q=q;
   if(!q || !R || !R.logEl){ $("findCount").textContent=""; return; }
+  if(R._older && R._older.length) loadOlder(R, Infinity);   // v43: the whole chat, not only the pages shown so far
   const ranges=[], HL=typeof Highlight==="function" && window.CSS && CSS.highlights;
   R.logEl.querySelectorAll(".bubble").forEach(b=>{ let hit=false;
     for(const el of findTextEls(b)){ const w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n;
@@ -690,14 +701,15 @@ function wireInfo(){ const m=$("infoModal"); if(!m) return;
     if(!confirm(t("Remove {name} from your chats?\n\nTo talk again you'll need to exchange a new invite link.",{name:dn(c&&(c.alias||c.name))||t("this contact")}))) return;
     closeInfo(); contactRemove(R.fromContact); goHome(); });
 }
+const _rowCache=new Map();   // v43: id → {sig,row}; a row whose signature is unchanged is kept and moved, not rebuilt
 function renderContacts(fromPreview){
-  const el=$("contactList"); if(!el) return; el.innerHTML="";
+  const el=$("contactList"); if(!el) return;
   const lastTs=it=>Math.max(it.ts||0, (_prev[previewKeyOf(it)]||{}).ts||0);
   const items=groupsLoad().map(g=>({t:"g",id:"g:"+g.rid,rid:g.rid,gk:g.gk,name:g.name,alias:g.alias,cl:g.cl,ts:g.ts||0}))
     .concat(contactsLoad().filter(c=>!c.into).map(c=>({t:"c",id:"c:"+c.ck,ck:c.ck,hk:c.hk,name:c.name,alias:c.alias,cl:c.cl,v:c.v,ts:c.ts||0})))
     .sort((a,b)=>lastTs(b)-lastTs(a));                 // most recent activity first, like any chats list
   if(!fromPreview) refreshPreviews();
-  if(!items.length){ const wrap=document.createElement("div"); wrap.className="sb-empty";
+  if(!items.length){ el.innerHTML=""; _rowCache.clear(); const wrap=document.createElement("div"); wrap.className="sb-empty";
     const e=document.createElement("p"); e.style.margin="0 0 14px";
     if(gRestoring){ e.textContent=t("Restoring your chats…"); wrap.appendChild(e); el.appendChild(wrap); return; }
     e.textContent=t("To talk with someone, send them your invite link — when they open it, you're connected.");
@@ -707,10 +719,18 @@ function renderContacts(fromPreview){
   const R=A(); const activeId=R?(R.group?"g:"+R.rid:(R.fromContact?"c:"+R.fromContact:"")):"";
   if(!_sRes) _sRes=$("searchResults");
   const shownItems=_sq ? items.filter(chatMatches) : items;
-  if(_sq && !shownItems.length){ const n=document.createElement("div"); n.className="sr-none"; n.textContent=t("No chats found"); el.appendChild(n); }
+  const keep=new Set(); const frag=[]; const tsk=textSizeKey(), ph=previewsHidden()?1:0;
+  if(_sq && !shownItems.length){ const n=document.createElement("div"); n.className="sr-none"; n.textContent=t("No chats found"); frag.push(n); }
   shownItems.forEach(it=>{
+    const pk0=previewKeyOf(it), pv0=_prev[pk0]||null, pc0=(it.t==="c" && it.name===INV_PLACEHOLDER) ? (contactFind(it.ck)||{}) : null;
+    let tl0=""; rooms.forEach(x=>{ if(!tl0 && x.typing && typingRowId(x)===it.id) tl0=typingLabel(x); });
+    const age0=pulseAge(_pulse.get(pk0));
+    const sig=[LANG, it.t, it.name, it.alias||"", it.cl||"", it.v?1:0, it.id===activeId?1:0, isMutedItem(it)?1:0, pv0?pv0.text:"", pv0?pv0.ts:0, pv0&&pv0.ui?1:0,
+      (it.id===activeId)?0:(_meta.unread[pk0]||0), ph, pc0?(pc0.dead?"d":inviteExpired(pc0.x)?"x":"w"):"", tl0, age0>=0?Math.round(age0/1000):-1, _sq||"", tsk, it.gk||""].join("\u0001");
+    const cached=_rowCache.get(it.id);
+    if(cached && cached.sig===sig && cached.row.isConnected){ keep.add(it.id); frag.push(cached.row); return; }
     const row=document.createElement("div"); row.className="ct"+(it.id===activeId?" active":""); row.dataset.id=it.id;
-    { const pk=previewKeyOf(it), age=pulseAge(_pulse.get(pk)); if(age>=0 && it.id!==activeId){ row.classList.add("pulse"); row.style.setProperty("--pd","-"+age+"ms"); } else if(age<0) _pulse.delete(pk); }
+    { const pk=pk0, age=age0; if(age>=0 && it.id!==activeId){ row.classList.add("pulse"); row.style.setProperty("--pd","-"+age+"ms"); } else if(age<0) _pulse.delete(pk); }
     const ava=document.createElement("div"); ava.className="ava"+(it.t==="g"?" grp":""); ava.setAttribute("aria-hidden","true"); ava.textContent=it.t==="g"?"👥":(up((it.alias||it.name)&&(it.alias||it.name)[0]||"?"));
     if(AVA_COLORS[it.cl]){ ava.style.background=AVA_COLORS[it.cl]; ava.dataset.cl=it.cl; }   // the colour chosen for this chat (long press)
     else if(it.t==="c") ava.style.background=autoColor(it.ck);                                  // else its own colour, from its key
@@ -751,8 +771,13 @@ function renderContacts(fromPreview){
     row.addEventListener("click",()=>{ if(row._lp){ row._lp=false; return; }   // that was a long press: the colour menu is open
       it.t==="g" ? openGroup(it.rid,it.gk,it.name) : openContact(it.ck,it.alias||it.name); });
     if(_sq){ const row1=row.querySelector(".cn"), tn=row1 && row1.firstChild; if(tn && tn.nodeType===3){ const sp=document.createElement("span"); markText(sp, tn.nodeValue, _sq, 0); row1.replaceChild(sp, tn); } }
-    el.appendChild(row);
+    _rowCache.set(it.id,{sig,row}); keep.add(it.id); frag.push(row);
   });
+  for(const id of [..._rowCache.keys()]) if(!keep.has(id)) _rowCache.delete(id);
+  // put the rows in order: an element already in place is left alone, the others are moved (never rebuilt)
+  let cur=el.firstChild;
+  for(const node of frag){ if(cur===node){ cur=cur.nextSibling; continue; } el.insertBefore(node, cur); }
+  while(cur){ const nx=cur.nextSibling; if(cur!==_sRes) cur.remove(); cur=nx; }
   if(_sRes){ if(_sq) el.appendChild(_sRes); else _sRes.hidden=true; }
   updateBadge(); scheduleMuteRefresh(); paintPeerAvatar();
 }
@@ -1070,35 +1095,42 @@ async function depositMailbox(R, mid, env){
     return await depositToContact(R.fromContact, mid, env);
   }catch(e){ return false; }
 }
-async function fetchMailbox(R){
+// the mailboxes a chat reads: [id, key, ck?] — the current key, and for 14 days the one before a rotation / the link's
+async function mailboxVariants(R){
+  const variants=[];
+  if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(id&&key) variants.push([id,key]);
+    const g=groupsLoad().find(x=>x.rid===R.rid);   // the key before the last rotation stays readable for 14 days: late writers are not lost
+    if(g && g.prevGk && g.rotAt && Date.now()-g.rotAt<RECON_MS){ try{ variants.push([await mboxIdForSecret(g.prevGk), await gkMsgKey(unb64(g.prevGk))]); }catch(e){} } }
+  else if(R.fromContact){
+    // a hello that could not be deposited when the link was opened: leave it now (the inviter binds from it)
+    const c=contactFind(R.fromContact);
+    if(c && c.v3 && c.hp && c.hello && c.prev && !c.he){ try{ const h={t:"hello",v:3,e:c.hello.e}; if(c.hello.h) h.h=c.hello.h; if(c.hello.m) h.m=c.hello.m; if(c.hello.fs){ h.fs=1; if(typeof c.kce==="number") h.ke=c.kce; }
+      if(await depositOne(await mboxIdForSecret(c.prev), await mboxKeyForSecret(c.prev), "h"+rid(), h)) contactPatch(c.ck,{hp:0}); }catch(e){} }
+    for(const ck of fetchCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck), ck]); }
+  return variants;
+}
+// pre: {mailbox id → items} already fetched for this pass (v43: one relay call for every mailbox of the device)
+async function fetchMailbox(R, pre, vs){
   if(!R) return 0;
   if(R.fetching) return R.fetching;          // coalesce overlapping fetches (open + subscribe + poll)
   R.fetching=(async()=>{
     let delivered=0;
     try{
       if(!R.seen) R.seen=new Set();
-      let variants=[];
-      if(R.group){ const id=await mboxIdFor(R), key=await mboxKeyFor(R); if(id&&key) variants=[[id,key]];
-        const g=groupsLoad().find(x=>x.rid===R.rid);   // the key before the last rotation stays readable for 14 days: late writers are not lost
-        if(g && g.prevGk && g.rotAt && Date.now()-g.rotAt<RECON_MS){ try{ variants.push([await mboxIdForSecret(g.prevGk), await gkMsgKey(unb64(g.prevGk))]); }catch(e){} } }
-      else if(R.fromContact){
-        // a hello that could not be deposited when the link was opened: leave it now (the inviter binds from it)
-        const c=contactFind(R.fromContact);
-        if(c && c.v3 && c.hp && c.hello && c.prev && !c.he){ try{ const h={t:"hello",v:3,e:c.hello.e}; if(c.hello.h) h.h=c.hello.h; if(c.hello.m) h.m=c.hello.m; if(c.hello.fs){ h.fs=1; if(typeof c.kce==="number") h.ke=c.kce; }
-          if(await depositOne(await mboxIdForSecret(c.prev), await mboxKeyForSecret(c.prev), "h"+rid(), h)) contactPatch(c.ck,{hp:0}); }catch(e){} }
-        for(const ck of fetchCKSet(R.fromContact)) variants.push([await mboxIdForSecret(ck), await mboxKeyForSecret(ck), ck]); }
-      for(const [id,key,ck] of variants) delivered += await fetchMailboxId(R, id, key, ck);
+      const variants=vs||await mailboxVariants(R);
+      for(const [id,key,ck] of variants) delivered += await fetchMailboxId(R, id, key, ck, pre && pre[id]);
     }catch(e){}
     return delivered;
   })();
   try{ return await R.fetching; } finally { R.fetching=null; }
 }
-async function fetchMailboxId(R, id, key, ck){
+async function fetchMailboxId(R, id, key, ck, pre){
   let delivered=0; const got=[];
   try{
     const since=mbtsGet(id);
-    const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0});
-    const items=(data&&data.items)||[]; if(!items.length) return 0;
+    let items=pre;
+    if(!items){ const {data}=await mboxFn("get",{mbox:id, since: since?new Date(since).toISOString():0}); items=(data&&data.items)||[]; }
+    if(!items.length) return 0;
     let maxTs=since, hold=0; const mine=_acct;
     const dur=expFor(histKeyOf(R)); const cut=dur?Date.now()-dur:0;
     const cc=(ck && !R.group) ? contactFind(ck) : null;
@@ -1152,7 +1184,7 @@ function onInbound(R, env, who, ts, mid, own, animate){
   if(env && env.t==="vote"){ onVoteEnv(R, env, who, ts, mid, own); return; }
   if(env && env.t==="del"){ onDelEnv(R, env, who, ts, mid, own); return; }
   if(mid && _meta.delm && _meta.delm[mid]){ if(goneOnArrival(R, env, who, ts, mid, own)) return; }
-  if(!own) typingClear(R, who);
+  if(!own){ typingClear(R, who); _lastActive=Date.now(); }
   if(R.shadow){   // the inbox read it: show it in the open chat of that conversation (or of the chat it was merged into)
     let ck=R.fromContact; if(ck && !R.group){ const tg=mergedTarget(contactFind(ck)); if(tg) ck=tg.ck; }
     let V=null; rooms.forEach(x=>{ if(x.logEl && (R.group ? x.rid===R.rid : x.fromContact===ck)) V=x; });
@@ -1407,11 +1439,23 @@ async function shadowRoom(it){   // a room-shaped object for a chat that isn't o
   const R=newRoom(it.t==="g"?it.rid:""); R.shadow=true; R.logEl=null;
   if(it.t==="g"){ R.group=true; R.rid=it.rid; R.gk=unb64(it.gk); R.gkMsg=await gkMsgKey(R.gk); R.title=it.name||"Group"; }
   else { R.fromContact=it.ck; R.title=it.name||""; }
-  // what this device already holds (our own deposits included) must not be saved a second time
-  R.seen=seenSetFor(R); try{ if(gHistKey) seedSeen(R, await histLoad(histKeyOf(R))); }catch(e){}
+  // what this device already holds (our own deposits included) must not be saved a second time — read from the
+  // history once per unlock (v43: the seen ids also live in _meta.sids, so this is a safety net, not the rule)
+  R.seen=seenSetFor(R); try{ if(gHistKey && !R.seen._seeded) seedSeen(R, await histLoad(histKeyOf(R))); }catch(e){}
   return R;
 }
-let _inboxBusy=false, _inboxLast=0;
+let _inboxBusy=false, _inboxLast=0, _inboxT=null, _lastActive=Date.now(), _inboxMore=false;
+// v43: every mailbox of the device is read in one relay call per pass (getmany, 150 boxes a call); a relay that
+// doesn't know the action yet (or fails) leaves each chat to its own call, as before
+async function mboxGetMany(boxes){
+  const out={}; let any=false;
+  for(let i=0;i<boxes.length;i+=150){ const part=boxes.slice(i,i+150);
+    let r=null; try{ r=await mboxFn("getmany",{boxes:part}); }catch(e){ r=null; }
+    const d=r&&r.data; if(!d||!d.ok||!d.items||typeof d.items!=="object"||Array.isArray(d.items)) return null;   // not a getmany answer: box by box
+    any=true; if(d.more) _inboxMore=true; for(const id in d.items) out[id]=Array.isArray(d.items[id])?d.items[id]:[];
+    part.forEach(b=>{ if(!out[b.mbox]) out[b.mbox]=[]; }); }
+  return any||!boxes.length ? out : null;
+}
 async function inboxPull(force){
   if(!gHistKey||_inboxBusy) return; if(!force && Date.now()-_inboxLast<15000) return;
   _inboxBusy=true; _inboxLast=Date.now();
@@ -1421,15 +1465,26 @@ async function inboxPull(force){
     if(r) flushOutq(k, r.ck).catch(()=>{}); else if(c && !(c.v3 && c.pk)) flushOutq(k, k).catch(()=>{}); }catch(e){} }
   try{
     const items=groupsLoad().map(g=>({t:"g",rid:g.rid,gk:g.gk,name:g.name})).concat(contactsLoad().map(c=>({t:"c",ck:c.ck,name:c.name})));
-    let bg=0;
+    // every chat's mailboxes first (open chats read theirs, closed ones a light shadow), then one call for all
+    const plan=[], boxes=[];
     for(const it of items){
       let R=null; rooms.forEach(x=>{ if(it.t==="g" ? x.rid===it.rid : x.fromContact===it.ck) R=x; });
-      if(R){ await fetchMailbox(R); continue; }
-      try{ const S=await shadowRoom(it); const d=(await fetchMailbox(S))||0; if(!isMutedRoom(S)) bg+=d; }catch(e){}
+      try{ if(!R) R=await shadowRoom(it); const vs=await mailboxVariants(R); plan.push({R, vs});
+        vs.forEach(([id])=>{ if(!boxes.some(b=>b.mbox===id)){ const since=mbtsGet(id); boxes.push({mbox:id, since: since?new Date(since).toISOString():0}); } }); }catch(e){}
+    }
+    const pre=boxes.length ? await mboxGetMany(boxes) : {};
+    let bg=0;
+    for(const {R, vs} of plan){
+      try{ const d=(await fetchMailbox(R, pre||undefined, vs))||0; if(R.shadow && !isMutedRoom(R)) bg+=d; }catch(e){}
     }
     if(bg){ messageTone(null); renderContacts(); }
-  } finally { _inboxBusy=false; }
+  } finally { _inboxBusy=false; if(_inboxMore){ _inboxMore=false; setTimeout(()=>{ inboxPull(true); }, 400); } }   // the relay capped the pass: the rest right away
 }
+// The pace of the mailbox pass follows what is going on (v43): 20 s while the chat is alive (a message in the last
+// two minutes, or the user at the keyboard), 45 s after that, every 2 minutes while the app is hidden — pushes wake
+// the device meanwhile, and coming back to the front reads everything at once.
+function inboxEvery(){ const idle=Date.now()-_lastActive; return document.hidden ? 120000 : idle<120000 ? 20000 : idle<900000 ? 45000 : 60000; }
+function inboxSchedule(){ clearTimeout(_inboxT); _inboxT=setTimeout(()=>{ Promise.resolve(inboxPull(false)).catch(()=>{}).then(inboxSchedule); }, inboxEvery()); }
 // One set of already-seen message ids per conversation, shared by every room object that reads its mailbox (the
 // open chat, the inbox's shadow, a chat reopened later): two readers of one mailbox can't both deliver a message.
 const _seenByKey={};
@@ -1443,7 +1498,7 @@ class SeenSet extends Set{
   delete(m){ try{ const o=_meta.sids&&_meta.sids[this.k]; if(o) delete o[m]; }catch(e){} return super.delete(m); }
 }
 function seenSetFor(R){ const k=histKeyOf(R)||R.code||""; let st=_seenByKey[k]; if(!st){ st=_seenByKey[k]=new SeenSet(k); const o=_meta.sids&&_meta.sids[k]; if(o) for(const m in o) st.seed(m); } return st; }
-function seedSeen(R, past){ R.seen=seenSetFor(R); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.seed(r.mid); }); }
+function seedSeen(R, past){ R.seen=seenSetFor(R); (past||[]).forEach(r=>{ if(r && r.mid) R.seen.seed(r.mid); }); R.seen._seeded=true; }
 function sidsPrune(){ const s=_meta.sids; if(!s) return; const cut=Date.now()-SIDS_TTL;
   for(const k in s){ const o=s[k]||{}; let ks=Object.keys(o).filter(m=>o[m]>cut); if(ks.length>SIDS_MAX) ks=ks.sort((a,b)=>o[a]-o[b]).slice(-SIDS_MAX);
     if(!ks.length){ delete s[k]; continue; } if(ks.length===Object.keys(o).length) continue; const n={}; ks.forEach(m=>n[m]=o[m]); s[k]=n; } }
@@ -1669,7 +1724,7 @@ function idb(){ if(_dbClosed) return Promise.reject(new Error("db closed")); if(
 // (their live room code rotates daily and would otherwise hide yesterday's messages), the rid for groups.
 function histKeyOf(R){ return R && R.fromContact ? ckHistKey(R.fromContact) : (R?R.code:""); }
 async function histSave(room, rec){ // rec = {dir, env, ts}
-  if(!gHistKey) return;
+  if(!gHistKey) return; previewDirty(room);
   try{ room=await histKeyAsync(room);
     const {iv,ct}=await aesEnc(gHistKey, enc.encode(JSON.stringify(rec)));
     const db=await idb(); const tx=db.transaction("msgs","readwrite");
@@ -1690,6 +1745,7 @@ async function mediaGet(mid){
     if(!rec) return null; return new Uint8Array(await aesDec(gHistKey,rec.iv,rec.ct)); }catch(e){ return null; }
 }
 function histSweep(room, cutoff){ // delete saved records older than cutoff (ms epoch)
+  previewDirty(room);
   try{ histKeyAsync(room).then(rm=>{ room=rm; return idb(); }).then(db=>{ const tx=db.transaction(["msgs","media"],"readwrite");
     for(const st of ["msgs","media"]){ const idx=tx.objectStore(st).index("room");
       const rq=idx.openCursor(IDBKeyRange.only(room)); rq.onsuccess=e=>{ const c=e.target.result; if(!c) return;
@@ -1710,7 +1766,8 @@ async function histLast(room){
   }catch(e){ return null; }
 }
 // Preview cache for the chats list: key -> {text, ts, dir}. Refreshed in the background after each render.
-const _prev={}; let _prevT=null;
+const _prev={}; let _prevT=null; const _prevDirty=new Set(); let _prevAll=true;   // v43: a chat's preview is re-read only after its history changed
+function previewDirty(room){ if(room) _prevDirty.add(room); }
 function previewKeyOf(it){ return it.t==="g" ? it.rid : ckHistKey(it.ck); }   // the same key history and unread counts use
 function previewText(r, isGroup){
   if(!r) return "";
@@ -1731,9 +1788,13 @@ function refreshPreviews(){           // debounced; re-renders the list only if 
   clearTimeout(_prevT); _prevT=setTimeout(async()=>{
     if(!gHistKey) return;
     const items=groupsLoad().map(g=>({t:"g",rid:g.rid})).concat(contactsLoad().map(c=>({t:"c",ck:c.ck,hk:c.hk})));
-    let changed=false;
-    for(const it of items){ const k=previewKeyOf(it); const r=await histLast(k);
-      const dur=expFor(k); if(r && dur && (r.ts||0)<=Date.now()-dur){ if(_prev[k]){ delete _prev[k]; changed=true; } continue; }   // expired: no preview
+    let changed=false; const all=_prevAll; _prevAll=false; const dirty=new Set(_prevDirty); _prevDirty.clear();
+    for(const it of items){ const k=previewKeyOf(it); const dur=expFor(k);
+      if(it.t==="c" && k.startsWith("c:")) _prevDirty.add(k);   // the chat's opaque id isn't known yet (unlock in progress): read again under it next time
+      if(!all && !dirty.has(k) && !dirty.has(await histKeyAsync(k))){   // unchanged: only its expiry can move
+        const pv=_prev[k]; if(pv && dur && (pv.ts||0)<=Date.now()-dur){ delete _prev[k]; changed=true; } continue; }
+      const r=await histLast(k);
+      if(r && dur && (r.ts||0)<=Date.now()-dur){ if(_prev[k]){ delete _prev[k]; changed=true; } continue; }   // expired: no preview
       const nx=r?{text:previewText(r,it.t==="g"),ts:r.ts||0,dir:r.dir,ui:!!(r.env && r.env.t && r.env.t!=="txt")}:null; const old=_prev[k];
       if((nx&&!old)||(!nx&&old)||(nx&&old&&(nx.text!==old.text||nx.ts!==old.ts))){ if(nx) _prev[k]=nx; else delete _prev[k]; changed=true; } }
     if(changed) renderContacts(true);
@@ -2410,8 +2471,11 @@ function closeExpMenu(){ const m=$("expMenu"); if(m) m.hidden=true; }
 function sweepEphemeral(){
   const now=Date.now();
   rooms.forEach(R=>{ const k=histKeyOf(R); const dur=expFor(k); if(!dur||!R.logEl) return; const cut=now-dur;
-    [...R.logEl.children].forEach(el=>{ const ts=+(el.dataset&&el.dataset.ts||0); if(ts&&ts<=cut) el.remove(); });
-    histSweep(k,cut);
+    // v43: nothing to do while the oldest thing on screen is still young; the stored copy is swept every 5 minutes
+    if(R._older && R._older.length){ const n=R._older.length; R._older=R._older.filter(r=>!((r.ts||0)<=cut)); if(R._older.length!==n) olderHint(R); }
+    const first=R.logEl.querySelector(":scope > [data-ts]"); const ots=first ? +(first.dataset.ts||0) : 0;
+    if(ots && ots<=cut) [...R.logEl.children].forEach(el=>{ const ts=+(el.dataset&&el.dataset.ts||0); if(ts&&ts<=cut) el.remove(); });
+    if(!R._sweptAt || now-R._sweptAt>300000){ R._sweptAt=now; histSweep(k,cut); }
   });
 }
 let _toastT=null;
@@ -2463,7 +2527,8 @@ function jumpUpdate(){ const b=$("jumpBtn"); if(!b) return; const R=A(); const L
   if(!far && R) R._below=0;
   b.hidden=!far; const n=(R && R._below)||0; $("jumpCount").hidden=!n; $("jumpCount").textContent=n>99?"99+":String(n); }
 function watchLog(l){
-  l.addEventListener("scroll",()=>{ l._stick=(l.scrollHeight-l.scrollTop-l.clientHeight)<56; jumpUpdate(); },{passive:true});
+  l.addEventListener("scroll",()=>{ l._stick=(l.scrollHeight-l.scrollTop-l.clientHeight)<56; jumpUpdate();
+    if(l.scrollTop<300){ let R=null; rooms.forEach(x=>{ if(x.logEl===l) R=x; }); if(R && R._older && R._older.length) loadOlder(R); } },{passive:true});
   if(window.ResizeObserver){ if(!_logRO) _logRO=new ResizeObserver(()=>stickLog()); _logRO.observe(l); }
 }
 // iOS 17/18 installed apps sometimes keep the shrunken viewport after the keyboard has gone; a display
@@ -2485,7 +2550,7 @@ function dayLabel(ts){ const d=new Date(ts), now=new Date(); if(d.toDateString()
   const y=new Date(now); y.setDate(now.getDate()-1); if(d.toDateString()===y.toDateString()) return t("Yesterday");
   return d.toLocaleDateString(LOC(), {weekday:"short", day:"numeric", month:"short"}); }
 function ensureDaySep(logEl, ts){ const d=new Date(ts); const k=d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); if(logEl.dataset.lastDay===k) return; logEl.dataset.lastDay=k;
-  const el=document.createElement("div"); el.className="daysep"; el.textContent=dayLabel(ts); logEl.appendChild(el); }
+  const el=document.createElement("div"); el.className="daysep"; el.dataset.k=k; el.textContent=dayLabel(ts); logEl.appendChild(el); }
 const ST_GLYPH={pending:"🕓",sent:"✓",rcvd:"✓✓",failed:"!"};
 function metaRow(d, ts, st){ const m=document.createElement("span"); m.className="meta"; const t=document.createElement("span"); t.className="time"; t.textContent=fmtTime(ts); m.appendChild(t);
   if(st){ const x=document.createElement("span"); x.className="st"; m.appendChild(x); } d.appendChild(m); if(st) setMsgState(d,st); }
@@ -2632,7 +2697,7 @@ function delmMark(mid, how){ if(!mid) return; _meta.delm=_meta.delm||{}; _meta.d
   localSaveSoon(); }
 // remove the saved copies of these messages, and every reaction / edit / vote that points at them, and their media
 async function histPurge(room, mids){
-  if(!gHistKey || !mids || !mids.size) return;
+  if(!gHistKey || !mids || !mids.size) return; previewDirty(room);
   try{ const rm=await histKeyAsync(room); const db=await idb();
     const recs=await new Promise((res,rej)=>{ const out=[]; const rq=db.transaction("msgs").objectStore("msgs").index("room").openCursor(IDBKeyRange.only(rm));
       rq.onsuccess=e=>{ const c=e.target.result; if(c){ out.push({k:c.primaryKey, v:c.value}); c.continue(); } else res(out); }; rq.onerror=()=>rej(rq.error); });
@@ -2914,42 +2979,72 @@ function addImageRecvOnce(logEl, meta, tag, ts, mid, vf){
 }
 // Saved history, rendered the same way for contacts and groups: expired records skipped, view-once photos
 // shown as "tap to view" until viewed, our own messages with their delivery state.
+const HIST_PAGE=150;   // v43: bubbles made at once when a chat opens; older records wait above and come by pages
 function renderHistory(R, past){
   const hk=histKeyOf(R); const dur=expFor(hk); const cut=dur?Date.now()-dur:0; if(dur) histSweep(hk,cut);
   const edits=editsFrom(R, past);
+  const live=past.filter(r=>r && r.env && !(dur&&(r.ts||0)<=cut));
+  const split=Math.max(0, live.length-HIST_PAGE);
+  R._older=live.slice(0, split); R._pg={dur, cut, hk, edits};
+  // reactions and votes on the older part are state, not bubbles: applied now, drawn when their bubble comes in
+  for(const r of R._older){ if(r.env.t==="vote"){ if(validVote(r.env) && !(R.group && r.dir!=="sent" && r.vf==="bad")) voteApply(R, r.env.m, rxActor(R, r.dir==="sent", r.env, r.who), r.env.c, r.ts); }
+    else if(r.env.t==="react"){ if(typeof r.env.m==="string" && MID_RE.test(r.env.m) && validRx(r.env.e) && !(R.group && r.dir!=="sent" && r.vf==="bad")) rxApply(R, r.env.m, r.dir==="sent" ? {k:"me",n:t("You")} : rxActor(R,false,r.env,r.who), r.env.e, r.ts); } }
   R.logEl._bulk=true;   // no scroll (and no forced layout) per bubble: one scroll once everything is in (v41)
-  try{ renderPast(R, past, dur, cut, hk, edits); } finally{ R.logEl._bulk=false; }
+  try{ olderHint(R); renderPast(R, R.logEl, live.slice(split), dur, cut, hk, edits, false); } finally{ R.logEl._bulk=false; }
   scrollEl(R.logEl, true); requestAnimationFrame(()=>{ if(R.logEl && R.logEl._stick!==false) scrollEl(R.logEl, true); });
   refreshVoteCards(R);
   if(R.reacts) R.reacts.forEach((_,m)=>rxRender(R,m));
   seedSeen(R, past);
   if(R._newN && R.code===active) markNew(R, R._newN);
 }
-function renderPast(R, past, dur, cut, hk, edits){
+// the line at the top of the chat while older messages wait; tapping it (or scrolling up to it) brings a page
+function olderHint(R){ const old=R.logEl.querySelector(":scope > .older"); if(old) old.remove(); if(!R._older || !R._older.length) return;
+  const d=document.createElement("button"); d.type="button"; d.className="older"; d.textContent=t("{n} earlier messages — show more",{n:R._older.length}); d.addEventListener("click",()=>loadOlder(R)); R.logEl.prepend(d); }
+// bring HIST_PAGE older records in above what is shown, keeping the view where it was (Infinity: everything)
+function loadOlder(R, n){
+  if(!R || !R.logEl || !R._older || !R._older.length || R._loadingOlder) return; R._loadingOlder=true;
+  try{
+    const take=(n===Infinity) ? R._older.length : HIST_PAGE; const slice=R._older.splice(Math.max(0, R._older.length-take), take);
+    const log=R.logEl, before=log.scrollHeight, top=log.scrollTop;
+    const tmp=document.createElement("div"); tmp._bulk=true; tmp.dataset.lastDay="";   // built apart, then moved in one go
+    const V=new Proxy(R, { get:(o,k)=> k==="logEl" ? tmp : o[k], set:(o,k,v)=>{ o[k]=v; return true; } });
+    renderPast(V, tmp, slice, R._pg.dur, R._pg.cut, R._pg.hk, R._pg.edits, true);
+    const first=log.querySelector(":scope > .older"); const anchor=first ? first.nextSibling : log.firstChild;
+    // a day separator the page ends on and the shown part began with: only one stays
+    const sep=anchor && anchor.classList && anchor.classList.contains("daysep") ? anchor : null;
+    if(sep && tmp.dataset.lastDay && sep.dataset.k===tmp.dataset.lastDay) sep.remove();
+    const nodes=[...tmp.childNodes]; const at=first ? first.nextSibling : log.firstChild;
+    nodes.forEach(nd=>log.insertBefore(nd, at));
+    olderHint(R);
+    const grown=log.scrollHeight-before; if(grown>0) log.scrollTop=top+grown;   // the reader stays on the line they were reading
+    refreshVoteCards(R); if(R.reacts) R.reacts.forEach((_,m)=>rxRender(R,m));
+  } finally { R._loadingOlder=false; }
+}
+function renderPast(R, logEl, past, dur, cut, hk, edits, bubblesOnly){
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
     if(R.group && r.dir!=="sent" && r.mid && r.env.pk && r.env.t && r.env.t!=="txt") setTimeout(()=>{ const b=bubbleOf(R, r.mid); if(b && !b.dataset.pk) b.dataset.pk=r.env.pk; }, 0);
     if(r.env.t==="edit" || r.env.t==="del") continue;                    // applied to the message it edits (above)
-    if(r.env.t==="gone"){ goneBubble(R.logEl, r.dir==="sent"?"sent":"recv", r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, vf:r.vf}); continue; }
-    if(r.env.t==="vote"){ if(validVote(r.env) && !(R.group && r.dir!=="sent" && r.vf==="bad")) voteApply(R, r.env.m, rxActor(R, r.dir==="sent", r.env, r.who), r.env.c, r.ts); continue; }
+    if(r.env.t==="gone"){ goneBubble(logEl, r.dir==="sent"?"sent":"recv", r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, vf:r.vf}); continue; }
+    if(r.env.t==="vote"){ if(!bubblesOnly && validVote(r.env) && !(R.group && r.dir!=="sent" && r.vf==="bad")) voteApply(R, r.env.m, rxActor(R, r.dir==="sent", r.env, r.who), r.env.c, r.ts); continue; }
     if(RICH_T.has(r.env.t)){ renderRich(R, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
-    if(r.env.t==="exp"){ if(EXP_CHOICES.includes(r.env.v)) sysline(R.logEl, expLine(r.env.v, r.dir==="sent" ? null : (R.group ? (r.who||t("Member")) : (R.peerName||dn(R.title)||t("Contact"))))); continue; }
-    if(r.env.t==="react"){ if(typeof r.env.m==="string" && MID_RE.test(r.env.m) && validRx(r.env.e) && !(R.group && r.dir!=="sent" && r.vf==="bad"))
+    if(r.env.t==="exp"){ if(EXP_CHOICES.includes(r.env.v)) sysline(logEl, expLine(r.env.v, r.dir==="sent" ? null : (R.group ? (r.who||t("Member")) : (R.peerName||dn(R.title)||t("Contact"))))); continue; }
+    if(r.env.t==="react"){ if(!bubblesOnly && typeof r.env.m==="string" && MID_RE.test(r.env.m) && validRx(r.env.e) && !(R.group && r.dir!=="sent" && r.vf==="bad"))
         rxApply(R, r.env.m, r.dir==="sent" ? {k:"me",n:t("You")} : rxActor(R,false,r.env,r.who), r.env.e, r.ts); continue; }
     if(r.env.t==="img"){
-      if(keptPhoto(r.env)){ addImageKept(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
-      if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(R.logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid,r.vf); }
-      else addText(R.logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),ui:1});
+      if(keptPhoto(r.env)){ addImageKept(logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
+      if(r.dir==="recv"){ if(r.mid && _meta.viewed[r.mid]) continue; addImageRecvOnce(logEl,r.env,R.group?(r.who||""):"",r.ts,r.mid,r.vf); }
+      else addText(logEl,"sent",t("📷 Photo"),"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),ui:1});
       continue; }
     if(r.env.t==="aud"){ if(!validAud(r.env)) continue;
-      addVoice(R.logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
+      addVoice(logEl, r.dir==="sent"?"sent":"recv", r.env, r.dir==="sent"?"":(R.group?(r.who||""):""), r.ts, {mid:r.mid, st:stateFor(r.mid), room:hk, vf:r.vf}); continue; }
     if(r.env.t==="loc"){ if(!validLoc(r.env)) continue;
-      if(r.dir==="sent") addCard(R.logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid,vf:r.vf}); continue; }
+      if(r.dir==="sent") addCard(logEl,"sent",locCard(r.env,true),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(logEl,"recv",locCard(r.env,false),R.group?(r.who||""):"",r.ts,{mid:r.mid,vf:r.vf}); continue; }
     if(r.env.t==="ginv"){ if(!validGinv(r.env)) continue;
-      if(r.dir==="sent") addCard(R.logEl,"sent",ginvCard(r.env,"","sent"),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(R.logEl,"recv",ginvCard(r.env,r.who||R.title,"recv"),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
+      if(r.dir==="sent") addCard(logEl,"sent",ginvCard(r.env,"","sent"),"",r.ts,{mid:r.mid,st:stateFor(r.mid)}); else addCard(logEl,"recv",ginvCard(r.env,r.who||R.title,"recv"),R.group?(r.who||""):"",r.ts,{mid:r.mid}); continue; }
     const qq=validQuote(r.env.q) ? cleanQuote(r.env.q) : null; const ed=r.mid ? edits.get(r.mid) : null; const body=ed ? ed.x : r.env.body;
     let tb;
-    if(r.dir==="sent") tb=addText(R.logEl,"sent",body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),quote:qq?quoteEl(R,qq,"sent",""):null,tx:1,edited:!!ed});
-    else tb=addText(R.logEl,"recv",body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf,quote:qq?quoteEl(R,qq,"recv",r.who):null,tx:1,pk:R.group?(r.env.pk||""):"",edited:!!ed});
+    if(r.dir==="sent") tb=addText(logEl,"sent",body,"",false,r.ts,{mid:r.mid,st:stateFor(r.mid),quote:qq?quoteEl(R,qq,"sent",""):null,tx:1,edited:!!ed});
+    else tb=addText(logEl,"recv",body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf,quote:qq?quoteEl(R,qq,"recv",r.who):null,tx:1,pk:R.group?(r.env.pk||""):"",edited:!!ed});
     if(ed && tb) tb.dataset.edts=String(ed.ts);
   }
 }
@@ -3577,7 +3672,8 @@ async function doJoin(code, opts){
   try{ history.replaceState(null,"", opts.fromContact ? "/" : localRoomUrl(code)); }catch(e){}
 }
 let _installChecked=false, _showInstallInvite=null;
-function enterApp(){ _dbClosed=false; $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
+let _persistAsked=false;
+function enterApp(){ _dbClosed=false; if(!_persistAsked){ _persistAsked=true; try{ if(navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){} }   /* v43: history and kept photos live only here */ $("join").style.display="none"; $("app").style.display="flex"; document.body.classList.remove("in-auth"); { const j=$("join"); j.style.height=""; j.style.transform=""; } document.body.classList.add("in-app"); fitViewport(); closeSidebar(); renderContacts(); updateNotifyUI(); armAutoLock();
   if(!_installChecked){ _installChecked=true; setTimeout(()=>{ try{ if(_showInstallInvite) _showInstallInvite(); }catch(e){} }, 2500); } }
 function hideJoin(){ enterApp(); $("app").classList.remove("home"); }
 function goHome(){ closeInfo(); closeFind(); typingTick(""); closeExpMenu(); closePanel(false); cancelReply(); closePicker(); stopRec(false); markNew(null, 0); active=null; rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display="none"; });
@@ -3587,7 +3683,7 @@ function goHome(){ closeInfo(); closeFind(); typingTick(""); closeExpMenu(); clo
 // straight to the form, since the person already knows why they are here
 function firstAuthMode(){ const P=window.__pending||{}; return (P.invite||P.group||P.room) ? "register" : "welcome"; }
 function showAuth(mode){
-  $("app").style.display="none"; $("join").style.display="flex"; $("join").dataset.mode=mode;
+  $("app").style.display="none"; $("join").style.display="flex"; $("join").dataset.mode=mode; $("join").removeAttribute("data-boot"); $("joinBtn").disabled=false;   // v43: boot.js drew the first screen; the app takes over
   document.body.classList.remove("in-app","kb"); document.body.classList.add("in-auth"); const ap=$("app"); ap.style.height=""; ap.style.transform=""; try{ window.scrollTo(0,0); }catch(e){}
   $("join").scrollTop=0; fitViewport();
   const reg=mode==="register", login=mode==="login", unlock=mode==="unlock", nw=mode==="newchat", wel=mode==="welcome";
@@ -3876,7 +3972,7 @@ async function pullMerge(){
   const {data}=await vaultFn("pull"); if(ep!==gEpoch) return false; if(!data||!data.ok) return false; gVaultCver=data.cver||0;
   if(data.contacts){ const remote=await vaultDecrypt(data.contacts); if(ep!==gEpoch) return false;
     if(remote){ const m=mergeContacts(remote);
-      _contacts=m.contacts; _groups=m.groups; localSaveSoon();
+      _contacts=m.contacts; _groups=m.groups; contactsReindex(); localSaveSoon();
       if(remote.ident && identAdopt(remote.ident)) syncPushSoon();
       await ensureHistKeys();                                   // records that came from another device get their opaque ids
       try{ await advanceChains(); }catch(e){}
@@ -3911,7 +4007,7 @@ async function syncPull(){ if(!gContactsKey) return; try{
 let _syncT=null;
 function syncPushSoon(){ if(!gContactsKey) return; clearTimeout(_syncT); _syncT=setTimeout(()=>{ pushBlob().catch(()=>{}); }, 1500); }
 function vaultClear(){ gEpoch++; gABK=null; gContactsKey=null; _acct=""; gVaultCver=0; gRestoring=false; _pendingNotify=null; abkCacheClear(); clearPreviews(); }
-function clearPreviews(){ for(const k in _prev) delete _prev[k]; }
+function clearPreviews(){ _prevAll=true; for(const k in _prev) delete _prev[k]; }
 
 async function checkUsername(){
   const u=$("userInput").value.trim().toLowerCase(), h=$("userHint"); if(!h) return;
@@ -4367,7 +4463,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   // ----- theme + sound (surfaced in Settings) -----
   function currentDark(){ const c=document.documentElement.getAttribute("data-theme"); return c?c==="dark":matchMedia("(prefers-color-scheme:dark)").matches; }
   function refreshThemeUI(){ const d=currentDark(); if($("themeState")) $("themeState").textContent=d?t("Dark"):t("Light"); if($("themeToggle")){ const b=$("themeToggle"); b.textContent=""; b.append(icoEl(d?"i-sun":"i-moon",""), d?t("Light"):t("Dark")); } }
-  function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); }
+  function syncThemeColor(){ try{ const c=currentDark()?"#040509":"#f3f4f6"; document.querySelectorAll('meta[name="theme-color"]').forEach(m=>{ m.removeAttribute("media"); m.setAttribute("content",c); }); }catch(e){} }   // v43: the system bar follows the theme in use
+  function toggleTheme(){ const next=currentDark()?"light":"dark"; document.documentElement.setAttribute("data-theme",next); try{ localStorage.setItem("vesper-theme",next); }catch(e){} refreshThemeUI(); syncThemeColor(); }
+  syncThemeColor();
   function refreshSoundUI(){ const sel=$("soundSel"); if(sel) sel.value=soundMode();
     const cur=toneName(); document.querySelectorAll("#toneSel .tone").forEach(x=>x.setAttribute("aria-checked", x.dataset.tone===cur ? "true":"false")); }
   document.querySelectorAll("#toneSel .tone").forEach(btn=>btn.addEventListener("click",()=>{
@@ -4479,7 +4577,7 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("whyClose").addEventListener("click",()=>$("whyModal").classList.remove("show"));
   $("whyModal").addEventListener("click",e=>{ if(e.target.id==="whyModal") $("whyModal").classList.remove("show"); });
   // any activity postpones the auto-lock; a long time in the background locks on return
-  ["pointerdown","keydown","touchstart"].forEach(ev=>document.addEventListener(ev,()=>{ if(gHistKey) armAutoLock(); },{passive:true}));
+  ["pointerdown","keydown","touchstart"].forEach(ev=>document.addEventListener(ev,()=>{ _lastActive=Date.now(); if(gHistKey) armAutoLock(); },{passive:true}));
   document.addEventListener("visibilitychange",()=>{
     if(document.hidden){ _hiddenAt=Date.now(); return; }
     const ms=autoLockMs(); if(ms && gHistKey && _hiddenAt && !call && Date.now()-_hiddenAt>=ms) lockApp(); else if(gHistKey) armAutoLock();
@@ -4497,9 +4595,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   setInterval(sweepEphemeral, 15000);
   setInterval(()=>{ if(gHistKey) advanceChains().catch(()=>{}); }, 6*3600*1000);   // weekly chains: check a few times a day
   // poll the encrypted mailbox for every open chat so offline-sent messages arrive (and count as unread) even without a push
-  setInterval(()=>{ inboxPull(false); }, 20000);
+  inboxSchedule();
   // when the app comes back to the foreground (e.g. tapped a push), pull right away
-  document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ inboxPull(true); sessValidate().catch(()=>{}); } });
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ _lastActive=Date.now(); inboxPull(true); sessValidate().catch(()=>{}); } inboxSchedule(); });
   // offline banner: sending is attempted anyway (and marked failed → tap to retry), but say why
   const updateNet=()=>{ const nb=$("netBar"); if(nb) nb.hidden=(navigator.onLine!==false); };
   window.addEventListener("online",()=>{ updateNet(); flushAllOutq(); inboxPull(true); const R=A(); if(R) applyStatus(R); sessValidate().catch(()=>{}); });

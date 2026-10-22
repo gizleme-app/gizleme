@@ -24,6 +24,6 @@ jobs:
           pip install playwright==1.56.0 pillow numpy
           python -m playwright install --with-deps chromium
       - name: Syntax check
-        run: for f in app.js sw.js i18n.js privacy.js; do node --check "$f"; done
+        run: for f in app.js app.min.js boot.js sb.js sw.js i18n.js privacy.js; do node --check "$f"; done
       - name: Run all scenarios
         run: python3 tests/run.py

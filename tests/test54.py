@@ -49,6 +49,7 @@ window.supabase={createClient:()=>({
 })};
 '''
 (site/"mock.js").write_text(MOCK)
+html=html.replace("/app.min.js?v=","/app.js?v=")   # the page loads the readable app.js here (hooked below), not the minified build
 import re as _re; html,_nsub=_re.subn(r'<script src="/vendor/supabase-[0-9.]+\.js"></script>','<script src="/mock.js"></script>',html); assert _nsub==1, "supabase-js script tag not found in index.html"
 (site/"index.html").write_text(html)
 _app=pathlib.Path(SRC+"app.js").read_text()
@@ -62,11 +63,12 @@ HOOK='''window.__gz={contacts:()=>contactsLoad(),groups:()=>groupsLoad(),
 '''
 _app=_app[:_app.rstrip().rfind("})();")]+HOOK+'})();\n'
 (site/"app.js").write_text(_app)
-for f in ["watermark.png","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg","logo-head.png","logo-word.png","logo-dot.png","call-icon.png","call-badge.png"]:
+for f in ["watermark.png","watermark.webp","watermark-eyes.webp","logo-head.webp","logo-word.webp","boot.js","sb.js","watermark-eyes.png","icon-192.png","sw.js","manifest.webmanifest","icon-512.png","icon-maskable-512.png","i18n.js","hero.jpg","logo-head.png","logo-word.png","logo-dot.png","call-icon.png","call-badge.png"]:
     (site/f).write_bytes(pathlib.Path(SRC+""+f).read_bytes())
 (site/"vendor").mkdir(exist_ok=True)
 for _v in _os.listdir(SRC+"vendor"):
     if _v.endswith(".js") and not _v.startswith("supabase") and not _v[0].isdigit(): (site/"vendor"/_v).write_bytes(_pl.Path(SRC+"vendor/"+_v).read_bytes())
+(site/"sw.js").write_text(pathlib.Path(SRC+"sw.js").read_text().replace("/app.min.js?v=","/app.js?v="))   # the worker precaches what the page loads
 os.chdir(site)
 
 RELAY={}; RLOCK=threading.Lock(); MBOX={}; ACKS=[]; BLOBS={}

@@ -8,9 +8,24 @@
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
-  Permissions-Policy: camera=(self), microphone=(self), geolocation=(self), payment=(), usb=(), interest-cohort=()
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(self), payment=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
 
 # Versioned third-party code: cache for a year (the file name changes with the version).
 /vendor/*
   Cache-Control: public, max-age=31536000, immutable
+# The app's own files are loaded with ?v=NN (stamped by tools/build.py at each version): a year too. The page
+# (/, /index.html) and sw.js keep Cloudflare's default (revalidated on every load) — they name the version.
+/app.min.js
+  Cache-Control: public, max-age=31536000, immutable
+/i18n.js
+  Cache-Control: public, max-age=31536000, immutable
+/boot.js
+  Cache-Control: public, max-age=31536000, immutable
+/sb.js
+  Cache-Control: public, max-age=31536000, immutable
+# Images change rarely and the worker refetches them past the HTTP cache at each version: a week.
+/*.webp
+  Cache-Control: public, max-age=604800
+/*.png
+  Cache-Control: public, max-age=604800
