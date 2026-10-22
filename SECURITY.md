@@ -11,7 +11,7 @@ to fix confirmed issues before any public disclosure. There is no bug bounty pro
 ## Architecture in one paragraph
 
 A single-page web app (`index.html`, `app.js`, no third-party scripts, served with a strict CSP) talks to
-four Supabase Edge Functions (`gizleme-auth`, `gizleme-vault`, `gizleme-mbox`, `gizleme-push`) and to
+five Supabase Edge Functions (`gizleme-auth`, `gizleme-vault`, `gizleme-mbox`, `gizleme-push`, `gizleme-turn`) and to
 Supabase Realtime for live presence/broadcast. All cryptography runs in the browser with WebCrypto. The
 server only ever stores ciphertext, password verifiers, session-token hashes, push subscriptions and
 rate-limit counters.
@@ -75,7 +75,10 @@ rate-limit counters.
   sides), and a mailbox message that does not decrypt under the chain a device holds is left in the
   mailbox for up to 48 h rather than skipped, so it is read once the vault converges. Until that meeting, such contacts keep the
   static key. What remains: a compromised device
-  reads what is still waiting for it (inherent), and a compromise reveals the current three weeks. Per-
+  reads what is still waiting for it (inherent); a compromise of the current root reveals everything the
+  chain derives from it until the two devices next meet live and re-seed it (the chain is one-way: earlier
+  weeks stay unreadable, later ones are not protected until that meeting), and the root travels inside the
+  encrypted contacts backup, so a backup copy kept by the host matters as much as the device. Per-
   message forward secrecy with per-device ephemeral keys (the Signal model) would end "any device of the
   account reads the mailbox" and stays a separate project. Groups keep a static key (see below).
 - **Invite links are tickets, not keys (v3).** The link carries a one-time public key; the first device to
@@ -219,7 +222,7 @@ rate-limit counters.
   encrypted message — can download its ciphertext, and nothing else.
 - Rate limits (Postgres counter, service-role only): login 60/15 min per IP and 10 *failed* attempts/15 min
   per account (a success gives the budget back, so a stranger cannot lock the owner out), password change
-  and deletion 10/15 min per account, register 10/h per IP, salt/check 60/min per IP, notify 12/10 min
+  and deletion 10/15 min per account, register 10/h per IP, salt 60/min and check 20/min per IP, notify 12/10 min
   per key + 120/10 min per IP, mailbox puts 120/min per mailbox + 300/min per IP, gets/acks 400/min per
   IP, blob uploads 30/min per IP, TURN credentials 40/10 min per IP. There are no per-account storage
   quotas beyond these.
@@ -231,7 +234,7 @@ rate-limit counters.
 - TURN: short-lived credentials (15 min) minted by the function from a server-side key and shared by all
   callers for 2 minutes; a credential only lets someone relay ciphertext through Cloudflare's TURN.
 - Password change and account deletion require both the session token and the current password.
-- The `check` action of registration reveals whether a username is taken (60/min per IP); the `salt`
+- The `check` action of registration reveals whether a username is taken (20/min per IP); the `salt`
   action does not.
 - Server error responses may echo database error strings (no secrets, but not yet generic).
 - HTTP headers: CSP (`script-src 'self'`), HSTS, X-Frame-Options DENY, Referrer-Policy no-referrer,

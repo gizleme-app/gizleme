@@ -64,8 +64,9 @@ function endpointOk(ep: unknown) {
   try { const u = new URL(String(ep)); if (u.protocol !== "https:") return false; const h = u.hostname.toLowerCase();
     return PUSH_HOSTS.some(s => s.startsWith(".") ? h.endsWith(s) : h === s); } catch { return false; }
 }
-// Notification taps only ever open Gizleme itself.
-function safeUrl(u: unknown) { const s = clean(u, 2048); return s.startsWith(ORIGIN + "/") ? s : ORIGIN + "/"; }
+// A notification tap only ever opens Gizleme on the chat of that notify key: the url is built here, never
+// taken from the request (a client-supplied "#i=" invite or "#g=" group link would be acted on by the app).
+function targetUrl(nk: string) { return ORIGIN + "/#n=" + encodeURIComponent(nk); }
 
 Deno.serve(async (req) => {
   const cors = corsFor(req);
@@ -131,7 +132,7 @@ Deno.serve(async (req) => {
         body:  kind === "call" ? "Incoming call" : kind === "missed" ? "Missed call" : kind === "chat" ? "A contact wants to chat" : "New message",   // fixed text: the receiving device puts the name on it
         kind,
         tag:   clean(body.tag, 64)   || notify_key.slice(0, 12),
-        url:   safeUrl(body.url),
+        url:   targetUrl(notify_key),
       });
       let sent = 0; const dead: string[] = [];
       for (const r of targets) {

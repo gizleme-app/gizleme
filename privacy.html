@@ -47,7 +47,7 @@
       <tr><td>Sessions</td><td>Empreinte (SHA-256) du jeton de session de chaque appareil connecté</td><td>1 an, ou jusqu'à déconnexion / changement de mot de passe</td></tr>
       <tr><td>Sauvegarde du compte</td><td>Clé de sauvegarde chiffrée par ton mot de passe ; liste de contacts chiffrée par cette clé</td><td>Jusqu'à suppression du compte</td></tr>
       <tr><td>Boîte aux lettres</td><td>Messages chiffrés en attente de livraison (identifiant de boîte dérivé d'un secret partagé, identifiant aléatoire du message, horodatage, date de livraison)</td><td>48 h après qu'un de tes appareils l'a récupéré ; 14 jours maximum sinon</td></tr>
-      <tr><td>Photos et messages vocaux</td><td>Blobs chiffrés sous nom aléatoire (la clé voyage uniquement dans le message)</td><td>Supprimés à la lecture / première écoute, au plus tard après 14 jours</td></tr>
+      <tr><td>Photos et messages vocaux</td><td>Blobs chiffrés sous nom aléatoire (la clé voyage uniquement dans le message)</td><td>Photos à vue unique : supprimées à la lecture. Autres photos, vocaux, documents : conservés chiffrés au plus 14 jours, puis supprimés ; supprimés aussi par « Supprimer pour tout le monde »</td></tr>
       <tr><td>Notifications</td><td>Abonnement push de l'appareil (point de terminaison Apple/Google/Mozilla/Microsoft), clé de notification dérivée par contact, marqueur opaque du compte</td><td>Jusqu'à désactivation, déconnexion ou expiration par le service push</td></tr>
       <tr><td>Appels</td><td>Rien n'est stocké. Des identifiants TURN temporaires (15 min) sont remis à l'appareil pour relayer l'appel quand les deux téléphones sont derrière des réseaux fermés</td><td>—</td></tr>
       <tr><td>Anti-abus</td><td>Compteurs de requêtes par adresse IP et par compte</td><td>1 jour</td></tr>
@@ -90,7 +90,7 @@
       <tr><td>Sessions</td><td>SHA-256 fingerprint of each logged-in device's session token</td><td>1 year, or until log-out / password change</td></tr>
       <tr><td>Account backup</td><td>Backup key wrapped by your password; contact list encrypted under that key</td><td>Until you delete the account</td></tr>
       <tr><td>Mailbox</td><td>Encrypted messages awaiting delivery (mailbox id derived from a shared secret, random message id, timestamp, delivery time)</td><td>48 h after one of your devices fetched it; 14 days at most otherwise</td></tr>
-      <tr><td>Photos and voice messages</td><td>Encrypted blobs under random names (the key only travels inside the message)</td><td>Deleted when viewed / first played, at the latest after 14 days</td></tr>
+      <tr><td>Photos and voice messages</td><td>Encrypted blobs under random names (the key only travels inside the message)</td><td>View-once photos: deleted when viewed. Other photos, voice messages, documents: kept encrypted for at most 14 days, then deleted; also deleted by “Delete for everyone”</td></tr>
       <tr><td>Notifications</td><td>The device's push subscription (Apple/Google/Mozilla/Microsoft endpoint), a per-contact derived notification key, the account's opaque marker</td><td>Until turned off, logged out, or expired by the push service</td></tr>
       <tr><td>Calls</td><td>Nothing is stored. Short-lived TURN credentials (15 min) are handed to the device to relay a call when both phones sit behind closed networks</td><td>—</td></tr>
       <tr><td>Abuse control</td><td>Request counters per IP address and per account</td><td>1 day</td></tr>

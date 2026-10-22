@@ -108,10 +108,10 @@ with sync_playwright() as pw:
     # failure → tap to retry
     p.evaluate("()=>{ window.__putFail=true; }")
     p.fill("#msgInput","ça passe ?"); p.click("#sendBtn"); p.wait_for_timeout(800)
-    r["fail_state"]= p.eval_on_selector(".log .bubble.sent:last-of-type .st","e=>e.dataset.st")
-    r["fail_notSavedYet"]= p.evaluate("()=>window.__puts.filter(x=>!x.mid.startsWith('r')).length")==1
-    p.evaluate("()=>{ window.__putFail=false; }"); p.click(".log .bubble.failed"); p.wait_for_timeout(800)
-    r["retry_state"]= p.eval_on_selector(".log .bubble.sent:last-of-type .st","e=>e.dataset.st")
+    r["fail_state"]= p.eval_on_selector(".log .bubble.sent:last-of-type .st","e=>e.dataset.st")=="pending"   # v41: a failed send waits (saved) instead of failing
+    r["fail_queued"]= p.evaluate("()=>Object.values(window.__gz.meta().outq||{}).flat().length")==1
+    p.evaluate("()=>{ window.__putFail=false; window.dispatchEvent(new Event('online')); }"); p.wait_for_timeout(1200)
+    r["retry_state"]= p.eval_on_selector(".log .bubble.sent:last-of-type .st","e=>e.dataset.st")=="sent" and p.evaluate("()=>Object.values(window.__gz.meta().outq||{}).flat().length")==0
     # a photo arrives for Bob while his chat is closed; it survives lock/unlock as "tap to view"
     p.evaluate("([ck])=>window.__drop(ck,{t:'img',path:'x.bin',k:'a',iv:'b',mime:'image/jpeg',once:true,n:'Bob'},'bob-acct',900)",[CKB]); p.wait_for_timeout(200)
     p.evaluate("()=>document.dispatchEvent(new Event('visibilitychange'))"); p.wait_for_timeout(1500)

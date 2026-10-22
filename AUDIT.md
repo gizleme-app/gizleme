@@ -52,8 +52,8 @@ consent issues; **Low** = hardening.
 | M6 | Medium | A device acking its own deposits could delete a message before the recipient fetched it. | **Fixed.** Own deposits are recognised by the sealed marker and never acked. |
 | M7 | Medium | Rate limiter fails open on DB error and depends on proxy IP headers. | **Open (documented).** Fails open by choice (availability); the IP comes from `cf-connecting-ip` first. |
 | M8 | Medium | Gizleme shared its Supabase project with an unrelated application (one service-role key, one database, one storage account), plus two obsolete functions. | **Fixed (15 Oct 2026).** Gizleme now runs in a project of its own (schema recreated with the API roles holding no table privileges at all; data and media copied server-to-server and verified by digest; same VAPID key, so existing push subscriptions kept working). The old project's `gizleme-*` functions were removed; its tables are kept for a week as a fallback, then dropped; rotating the old project's service-role key is on the owner. |
-| L1 | Low | Set-once ABK / `cver` are check-then-write races. | Open. |
-| L2 | Low | Password change is two non-atomic calls. | Open. |
+| L1 | Low | Set-once ABK / `cver` are check-then-write races. | **Fixed** (R7: conditional updates). |
+| L2 | Low | Password change is two non-atomic calls. | **Fixed** (R6: one SQL transaction). |
 | L3 | Low | Error responses may echo backend error strings. | Open (no secrets involved). |
 | L4 | Low | Sweeps run on every request. | Open (cheap; indexed). |
 | L5 | Low | Input normalisation accepts anything; login skips the username regex. | Open (the lookup is by exact lowercase key; no injection path). |

@@ -7,7 +7,7 @@
 // Service worker — installability, offline shell, Web Push.
 // Network-first for everything (the app must always load the latest encrypted build); the precached
 // shell is only served when the network fails, so the installed app opens offline instead of erroring.
-const CACHE = "gizleme-v40";
+const CACHE = "gizleme-v41";
 const SHELL = ["/", "/index.html", "/app.js", "/i18n.js", "/vendor/supabase-2.117.2.js", "/vendor/qrcode-1.4.4.js", "/manifest.webmanifest",
                "/watermark.png", "/watermark-eyes.png", "/logo-head.png", "/logo-word.png", "/logo-dot.png", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png",
                "/call-icon.png", "/call-badge.png", "/sb.js"];
@@ -46,8 +46,8 @@ self.addEventListener("fetch", e => {
 
 // A notification may only ever open Gizleme itself: whatever a payload says, the target is forced to
 // this origin (defence in depth — the push function already pins it server-side).
-function safeTarget(u) {
-  try { const x = new URL(u || "/", self.location.origin); if (x.origin === self.location.origin) return x.href; } catch (_) {}
+function safeTarget(u) {   // the app itself, with at most a #n= (which chat to open): never an invite or group link (v41)
+  try { const x = new URL(u || "/", self.location.origin); if (x.origin === self.location.origin && (x.pathname === "/" || x.pathname === "/index.html") && (!x.hash || /^#n=/.test(x.hash))) return self.location.origin + "/" + (x.hash || ""); } catch (_) {}
   return self.location.origin + "/";
 }
 

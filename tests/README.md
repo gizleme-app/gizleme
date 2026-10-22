@@ -22,14 +22,14 @@ files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose
 | test18 | accounts, lock/unlock, at-rest encryption, deep links in the fragment, log-out wipe, CSP |
 | test19–21 | contacts, invite links, inbox, unread counts, receipts |
 | test22, test27 | legacy (v2) invite-key rotation and the reconciliation window |
-| test23 | groups (basics) |
+| test23 | nicknames (rename for me: header, list, record, cleared) and message tones (options, selection persisted and previewed) |
 | test24 | push: notification names composed on the device (hashed keys), French templates |
 | test25 | photos: large/PNG/small, re-encoding (no EXIF), chunked base64 |
 | test26, test28, test29 | phone layout: keyboard, header and status dot, lock screen |
 | test30 | location sharing, turning a chat into a group, group invitations (opt-in) |
 | test31 | audio/video calls (real WebRTC between browsers), group calls, offline ringing |
 | test32 | invite links v3: one-time pre-key, hello, reuse detection, link-key messages refused |
-| test33 | voice messages: codec round trip, record/cancel/send, relay deletion, local replay |
+| test33 | voice messages (record, send, receive, play / pause / replay, history, own replay) and the relay keeping a blob for the other members |
 | test34 | rejoining a room after failed joins |
 | test35 | invite links: expiry, 4-digit code, QR |
 | test36 | mailbox forward secrecy: weekly key chain, advancing, holding, convergence |
@@ -53,3 +53,4 @@ files go to `$TMPDIR/gizleme-tests/` (override with `GZ_TEST_TMP`). Checks whose
 | test54 | v38: delete for everyone (both sides, history rewritten, preview, survives a lock), only the author's message obeys, delete for me (here only, not shown again if re-delivered), a deletion arriving before its message; search (accents and Turkish letters folded, deleted messages left out, chats by name, a hit opens the chat at the message, clearing); search inside a chat (count, previous, highlight, Escape); no emoji left in the interface chrome |
 | test55 | v39: big emojis (1–3 alone, sizes, animations by emoji, played on send / arrival and on a tap, still from history and with reduced motion, an edit can make a message big; 4 emojis, emoji + text, digits stay normal), a video call answered without the camera (no camera track, their picture arrives, ours later on a tap), "weak connection" (shown after two bad readings, hidden after three good, none on a clean call, reset at hang-up), audio calls without that choice, the type scale and radii tokens, the hidden attribute always wins |
 | test56 | v40 layout: the invite screen's "4-digit code" checkbox and label at three text sizes; beside a chat, the chats list's title and buttons fit and the open-chat tabs stay on screen (phone on its side, computer; text sizes up to 1.4; French, Turkish) |
+| test57 | v41: a 1 500-message history opens in under a second with one scroll at the end; a burst of 3 photos stays in the chat it started in when you switch mid-way; a message written offline waits (pending, saved, survives a reload) and leaves by itself when the network is back, the header saying "you're offline" meanwhile; the delete-account Cancel and Escape; unique ids; a notification may only open the app's own chat route; an invite link opened while signed in asks first (and not after signing up through it); no timer on a new account; the sender is told when a photo goes view-once; links are clickable and ask before opening; the unlock label in French on Android |

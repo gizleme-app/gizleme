@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 40;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 41;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -401,7 +401,7 @@ async function processHello(ckLink, e, n, m, fs, ke){
   const shown=x.alias||dn(x.name);
   rooms.forEach(r=>{ if(r.fromContact!==ckLink) return; r.fromContact=ck2;
     if(realName(n) && !x.alias){ r.title=n; r.peerName=dn(n); r.avatar=up(n[0]||"?"); if(r.code===active){ $("peerName").textContent=r.peerName; $("peerAvatar").textContent=r.avatar; } }
-    ensureTag(r).then(()=>{ try{ if(r.tag&&r.channel) r.channel.track(presencePayload(r)); }catch(_e){} });
+    ensureTag(r).then(()=>{ try{ if(r.tag&&r.channel) trackSafe(r); }catch(_e){} });
     if(r.logEl){ sysline(r.logEl, t("🔒 {name} opened your link · end-to-end encrypted",{name:shown})); r._linkLine=Date.now(); }
     if(r.code===active) setIdle(r); });
   renderTabs(); renderContacts(); updateVerifyUI(); if(pushOn()) registerAllContacts();
@@ -926,6 +926,7 @@ async function doJoinGroup(rid, gkBytes, name, adm, rot){
   rooms.set(code,R); hideJoin(); switchTo(code);
   R.seen=seenSetFor(R);
   if(gHistKey){ const past=await histLoad(code); renderHistory(R, past); seedSeen(R, past); }
+  flushGroupOutq(rid).catch(()=>{});
   R.bind=()=>{ const ch=client.channel(groupChan(R),{config:{private:true,presence:{key:R.id},broadcast:{self:false}}});
     R.channel=ch;
     ch.on("presence",{event:"sync"},()=>onSyncGroup(R));
@@ -1248,10 +1249,27 @@ function stateFor(mid){ if(mid && outqHas(mid)) return "pending"; return mid && 
 // Messages written to a v3 invite before it is opened wait on this device (nothing is ever deposited under
 // the link key) and are sent under the agreed key the moment the hello arrives.
 function outqHas(mid){ const q=_meta.outq||{}; for(const k in q) if(q[k].some(x=>x.mid===mid)) return true; return false; }
+function outqKey(R){ return R.group ? "g:"+R.rid : R.fromContact; }
 function queueOut(R, env, mid, now, el){
-  if(!_meta.outq) _meta.outq={}; (_meta.outq[R.fromContact]=_meta.outq[R.fromContact]||[]).push({env,mid,ts:now});
-  histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid}); localSaveSoon(); if(el) setMsgState(el,"pending");
+  if(!_meta.outq) _meta.outq={}; const k=outqKey(R), q=_meta.outq[k]=_meta.outq[k]||[];
+  if(!q.some(x=>x.mid===mid)){ q.push({env,mid,ts:now}); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid}); }   // saved once: it survives a reload as "pending"
+  localSaveSoon(); if(el) setMsgState(el,"pending");
 }
+// a group's waiting messages: signed and deposited under the group's current key
+async function flushGroupOutq(rid){
+  const k="g:"+rid, q=(_meta.outq||{})[k]; if(!q||!q.length){ if(_meta.outq) delete _meta.outq[k]; return; }
+  let R=null; rooms.forEach(r=>{ if(r.group && r.rid===rid) R=r; }); if(!R) return;   // opened later: flushed when the group is opened
+  delete _meta.outq[k]; localSaveSoon();
+  for(const it of q){ let ok=false; try{ const signed=await signGroupEnv(R, it.env, it.mid); const a=await broadcastGroup(R, signed, it.mid); const b=await depositMailbox(R, it.mid, signed); ok=a||b; }catch(e){}
+    const el=R.logEl ? bubbleOf(R, it.mid) : null;
+    if(ok){ if(el) setMsgState(el, stateFor(it.mid)); }
+    else { (_meta.outq[k]=_meta.outq[k]||[]).push(it); if(el) setMsgState(el,"pending"); } }
+  localSaveSoon();
+}
+// everything waiting, every chat: on the network coming back, on unlock, and with each mailbox pass
+function flushAllOutq(){ const q=_meta.outq||{}; for(const k of Object.keys(q)){ if(!q[k] || !q[k].length){ delete q[k]; continue; }
+  if(k.startsWith("g:")) flushGroupOutq(k.slice(2)).catch(()=>{});
+  else { const c=contactFind(k); const tg=c ? mergedTarget(c) : null; flushOutq(k, tg ? tg.ck : k).catch(()=>{}); } } }
 async function flushOutq(fromCk, toCk){
   const q=(_meta.outq||{})[fromCk]; if(!q||!q.length){ if(_meta.outq) delete _meta.outq[fromCk]; return; }
   delete _meta.outq[fromCk]; localSaveSoon();
@@ -1304,7 +1322,7 @@ async function typingSend(R, s){
     else { if(!R.fromContact || !R.paired) return; key=await mboxKeyForSecret(R.fromContact); }
     const iv=crypto.getRandomValues(new Uint8Array(12));
     const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv}, key, enc.encode(JSON.stringify(env)));
-    R.channel.send({type:"broadcast",event:"rcpt",payload:{from:R.id,iv:b64(iv),ct:b64(ct)}});
+    Promise.resolve(R.channel.send({type:"broadcast",event:"rcpt",payload:{from:R.id,iv:b64(iv),ct:b64(ct)}})).catch(()=>{});   // offline: nothing to report
   }catch(e){}
 }
 // s: "t" typing, "v" recording, "" stopped — for the chat on screen; leaving a chat stops what was sent there
@@ -1529,7 +1547,7 @@ const LS_MKPIN="gz-mkpin", LS_MKBIO="gz-mkbio";
 function pinSet(){ try{ return !!localStorage.getItem(LS_MKPIN); }catch(e){ return false; } }
 function bioSet(){ try{ return !!localStorage.getItem(LS_MKBIO); }catch(e){ return false; } }
 function bioSupported(){ return !!(window.PublicKeyCredential && navigator.credentials && navigator.credentials.create); }
-function bioLabel(){ return /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent) ? "Face ID / Touch ID" : "fingerprint or face"; }
+function bioLabel(){ return /iPhone|iPad|iPod|Macintosh/i.test(navigator.userAgent) ? "Face ID / Touch ID" : t("fingerprint or face"); }
 let _isInApp=null;   // set by init (needs the standalone check); showAuth reads it
 async function histKeyFromMK(mk){ return crypto.subtle.importKey("raw", mk, {name:"AES-GCM"}, false, ["encrypt","decrypt"]); }
 async function pinWrapKey(pin, salt){ const base=await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
@@ -2165,7 +2183,7 @@ function endCall(reason, silent){
     : reason==="missed" ? t("📞 Missed {kind}",{kind}) : reason==="noanswer" ? t("📞 {kind} — no answer",{kind})
     : reason==="failed" ? t("📞 {kind} — connection failed",{kind}) : t("📞 {kind} ended",{kind});
   if(c.R && c.R.logEl) sysline(c.R.logEl, line);
-  if(c.group && c.R){ if(c.R.gcall && c.R.gcall.cid===c.cid && !anyOtherInCall(c.R)) c.R.gcall=null; try{ c.R.channel && c.R.channel.track(presencePayload(c.R)); }catch(e){} showCallBanner(c.R); }
+  if(c.group && c.R){ if(c.R.gcall && c.R.gcall.cid===c.cid && !anyOtherInCall(c.R)) c.R.gcall=null; try{ trackSafe(c.R); }catch(e){} showCallBanner(c.R); }
   if(c.t1 || reason==="declined" || reason==="busy") soundEnd();
   updateCallUI();
 }
@@ -2209,7 +2227,7 @@ async function startGroupCall(R, video){
   video = video && local.getVideoTracks().length>0;
   call={R, cid:rid(), dir:"out", group:true, video, state:"live", peers:new Map(), me:R.id, local, name:R.title||t("Group"), t0:Date.now()};
   showOutgoing(); onCallConnected();
-  R.gcall={cid:call.cid, video, by:myName, ts:Date.now()}; try{ R.channel && R.channel.track(presencePayload(R)); }catch(e){}
+  R.gcall={cid:call.cid, video, by:myName, ts:Date.now()}; try{ trackSafe(R); }catch(e){}
   callSig(R,{a:"gstart",cid:call.cid,from:R.id,video,n:myName}); showCallBanner(R); updateCallUI();
 }
 async function joinGroupCall(){
@@ -2217,7 +2235,7 @@ async function joinGroupCall(){
   initAudio(); let local; try{ local=await callMedia(R.gcall.video); }catch(e){ toast(mediaErr(e)); return; }
   if(call){ local.getTracks().forEach(tr=>tr.stop()); return; }
   call={R, cid:R.gcall.cid, dir:"in", group:true, video:!!(R.gcall.video && local.getVideoTracks().length), state:"connecting", peers:new Map(), me:R.id, local, name:R.title||t("Group"), t0:Date.now()};
-  showOutgoing(); callStatus(t("Connecting…")); try{ R.channel && R.channel.track(presencePayload(R)); }catch(e){}
+  showOutgoing(); callStatus(t("Connecting…")); try{ trackSafe(R); }catch(e){}
   callSig(R,{a:"gjoin",cid:call.cid,from:R.id,n:myName,video:call.video}); showCallBanner(R); updateCallUI();
 }
 function showCallBanner(R){ const b=$("callBanner"); if(!b) return; if(!R || R.code!==active){ if(!R) b.hidden=true; return; }
@@ -2339,7 +2357,7 @@ function sweepEphemeral(){
 let _toastT=null;
 function toast(m){ const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(_toastT); _toastT=setTimeout(()=>t.classList.remove("show"), Math.max(1700, Math.min(6000, 55*m.length))); }
 // to the newest message; a chat scrolled up by hand stays where it is (the ↓ button counts what arrives) unless forced
-function scrollEl(el, force){ if(el && el._stick===false && !force) return; try{ el.scrollTop=el.scrollHeight; requestAnimationFrame(()=>{ try{ el.scrollTop=el.scrollHeight; }catch(e){} }); }catch(e){} }
+function scrollEl(el, force){ if(el && (el._bulk || (el._stick===false && !force))) return; try{ el.scrollTop=el.scrollHeight; requestAnimationFrame(()=>{ try{ el.scrollTop=el.scrollHeight; }catch(e){} }); }catch(e){} }
 // The on-screen keyboard shrinks the *visual* viewport; on iOS the layout viewport stays full height and
 // Safari shifts the page to reveal the input, taking the header (and its back button) off-screen for good.
 // Size the app to the visual viewport and pin it to its top: header stays, composer sits on the keyboard,
@@ -2450,6 +2468,14 @@ function jumboApply(b, tx, text, play){ const n=jumboCount(text); b.classList.re
   if(play) jumboPlay(b); return true; }
 function jumboPlay(b){ if(!b || matchMedia("(prefers-reduced-motion:reduce)").matches) return;
   b.classList.remove("play"); void b.offsetWidth; b.classList.add("play"); clearTimeout(b._jt); b._jt=setTimeout(()=>b.classList.remove("play"), 3600); }
+// a URL in a message becomes a link; the tap confirms the site first, so nobody lands somewhere by a slip (v41)
+const URL_RE=/\bhttps?:\/\/[^\s<>"'\u00AB\u00BB]+|\bwww\.[^\s<>"'\u00AB\u00BB]+/gi;
+function setBodyText(el, text){ el.textContent=""; text=String(text==null?"":text); let last=0; URL_RE.lastIndex=0; let m;
+  while((m=URL_RE.exec(text))){ let u=m[0], end=m.index+u.length; const tr=/[.,;:!?)\]]+$/.exec(u); if(tr){ u=u.slice(0,-tr[0].length); end-=tr[0].length; }
+    if(m.index>last) el.append(text.slice(last, m.index));
+    const a=document.createElement("a"); a.className="lnk"; a.href=/^www\./i.test(u) ? "https://"+u : u; a.target="_blank"; a.rel="noopener noreferrer nofollow"; a.textContent=u; el.appendChild(a);
+    last=end; URL_RE.lastIndex=end; }
+  if(last<text.length) el.append(text.slice(last)); return el; }
 function addText(logEl, cls, body, tag, animate, ts, opts){
   opts=opts||{}; ts=ts||Date.now(); ensureDaySep(logEl, ts);
   const d=document.createElement("div"); d.className="bubble "+cls; d.dataset.ts=ts; if(opts.mid) d.dataset.mid=opts.mid;
@@ -2463,7 +2489,7 @@ function addText(logEl, cls, body, tag, animate, ts, opts){
   logEl.appendChild(d); scrollEl(logEl, cls==="sent");
   if(opts.ui) iconText(t, body);
   else if(jumboApply(d, t, body, Date.now()-ts<6000)){}                 // just sent or just arrived: it plays once
-  else if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); scrollEl(logEl); }); } else t.textContent=body;
+  else if(animate){ t.classList.add("scrambling"); scramble(t,body,()=>{ t.classList.remove("scrambling"); setBodyText(t, body); scrollEl(logEl); }); } else setBodyText(t, body);
   if(opts.edited) markEdited(d);
   return d;
 }
@@ -2489,7 +2515,7 @@ function applyEditToBubble(V, env, own, ts){
   if((ts||Date.now())-(+b.dataset.ts||0) > EDIT_WINDOW+600000) return false;         // (ten minutes of clock skew allowed)
   if((+b.dataset.edts||0) > (ts||0)) return false;                                  // an older edit arriving late
   const tx=b.querySelector(":scope > .txt"); if(!tx) return false;
-  tx.classList.remove("scrambling"); if(!jumboApply(b, tx, env.x, true)) tx.textContent=env.x; b.dataset.edts=String(ts||Date.now()); markEdited(b); return true;
+  tx.classList.remove("scrambling"); if(!jumboApply(b, tx, env.x, true)) setBodyText(tx, env.x); b.dataset.edts=String(ts||Date.now()); markEdited(b); return true;
 }
 function onEditEnv(R, env, who, ts, mid, own){
   if(!editValid(env)) return;
@@ -2527,9 +2553,9 @@ async function sendEdit(R, text){
   const now=Date.now(); if(now-(+b.dataset.ts||0) > EDIT_WINDOW){ toast(t("Messages can only be edited within 24 hours")); return; }
   const env={t:"edit", m:e.m, x:text, body:"✏️ "+text}; const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid);
   const tx=b.querySelector(":scope > .txt"), prev=tx?tx.textContent:"", wasEdited=b.classList.contains("edited"), prevTs=b.dataset.edts||"";
-  if(tx && !jumboApply(b, tx, text, true)) tx.textContent=text; b.dataset.edts=String(now); markEdited(b); initAudio();
+  if(tx && !jumboApply(b, tx, text, true)) setBodyText(tx, text); b.dataset.edts=String(now); markEdited(b); initAudio();
   const ok=await deliverOut(R, env, mid, null, now, true);
-  if(!ok){ if(tx && !jumboApply(b, tx, prev, false)) tx.textContent=prev; b.dataset.edts=prevTs; if(!wasEdited){ b.classList.remove("edited"); const m=b.querySelector(".edm"); if(m) m.remove(); }
+  if(!ok){ if(tx && !jumboApply(b, tx, prev, false)) setBodyText(tx, prev); b.dataset.edts=prevTs; if(!wasEdited){ b.classList.remove("edited"); const m=b.querySelector(".edm"); if(m) m.remove(); }
     toast(t("Edit not sent — check your connection")); return; }
   refreshPreviews();
 }
@@ -2831,6 +2857,15 @@ function addImageRecvOnce(logEl, meta, tag, ts, mid, vf){
 function renderHistory(R, past){
   const hk=histKeyOf(R); const dur=expFor(hk); const cut=dur?Date.now()-dur:0; if(dur) histSweep(hk,cut);
   const edits=editsFrom(R, past);
+  R.logEl._bulk=true;   // no scroll (and no forced layout) per bubble: one scroll once everything is in (v41)
+  try{ renderPast(R, past, dur, cut, hk, edits); } finally{ R.logEl._bulk=false; }
+  scrollEl(R.logEl, true); requestAnimationFrame(()=>{ if(R.logEl && R.logEl._stick!==false) scrollEl(R.logEl, true); });
+  refreshVoteCards(R);
+  if(R.reacts) R.reacts.forEach((_,m)=>rxRender(R,m));
+  seedSeen(R, past);
+  if(R._newN && R.code===active) markNew(R, R._newN);
+}
+function renderPast(R, past, dur, cut, hk, edits){
   for(const r of past){ if(!r||!r.env) continue; if(dur&&(r.ts||0)<=cut) continue;
     if(R.group && r.dir!=="sent" && r.mid && r.env.pk && r.env.t && r.env.t!=="txt") setTimeout(()=>{ const b=bubbleOf(R, r.mid); if(b && !b.dataset.pk) b.dataset.pk=r.env.pk; }, 0);
     if(r.env.t==="edit" || r.env.t==="del") continue;                    // applied to the message it edits (above)
@@ -2857,10 +2892,6 @@ function renderHistory(R, past){
     else tb=addText(R.logEl,"recv",body,R.group?(r.who||""):"",false,r.ts,{mid:r.mid,vf:r.vf,quote:qq?quoteEl(R,qq,"recv",r.who):null,tx:1,pk:R.group?(r.env.pk||""):"",edited:!!ed});
     if(ed && tb) tb.dataset.edts=String(ed.ts);
   }
-  refreshVoteCards(R);
-  if(R.reacts) R.reacts.forEach((_,m)=>rxRender(R,m));
-  seedSeen(R, past);
-  if(R._newN && R.code===active) markNew(R, R._newN);
 }
 function sysline(logEl, t, warn){ const d=document.createElement("div"); d.className="sys"+(warn?" warnline":""); iconText(d, t); logEl.appendChild(d); scrollEl(logEl); }
 // ---------- icons instead of emojis in the interface (v38): emojis stay for what people write and react with ----------
@@ -2881,11 +2912,12 @@ function setStatus(R, txt, secure, kind, short){
 }
 function applyStatus(R){
   const bar=$("bar"); if(!bar) return;
-  const ty=typingLabel(R); bar.classList.toggle("typing", !!ty);
-  $("statusText").textContent=ty || R.statusShort || statusShort(R.statusKind);
-  const meta=$("peerMeta"); if(meta) meta.title=R.statusText||"";
-  bar.classList.toggle("secure",!!R.secure);
-  ["st-online","st-offline","st-busy","st-warn"].forEach(c=>bar.classList.remove(c)); bar.classList.add("st-"+(R.statusKind||"offline"));
+  const off=navigator.onLine===false;   // this device has no network: the header says so, whatever the last presence said (v41)
+  const ty=off ? "" : typingLabel(R); bar.classList.toggle("typing", !!ty);
+  $("statusText").textContent=off ? t("you're offline") : (ty || R.statusShort || statusShort(R.statusKind));
+  const meta=$("peerMeta"); if(meta) meta.title=off ? t("You're offline — messages will be sent when you're back online.") : (R.statusText||"");
+  bar.classList.toggle("secure",!!R.secure && !off);
+  ["st-online","st-offline","st-busy","st-warn"].forEach(c=>bar.classList.remove(c)); bar.classList.add("st-"+(off ? "offline" : (R.statusKind||"offline")));
 }
 const CANONICAL="https://gizleme.com";
 function localRoomUrl(code){ const u=new URL(location.href); u.search=""; u.hash="room="+(code||active||""); return u.toString(); }
@@ -2943,7 +2975,7 @@ function openPanel(which){ const c=$("composer"); if(!c) return; _panel=which||"
   if(_panel){ try{ $("msgInput").blur(); }catch(e){} closePicker(); }
   const L=A() && A().logEl; if(L) scrollEl(L); }
 function closePanel(focus){ if(_panel) openPanel(""); if(focus){ try{ $("msgInput").focus(); }catch(e){} } }
-async function sendFiles(list){ const fs=[...(list||[])].filter(f=>f && /^image\//.test(f.type||"image/")).slice(0,10); for(const f of fs){ await sendImage(f); } }
+async function sendFiles(list){ const R=A(); const fs=[...(list||[])].filter(f=>f && /^image\//.test(f.type||"image/")).slice(0,10); for(const f of fs){ await sendImage(f, R); } }   // the chat is fixed once: switching mid-burst can't reroute the rest (v41)
 function setAttach(dis){ $("attachBtn").disabled=dis; ["plusBtn"].forEach(id=>{ const b=$(id); if(b) b.disabled=dis; }); if(dis) closePanel(false); const m=$("micBtn"); if(m) m.disabled=dis || !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.AudioContext); if(dis && rec) stopRec(false); }
 
 // ---------- session ----------
@@ -2986,7 +3018,7 @@ async function establish(R, other, authed){
     if(!R.fromContact){ try{ R.fromContact = await ckFromSecret(secret); }catch(e){}
       // From now on this room has a shared key: sign our public key with it and re-announce, so the other
       // side's checks (and every future connection) can verify us automatically.
-      try{ await ensureTag(R); if(R.tag && R.channel) R.channel.track(presencePayload(R)); }catch(e){} }
+      try{ await ensureTag(R); if(R.tag && R.channel) trackSafe(R); }catch(e){} }
     if(R.fromContact) contactUpsert(nm, R.fromContact);
     // Link-based contact: the identity safety code is bound to this first live key exchange (both sides
     // derive the same value), so someone who merely intercepted the link can't match it.
@@ -3001,7 +3033,7 @@ async function establish(R, other, authed){
           const e=l[i]; e.prev=old; e.hk=e.hk||("c:"+old); e.ck=nk; e.rot=Date.now(); e.recon=Date.now(); delete e.is; delete e.pk; delete e.pp; delete e.v3; e.ts=Date.now();
           const q=(_meta.outq||{})[old]; if(q&&q.length){ _meta.outq[nk]=(_meta.outq[nk]||[]).concat(q); delete _meta.outq[old]; setTimeout(()=>flushOutq(nk,nk).catch(()=>{}),500); }
           contactsSave(l);
-          R.fromContact=nk; await ensureTag(R); if(R.tag && R.channel) R.channel.track(presencePayload(R));
+          R.fromContact=nk; await ensureTag(R); if(R.tag && R.channel) trackSafe(R);
           sysline(R.logEl, t("🔒 Invite link closed · this chat has its own key"));
         } }
     }catch(e){}
@@ -3012,7 +3044,7 @@ async function establish(R, other, authed){
     try{ const c=contactFind(R.fromContact);
       if(authed && c && !c.kc && !isPendingInvite(c) && other && other.fsu===1 && secret){
         const kc=b64(await hkdf(secret,"gz-chain/live|"+R.fromContact)); contactPatch(R.fromContact,{kc, kce:epochNow()}); _chainCache.clear(); R.fsuRoot=rootFp;
-        try{ await ensureTag(R); if(R.channel) R.channel.track(presencePayload(R)); }catch(_e){}
+        try{ await ensureTag(R); if(R.channel) trackSafe(R); }catch(_e){}
         sysline(R.logEl, t("🔐 Forward secrecy is now on for this chat: the mailbox key changes every week and old keys are destroyed."));
       } }catch(e){}
     // Reconciliation ends only once BOTH sides have seen each other sign with the new (post-link) key —
@@ -3024,7 +3056,7 @@ async function establish(R, other, authed){
     try{ const c=contactFind(R.fromContact);
       if(c && c.prev){
         const directNew=!!(other && other.tag && await authVerify(R.fromContact, other.pub, other.tag));
-        if(directNew!==!!R.peerNewKey){ R.peerNewKey=directNew; try{ if(R.channel) R.channel.track(presencePayload(R)); }catch(_e){} }
+        if(directNew!==!!R.peerNewKey){ R.peerNewKey=directNew; try{ if(R.channel) trackSafe(R); }catch(_e){} }
         if(c.recon && directNew && other && other.rk){ const l=contactsLoad(); const x=l.find(y=>y.ck===R.fromContact); if(x){ x.recon=0; delete x.hello; contactsSave(l); moveRoomSoon(R); } }
       } else R.peerNewKey=false;
     }catch(e){}
@@ -3044,7 +3076,9 @@ function presencePayload(R){ const p={id:R.id,name:myName,u:_acct}; if(!R.group)
     // up for the session that just seeded it, so the slower side still takes the same one
     if(c && !isPendingInvite(c) && (!c.kc || (R.fsuRoot && R.fsuRoot===R.rootFp))) p.fsu=1;
   } else if(call && call.R===R && call.group) p.cc=call.cid; return p; }
-function retrackAll(){ rooms.forEach(R=>{ try{ R.channel&&R.channel.track&&R.channel.track(presencePayload(R)); }catch(e){} }); }
+// presence: announce this device's state on the chat's channel; a lost network is not an error worth a stack trace
+function trackSafe(R){ try{ if(!R || !R.channel) return Promise.resolve(false); return Promise.resolve(R.channel.track(presencePayload(R))).catch(()=>false); }catch(e){ return Promise.resolve(false); } }
+function retrackAll(){ rooms.forEach(R=>{ try{ trackSafe(R); }catch(e){} }); }
 // A join that errored or timed out (cold relay, flaky network) is retried with a fresh channel after a short
 // backoff rather than left on "reconnecting…" — the library's own rejoin does not always come back.
 function scheduleRejoin(R, ch){
@@ -3161,11 +3195,14 @@ async function deliverOut(R, env, mid, el, now, quiet){   // quiet: a reaction �
   if(ok){
     if(el) setMsgState(el, stateFor(mid)); histSave(histKeyOf(R),{dir:"sent",env,ts:now,mid});
     if(!quiet && !R.group && R.fromContact && !R.paired) notifyPeer(R.fromContact, "msg");     // they're not here: wake their device
+  } else if(R.group || R.fromContact){   // nothing left: it waits here (saved) and goes when the network is back (v41)
+    queueOut(R, env, mid, now, el); netQueuedToast(); return true;
   } else if(el){
     setMsgState(el,"failed"); el._retry=()=>{ el._retry=null; setMsgState(el,"pending"); deliverOut(R,env,mid,el,now,quiet); };
   }
   return ok;
 }
+let _nqT=0; function netQueuedToast(){ const now=Date.now(); if(now-_nqT<8000) return; _nqT=now; toast(navigator.onLine===false ? t("You're offline — it will be sent when you're back online") : t("Not sent yet — it will be retried shortly")); }
 async function sendLocation(){
   const R=A(); if(!R) return; if(!R.group && !R.fromContact && !R.paired) return;
   if(!navigator.geolocation){ toast(t("Location is not available on this device")); return; }
@@ -3360,10 +3397,11 @@ async function convertToGroup(){
 }
 // A photo is view-once while the chat's timer runs; with the timer off it is kept — in the chat, on both sides —
 // and this device keeps its own encrypted copy (the relay sweeps its ciphertext after 14 days).
-async function sendImage(file){
-  const R=A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
+async function sendImage(file, R0){
+  const R=R0||A(); if(!file||!R) return; if(!R.group && !R.fromContact && !R.paired) return; initAudio();
   const mid=rid(); if(!R.seen) R.seen=new Set(); R.seen.add(mid); const now=Date.now(); const once=expFor(histKeyOf(R))>0;
   const purl=URL.createObjectURL(file); const el=addImageSent(R.logEl, null, purl, now, {mid, st:"pending", once}); if(once) setTimeout(()=>{ try{ URL.revokeObjectURL(purl); }catch(e){} }, 60000);
+  if(once && !R._onceTold){ R._onceTold=true; toast(t("Disappearing messages are on: this photo can be viewed once, for 10 seconds")); }
   try{ await sendImageMeta(R, file, el, mid, now, once); }
   catch(e){ setMsgState(el,"failed"); el._retry=()=>sendImageRetry(R,file,el,mid,now,once); toast(t("Photo not sent — ")+(e&&e.message?e.message:t("check your connection"))); }
 }
@@ -3468,7 +3506,7 @@ async function doJoin(code, opts){
     ch.on("broadcast",{event:"msg"},(payload)=>onMsg(R,payload));
     ch.on("broadcast",{event:"rcpt"},(payload)=>onRcpt(R,payload));
     ch.subscribe(async st=>{
-      if(st==="SUBSCRIBED"){ R.joinFails=0; await ch.track(presencePayload(R)); if(!R.paired) setIdle(R); fetchMailbox(R); }
+      if(st==="SUBSCRIBED"){ R.joinFails=0; await trackSafe(R); if(!R.paired) setIdle(R); fetchMailbox(R); }
       else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT"){ setStatus(R,t("connection problem — retrying…"),false,"busy",t("reconnecting…")); scheduleRejoin(R, ch); }
     }); };
   R.bind();
@@ -3551,6 +3589,7 @@ function switchTo(code){
   if(!_reply || _reply.code!==code) cancelReply(); closePicker(); if(rec && code!==active) stopRec(false);
   active=code; $("app").classList.remove("home"); showCallBanner(R); updateCallUI();
   rooms.forEach(r=>{ if(r.logEl) r.logEl.style.display=(r.code===code)?"flex":"none"; });
+  if(R.logEl && R.logEl._stick!==false) scrollEl(R.logEl, true);   // a log drawn while hidden has no height to scroll to: now it has
   { const hk=histKeyOf(R), n=(_meta.unread&&+_meta.unread[hk])||0; markNew(R, n); }
   clearUnread(R);
   $("peerName").textContent=dn(R.peerName); $("peerAvatar").textContent=R.avatar; paintPeerAvatar(); paintExpBtn();
@@ -3619,7 +3658,10 @@ async function applyDeepLink(){
     const known=groupsLoad().some(g=>g.rid===p.group.rid);
     if(known || confirm(t("Join the group “{name}”?\n\nIts members will see your display name. Only join groups from people you know.",{name:String(p.group.name||"Group").slice(0,40)}))) { await doJoinGroup(p.group.rid, unb64(p.group.gk), p.group.name, p.group.adm, p.group.rot); return; }
     else { try{ history.replaceState(null,"","/"); }catch(e){} goHome(); return; } }catch(e){} }
-  if(p.invite && p.invite.s){ try{ await acceptInvite(p.invite); return; }catch(e){} }
+  if(p.invite && p.invite.s){ try{   // came here by the link and just signed up: that was the point; otherwise (already in, e.g. a tapped notification) ask (v41)
+      const nm=realName(p.invite.n) ? p.invite.n : t("Someone");
+      if(window.__justReg || confirm(t("{name} invites you to a private chat on Gizleme. Accept?",{name:nm}))){ window.__justReg=false; await acceptInvite(p.invite); return; }
+      try{ history.replaceState(null,"","/"); }catch(e){} }catch(e){} }
   if(p.room){ if(rooms.has(p.room)) switchTo(p.room); else await doJoin(p.room); return; }
   if(p.n){ const ok=await openByNotifyKey(p.n); if(ok) return; _pendingNotify=p.n; }   // contacts may still be restoring — retried after sync
   goHome();
@@ -3832,7 +3874,7 @@ async function doRegister(){
     sessSave({token:data.token,username:data.username,display:data.display}); myName=data.display;
     vaultOwnerCheck(data.username);
     privateDefaults();
-    const mk=await setupPin(pw);
+    const mk=await setupPin(pw); window.__justReg=true;   // the link brought them here and they just signed up for it: no second question
     if($("bioOptIn")&&$("bioOptIn").checked&&bioSupported()&&!bioSet()){ try{ await bioEnrollWrap(mk); }catch(e){ setTimeout(()=>toast(t("{bio} isn't available in this browser — you'll unlock with your password",{bio:bioLabel()})),600); } }
     gHistKey=await histKeyFromMK(mk); await localLoad();
     clearAuthInputs(); enterApp(); applyDeepLink();
@@ -3911,7 +3953,7 @@ function setPreviewsHidden(on){ try{ localStorage.setItem(LS_HIDEPREV,on?"1":"0"
 function autoLockMs(){ try{ return +localStorage.getItem(LS_AUTOLOCK)||0; }catch(e){ return 0; } }
 // Private by default on every device: messages disappear after 24 h and the app auto-locks after 15 min
 // unless this device already chose otherwise (one tap to change in Settings).
-function privateDefaults(){ try{ if(localStorage.getItem(EXP_G)===null) localStorage.setItem(EXP_G,"86400000"); if(localStorage.getItem(LS_AUTOLOCK)===null) localStorage.setItem(LS_AUTOLOCK,"900000"); }catch(e){} }
+function privateDefaults(){ try{ if(localStorage.getItem(EXP_G)===null) localStorage.setItem(EXP_G,"0"); if(localStorage.getItem(LS_AUTOLOCK)===null) localStorage.setItem(LS_AUTOLOCK,"900000"); }catch(e){} }   // v41: disappearing messages are a choice, one tap away in the chat's header
 function setAutoLock(ms){ try{ localStorage.setItem(LS_AUTOLOCK,String(ms||0)); }catch(e){} armAutoLock(); }
 let _lockT=null, _hiddenAt=0;
 function armAutoLock(){ clearTimeout(_lockT); const ms=autoLockMs(); if(!ms||!gHistKey) return; _lockT=setTimeout(()=>{ if(call){ armAutoLock(); return; } lockApp(); }, ms); }   // never in the middle of a call
@@ -4005,7 +4047,7 @@ function renameChat(){
 async function rekey(){
   const R=A(); if(!R||!R.channel) return;
   R.kp=await genKP(); R.pubB64=b64(await pubRaw(R.kp)); R.rootFp=""; await ensureTag(R);
-  await R.channel.track(presencePayload(R));
+  await trackSafe(R);
   if(R.peer) await establish(R,R.peer,R.authOk);
   sysline(R.logEl,t("↻ new keys — channel re-secured")); toast(t("New keys generated"));
 }
@@ -4118,7 +4160,9 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
       const now=Date.now(); if(lastTap && lastTap.b===s.b && now-lastTap.t<330){ lastTap=null; e.preventDefault(); openPicker(s.b); return; }
       lastTap={b:s.b, t:now}; },{passive:false});
     logs.addEventListener("touchcancel",()=>{ const s=sw; sw=null; if(s) clearTimeout(s.lp); if(s && s.on){ s.ready=false; endSwipe(s); } },{passive:true});
-    logs.addEventListener("click",e=>{ const jb=e.target.closest && e.target.closest(".bubble.jumbo"); if(jb) jumboPlay(jb);   // a tap replays it
+    logs.addEventListener("click",e=>{ const ln=e.target.closest && e.target.closest("a.lnk");
+      if(ln){ let host=""; try{ host=new URL(ln.href).host; }catch(_){} if(!confirm(t("Open {host}?",{host}))) e.preventDefault(); return; }
+      const jb=e.target.closest && e.target.closest(".bubble.jumbo"); if(jb) jumboPlay(jb);   // a tap replays it
       const q=e.target.closest && e.target.closest(".quote"); if(q){ const R=A(); if(R) jumpToQuoted(R, q.dataset.ref); return; }
       const po=e.target.closest && e.target.closest(".voteb .po"); if(po){ voteTap(po); return; }
       const c=e.target.closest && e.target.closest(".rx"); if(c){ const b=c.closest(".bubble"); const R=A(); if(R && b && b.dataset.mid) sendReaction(R, b.dataset.mid, c.dataset.e); } });
@@ -4186,7 +4230,10 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   $("findUp").addEventListener("click",()=>findStep(-1)); $("findDown").addEventListener("click",()=>findStep(1)); $("findClose").addEventListener("click",closeFind);
   // deleting a message
   $("delMe").addEventListener("click",deleteForMe); $("delAll").addEventListener("click",deleteForAll);
-  $("delCancel").addEventListener("click",()=>{ _delFor=null; $("delMsgModal").classList.remove("show"); });
+  $("delMsgCancel").addEventListener("click",()=>{ _delFor=null; $("delMsgModal").classList.remove("show"); });
+  // Escape closes the dialog on top (Settings and Chat info handle it themselves; the invite-code prompt stays)
+  document.addEventListener("keydown",e=>{ if(e.key!=="Escape") return; const m=[...document.querySelectorAll(".modal.show")].pop(); if(!m) return;
+    if(["settingsModal","infoModal","pinModal"].includes(m.id)) return; m.classList.remove("show"); if(m.id==="delMsgModal") _delFor=null; });
   $("delMsgModal").addEventListener("click",e=>{ if(e.target.id==="delMsgModal"){ _delFor=null; $("delMsgModal").classList.remove("show"); } });
   // iOS only lets audio start inside a user gesture: unlock at the first tap so the connection / message sounds
   // that follow (which are not user-initiated) can be heard.
@@ -4360,7 +4407,8 @@ const LOGOUT_MSG_EN="Log out of this device?\n\nYour contacts stay safe in your 
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ inboxPull(true); } });
   // offline banner: sending is attempted anyway (and marked failed → tap to retry), but say why
   const updateNet=()=>{ const nb=$("netBar"); if(nb) nb.hidden=(navigator.onLine!==false); };
-  window.addEventListener("online",()=>{ updateNet(); inboxPull(true); }); window.addEventListener("offline",updateNet); updateNet();
+  window.addEventListener("online",()=>{ updateNet(); flushAllOutq(); inboxPull(true); const R=A(); if(R) applyStatus(R); });
+  window.addEventListener("offline",()=>{ updateNet(); const R=A(); if(R) applyStatus(R); }); updateNet();
   // Presence hygiene: leave every room's presence the moment the page is going away (a reload otherwise leaves
   // a ghost the relay keeps for a while, which the other side could pair with), and re-announce on return.
   const untrackAll=()=>rooms.forEach(R=>{ try{ R.channel&&R.channel.untrack&&R.channel.untrack(); }catch(e){} });

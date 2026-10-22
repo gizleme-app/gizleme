@@ -171,7 +171,7 @@ try:
  with sync_playwright() as pw:
     b=pw.chromium.launch(args=["--autoplay-policy=no-user-gesture-required"])
     def boot(name, errs, w=1000):
-        ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); p=ctx.new_page()
+        ctx=b.new_context(viewport={"width":w,"height":820},locale="en-US",accept_downloads=True); ctx.add_init_script("try{ localStorage.setItem('gz-exp-global','86400000'); }catch(e){}"); p=ctx.new_page()   # an account that chose 24 h (v41: off by default)
         p.on("pageerror",lambda e:errs.append(str(e))); p.on("dialog",lambda d:d.accept())
         p.goto(f"http://127.0.0.1:{port}/"); p.wait_for_timeout(300)
         p.evaluate("()=>new Promise(res=>{ const t0=Date.now(); (function tick(){ const j=document.getElementById('join'), m=j && j.dataset.mode; if(m || Date.now()-t0>10000){ if(m==='welcome') document.getElementById('joinBtn').click(); res(m||''); } else setTimeout(tick,40); })(); })"); p.fill("#userInput",name); p.fill("#pwInput","password123"); p.fill("#pw2Input","password123"); p.click("#joinBtn"); p.wait_for_timeout(1500)

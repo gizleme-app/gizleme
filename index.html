@@ -799,6 +799,7 @@
   .bubble.gone .gone-t .ico{width:15px;height:15px}
   .bubble.gone .meta{color:var(--muted)!important}
   [hidden]{display:none!important}
+  .bubble .lnk{color:inherit;text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px;word-break:break-all}
   /* v40: a checkbox inside a .field is a checkbox, not a text field (it took the full width: "4-digit code" was pushed off screen) */
   .field input[type=checkbox],#join .field input[type=checkbox]{width:20px;height:20px;min-width:20px;padding:0;margin:0;flex:none;border:none;background:none;border-radius:4px;accent-color:var(--accent-bg);font-size:inherit}
   .inv-opts{row-gap:8px}
@@ -1170,7 +1171,7 @@
     <p class="set-note" id="delMsgNote"></p>
     <button class="btn danger" id="delAll" type="button">Delete for everyone</button>
     <button class="ghost danger-t" id="delMe" type="button">Delete for me</button>
-    <button class="ghost" id="delCancel" type="button">Cancel</button>
+    <button class="ghost" id="delMsgCancel" type="button">Cancel</button>
   </div>
 </div>
 <div class="modal" id="settingsModal">

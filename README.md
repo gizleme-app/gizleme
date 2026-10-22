@@ -28,7 +28,7 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   so a later compromise cannot read earlier weeks (see SECURITY.md); real inbox with unread counts and
   previews, receipts
   (✓ sent / ✓✓ received), offline banner, tap-to-retry.
-- Disappearing messages (24 h by default), set per chat from the timer in its header — red and crossed out
+- Disappearing messages (off by default since v41; one tap turns them on), set per chat from the timer in its header — red and crossed out
   when off, blue with 5 / 30 / 60 (minutes) or 24 (hours) when on — and applied to both sides. While the
   timer runs, photos are view-once; with it off they stay in the chat on both phones, and a long press on one
   offers Save (to the gallery / Photos) and Forward (to another chat). Auto-lock, privacy screen, hidden
@@ -38,6 +38,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   quote jumps to the original. Your own text messages can be edited for 24 hours ("edited" shows on the
   bubble, on every side). All three are ordinary encrypted messages — signed in groups — so the relay learns
   nothing new, and only the author's own edit is ever applied.
+- Links in messages are clickable (a tap first confirms the site). A message written without network waits on
+  the device and leaves on its own when the network is back; the header says "you're offline" meanwhile.
 - Delete a message from its menu: "Delete for me" removes it from this device; "Delete for everyone" (your own
   message, within 48 hours) removes it from the other devices too and leaves "This message was deleted" in
   its place. It can't reach a copy someone already saw or saved (see SECURITY.md).
@@ -130,7 +132,8 @@ https://gizleme.com/privacy.html for what the server keeps and for how long.
 ```
 index.html            markup + styles
 app.js                application code (crypto, UI, sync)
-i18n.js               translations (English keys → French)
+i18n.js               translations (English keys → French, Turkish)
+sb.js                 iPhone display mode, read before the page is drawn (see v35)
 sw.js                 service worker (offline shell, Web Push)
 _headers              Cloudflare security headers (CSP, HSTS, …)
 manifest.webmanifest  PWA manifest
