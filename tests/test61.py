@@ -300,6 +300,10 @@ try:
     r["chats_restored"]= wait_for(C,"()=>[...document.querySelectorAll('.ct')].some(e=>e.textContent.includes('oguz'))",15000)
     # ---- 7. removing the contact removes what it left on the device ----
     A.evaluate("([hk])=>window.__gz.seedMedia(hk)",[hkA]); A.evaluate("()=>window.__gz.setExp(7*86400000)"); A.wait_for_timeout(600)
+    # v48: the timer is in the contact's record (vault), the localStorage map is only a cache
+    r["timer_in_record"]= A.evaluate("()=>window.__gz.contacts()[0].ex")==7*86400000 and A.evaluate("()=>typeof window.__gz.contacts()[0].ets==='number'")
+    r["timer_survives_cache_loss"]= A.evaluate("()=>{ localStorage.removeItem('gz-exp-rooms'); return window.__gz.exp(); }")==7*86400000
+    A.evaluate("()=>window.__gz.setExp(7*86400000)"); A.wait_for_timeout(300)
     before=A.evaluate("([hk])=>window.__gz.idbCount(hk)",[hkA]); em=A.evaluate("()=>window.__gz.expMap()"); sids=A.evaluate("()=>window.__gz.sids()")
     r["before_remove"]= before["msgs"]>=3 and before["media"]>=1 and hkA in em and hkA in sids
     A.click("#peerMeta"); A.wait_for_timeout(300); A.evaluate("()=>document.getElementById('ciRemove').click()"); A.wait_for_timeout(1500)

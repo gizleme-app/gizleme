@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 47;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 48;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -2473,9 +2473,18 @@ function soundConnect(){ initAudio(); beep([
 const EXP_G="gz-exp-global", EXP_R="gz-exp-rooms";
 function expGlobal(){ try{ return +localStorage.getItem(EXP_G)||0; }catch(e){ return 0; } }
 function expRoomsMap(){ try{ return JSON.parse(localStorage.getItem(EXP_R)||"{}")||{}; }catch(e){ return {}; } }
-function expFor(code){ const m=expRoomsMap(); if(code&&Object.prototype.hasOwnProperty.call(m,code)){ const v=m[code]; return v===null?0:(+v||0); } return expGlobal(); }
+// v48: the chat's timer lives in its record (contact or group: `ex` ms, `ets` when chosen) — in the encrypted vault, so it
+// follows the account across devices and survives a log-out; gz-exp-rooms is only the device's cache of it
+function expRecFor(hk){ if(!hk) return null; const c=contactsLoad().find(x=>x.hk===hk || (!x.hk && "c:"+x.ck===hk)); if(c) return {rec:c, kind:"c"}; const g=groupsLoad().find(x=>x.rid===hk); return g ? {rec:g, kind:"g"} : null; }
+function expKnown(code){ if(!code) return false; if(Object.prototype.hasOwnProperty.call(expRoomsMap(),code)) return true; const r=expRecFor(code); return !!(r && typeof r.rec.ex==="number"); }
+function expFor(code){ const m=expRoomsMap(); if(code&&Object.prototype.hasOwnProperty.call(m,code)){ const v=m[code]; return v===null?0:(+v||0); }
+  const r=expRecFor(code); if(r && typeof r.rec.ex==="number") return r.rec.ex;
+  return expGlobal(); }
 function setExpGlobal(ms){ try{ localStorage.setItem(EXP_G,String(ms||0)); }catch(e){} sweepEphemeral(); }
-function setExpRoom(code,val){ const m=expRoomsMap(); if(val==="") delete m[code]; else m[code]=(+val||0); try{ localStorage.setItem(EXP_R,JSON.stringify(m)); }catch(e){} sweepEphemeral(); }
+function setExpRoom(code,val){ const m=expRoomsMap(); if(val==="") delete m[code]; else m[code]=(+val||0); try{ localStorage.setItem(EXP_R,JSON.stringify(m)); }catch(e){}
+  try{ const r=expRecFor(code); if(r){ const l=r.kind==="c" ? contactsLoad() : groupsLoad(); const x=l.find(y=> r.kind==="c" ? y.ck===r.rec.ck : y.rid===r.rec.rid);
+    if(x){ if(val==="") delete x.ex; else x.ex=(+val||0); x.ets=Date.now(); if(r.kind==="c") contactsSave(l); else groupsSave(l); if(typeof syncPushSoon==="function") syncPushSoon(); } } }catch(e){}
+  sweepEphemeral(); }
 // The chat's timer, from the header (⏱): one tap opens Off / 5 / 30 / 60 minutes / 24 hours. A choice applies to
 // the chat for everyone in it — it travels as an encrypted {t:"exp", v} envelope (quiet, like a reaction) and each
 // device applies the newest one — so both sides agree on whether photos are view-once or kept (Off: kept).
@@ -2492,7 +2501,7 @@ function applyChatExp(R, ms, ts){ const hk=histKeyOf(R); if(!hk) return false; c
   setExpRoom(hk, String(ms)); paintExpBtn(); return true; }
 async function chooseExp(ms){
   const R=A(); closeExpMenu(); if(!R || !EXP_CHOICES.includes(ms)) return;
-  const hk=histKeyOf(R), now=Date.now(); const had=Object.prototype.hasOwnProperty.call(expRoomsMap(),hk);
+  const hk=histKeyOf(R), now=Date.now(); const had=expKnown(hk);
   if(had && expFor(hk)===ms) return;
   applyChatExp(R, ms, now);
   if(R.logEl) sysline(R.logEl, expLine(ms, null));
@@ -4022,6 +4031,7 @@ function mergeContacts(remote){ let _chainChanged=false;
            // peer — so it is never carried across a user's devices via the vault.
            if(rc.ats&&(rc.ats>(e.ats||0))){ e.alias=rc.alias; e.ats=rc.ats; if(!e.alias) delete e.alias; }
            if(rc.mts&&(rc.mts>(e.mts||0))){ e.mu=rc.mu; e.mts=rc.mts; if(!e.mu) delete e.mu; }
+           if(rc.ets&&(rc.ets>(e.ets||0))){ e.ets=rc.ets; if(typeof rc.ex==="number") e.ex=rc.ex; else delete e.ex; }   // v48: the chat's timer
            if(rc.cts&&(rc.cts>(e.cts||0))){ e.cl=rc.cl; e.cts=rc.cts; if(!e.cl) delete e.cl; }
            if(rc.into && !e.into){ e.into=rc.into; e.hk=rc.into; if(rc.its) e.its=rc.its; }   // merged on another device: one-way, never undone
            if(e.name===INV_PLACEHOLDER && realName(rc.name) && rc.name!==INV_PLACEHOLDER) e.name=rc.name; } });
@@ -4034,6 +4044,7 @@ function mergeContacts(remote){ let _chainChanged=false;
            if(rg.fpSeen && rg.fpSeen.length){ e.fpSeen=[...new Set((e.fpSeen||[]).concat(rg.fpSeen))].slice(-40); }
            if(rg.ats&&(rg.ats>(e.ats||0))){ e.alias=rg.alias; e.ats=rg.ats; if(!e.alias) delete e.alias; }
            if(rg.mts&&(rg.mts>(e.mts||0))){ e.mu=rg.mu; e.mts=rg.mts; if(!e.mu) delete e.mu; }
+           if(rg.ets&&(rg.ets>(e.ets||0))){ e.ets=rg.ets; if(typeof rg.ex==="number") e.ex=rg.ex; else delete e.ex; }   // v48: the chat's timer
            if(rg.cts&&(rg.cts>(e.cts||0))){ e.cl=rg.cl; e.cts=rg.cts; if(!e.cl) delete e.cl; }
            if(rg.mem){ const mem=Object.assign({},e.mem||{}); for(const pk in rg.mem){ if(!mem[pk] || (rg.mem[pk].ts||0)<(mem[pk].ts||0)) mem[pk]=rg.mem[pk]; } e.mem=mem; } } });
   if(_chainChanged) _chainCache.clear();   // keys derived from a root this merge replaced must not be reused
