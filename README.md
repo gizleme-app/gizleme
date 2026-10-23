@@ -160,9 +160,13 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the cryptography, the threat model and the known limitations,
+See [SECURITY.md](SECURITY.md) for the cryptography and the known limitations,
+[docs/PROTOCOL.md](docs/PROTOCOL.md) for the protocol specification (key hierarchy, derivations, message
+formats, server API — written for reviewers),
+[docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) for what is protected, from whom, and what is still exposed,
 [AUDIT.md](AUDIT.md) for the internal audit (October 2026: findings, fixes, open items), and
-https://gizleme.com/privacy.html for what the server keeps and for how long.
+https://gizleme.com/privacy.html for what the server keeps and for how long. No independent audit yet; the
+protocol document is where one would start.
 
 ## Repository layout
 

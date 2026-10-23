@@ -287,3 +287,7 @@ See [privacy.html](https://gizleme.com/privacy.html).
 
 An internal audit (protocol, server, client) was carried out in October 2026 before any wider release;
 findings, fixes and the open items are in [AUDIT.md](AUDIT.md). No independent audit yet.
+
+For reviewers: [docs/PROTOCOL.md](docs/PROTOCOL.md) specifies the protocol exactly (key hierarchy, every
+derivation label, message and server formats), and [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) lists the
+assets, adversaries, threats, ranked weaknesses and the places to look first.
