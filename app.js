@@ -10,7 +10,7 @@
 const SB_URL = "https://yduldeujlszirctufhsn.supabase.co";
 const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlkdWxkZXVqbHN6aXJjdHVmaHNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIwNDE2MTQsImV4cCI6MjEwNzYxNzYxNH0.cp6zmzhQsUX9_dSMFghT1bCEnUSKi39YctZ6sDEOGJU";
 const BUCKET = "vesper-media";
-const APP_VERSION = 48;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
+const APP_VERSION = 49;   // same number as the service worker's cache name (sw.js) — a test keeps them in step
 const client = supabase.createClient(SB_URL, SB_KEY, { realtime:{ params:{ eventsPerSecond: 25 } } });
 
 const $ = id => document.getElementById(id);
@@ -4212,7 +4212,7 @@ function localSignOut(){
   sessClear(); gHistKey=null; vaultClear();
   // No trace on this device: keys, contacts, mailbox cursors and the encrypted history database all go.
   localWipe(); swNames(true).catch(()=>{});
-  try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK,EXP_R].forEach(k=>localStorage.removeItem(k)); }catch(e){}
+  try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK,EXP_R,EXP_TS,EXP_G].forEach(k=>localStorage.removeItem(k)); }catch(e){}
   try{ _dbClosed=true; if(_db){ _db.close(); _db=null; } indexedDB.deleteDatabase("vesper"); }catch(e){}
   renderContacts();
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
@@ -4363,7 +4363,7 @@ async function deleteAccount(pw){
   try{ if(gPushSub){ await gPushSub.unsubscribe(); } }catch(e){}
   try{ localStorage.setItem(LS_PUSH,"0"); }catch(e){}
   sessClear(); gHistKey=null; vaultClear(); localWipe(); swNames(true).catch(()=>{});
-  try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK,LS_VAULTOWNER,LS_DEVID,EXP_R].forEach(k=>localStorage.removeItem(k)); }catch(e){}
+  try{ [LS_MKPIN,LS_MKBIO,LS_NOTIFIED,LS_MBTS,LS_ABK,LS_VAULTOWNER,LS_DEVID,EXP_R,EXP_TS,EXP_G].forEach(k=>localStorage.removeItem(k)); }catch(e){}
   try{ if(_db){ _db.close(); _db=null; } indexedDB.deleteDatabase("vesper"); }catch(e){}
   [...rooms.keys()].forEach(c=>{ const R=rooms.get(c); try{ R&&R.channel&&R.channel.unsubscribe(); }catch(e){} if(R&&R.logEl) R.logEl.remove(); });
   rooms.clear(); active=null; renderContacts();

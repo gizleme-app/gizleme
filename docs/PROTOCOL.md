@@ -374,8 +374,9 @@ mailbox. The previous key stays readable for 14 days (`prevGk`, `rotAt`) so late
   device id (`gz-devid`) and push flag, the per-chat disappearing-timer maps and global default (`gz-exp-rooms`,
   `gz-exp-ts`, `gz-exp-global` — keyed by the opaque `hk` for 1:1 chats but by the group's `rid` for groups;
   since v48 the timer is also kept in the vault record), UI preferences (text size, language, theme…), and the
-  PIN/biometric wrapping records (which are ciphertext). Logout removes `gz-exp-rooms` but, as of v48, leaves
-  `gz-exp-ts`, `gz-exp-global` and `gz-devid` behind (listed as W14).
+  PIN/biometric wrapping records (which are ciphertext). Logout and account deletion remove the three timer entries (since v49; v48 left two of them behind). The push
+  device id `gz-devid` is kept at logout on purpose — it is what lets a later logout or login unregister this
+  device's push subscriptions — and is removed on account deletion.
 - On lock, `MK`-derived keys leave memory and rendered chats are cleared; on logout or a revoked session the
   device is wiped.
 

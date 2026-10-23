@@ -124,6 +124,8 @@ End-to-end encrypted messaging that runs in the browser. **No phone number. No a
   by time; a full storage is said once; the pull at unlock no longer races the cached backup key.
 - A chat's disappearing-messages choice lives in its record in the encrypted vault (v48): it follows the account
   across devices and survives a log-out; before, it lived only in the device's localStorage and was lost with it.
+- Signing out or deleting the account now also clears the per-chat timer entries kept in the browser (v49; the
+  group ones are keyed by the group id).
 - Tested on the server side too (v46): the five Edge Functions have Deno tests against a stand-in for
   supabase-js (`tests/edge/`, no network), run in CI with `deno check`; the browser scenarios wait on
   conditions instead of fixed delays (`tests/harness.py`), every check is a boolean or an error, and the

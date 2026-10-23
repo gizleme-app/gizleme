@@ -210,10 +210,10 @@ stated tolerances). A wrong clock causes refusals or, in the worst case, a longe
 honoured by a *cooperating* client. They protect against accidents and the relay, not against a hostile
 recipient.
 
-**W14 — Leftovers after logout.** Logout clears `gz-exp-rooms` but leaves `gz-exp-ts`, `gz-exp-global` and
-`gz-devid` in `localStorage` (and account deletion leaves the first two). They hold per-chat timer choices
-(keyed by the opaque history id, or by the group id for groups) and the push device id — no keys or content.
-To be cleaned up.
+**W14 — Leftovers after logout (fixed in v49).** Up to v48, logout cleared `gz-exp-rooms` but left `gz-exp-ts`
+and `gz-exp-global` in `localStorage` (account deletion too): per-chat timer choices keyed by the opaque
+history id, or by the group id for groups — no keys or content. Both are now removed at logout and deletion.
+The push device id `gz-devid` stays after a plain logout by design (see PROTOCOL §9).
 
 ## 7. What a reviewer should look at first
 

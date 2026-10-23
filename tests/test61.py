@@ -329,6 +329,13 @@ try:
     C.evaluate("()=>window.__gz.inbox()"); C.wait_for_timeout(2500)
     r["stays_in_group"]= not C.evaluate("()=>window.__gz.left()") and C.evaluate("()=>window.__gz.canSend()")
     send(C,"de retour"); r["back_talks"]= wait_for(A,has("de retour"),8000)
+    # ---- 9. v49: signing out leaves no per-chat timer choices behind (they are keyed by chat ids) ----
+    A.evaluate("()=>{ localStorage.setItem('gz-exp-ts','{\"x\":1}'); localStorage.setItem('gz-exp-global','300000'); localStorage.setItem('gz-exp-rooms','{\"x\":1}'); }")
+    A.evaluate("()=>document.getElementById('settingsModal').classList.add('show')"); A.evaluate("()=>document.querySelector('#settingsModal [data-go=account]').click()")
+    A.wait_for_timeout(150); A.click("#logoutBtn"); A.wait_for_timeout(2500)
+    left=A.evaluate("()=>({ts:localStorage.getItem('gz-exp-ts'), g:localStorage.getItem('gz-exp-global'), r:localStorage.getItem('gz-exp-rooms')})")
+    r["logout_clears_timers"]= left["ts"] is None and left["r"] is None and left["g"] in (None,"0")
+    r["logout_v"]= left
     r["errors"]= errs[:4]
     b.close()
 except Exception as e:
