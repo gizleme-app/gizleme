@@ -24,7 +24,7 @@
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="theme-color" content="#f3f4f6" media="(prefers-color-scheme: light)"/>
 <meta name="theme-color" content="#040509" media="(prefers-color-scheme: dark)"/>
-<script src="/sb.js?v=46"></script>
+<script src="/sb.js?v=47"></script>
 <style>
   :root{--bg:#f3f4f6;--surface:#ffffff;--surface-2:#eef0f3;--fg:#161a1f;--muted:#5a6572;--line:#e1e4ea;--me:#4338ca;--peer:#334155;--accent:#4338ca;--accent-bg:#4338ca;--ok:#15803d;--bad:#b91c1c;--warn:#b45309;--wire:#0e1116;--wire-fg:#c9d4df;--wire-line:#232a33;--r:14px;--r-s:8px;--r-m:14px;--r-full:999px;--fs-cap:.72rem;--fs-sec:.84rem;--fs-body:.95rem;--fs-title:1.15rem;--fs-display:1.4rem;--r-sm:8px;--ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;--users-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='9' cy='7' r='4'/%3E%3Cpath d='M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E");}
   @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
@@ -1005,10 +1005,11 @@
       <div class="promise"><span class="pi"><svg class="ico"><use href="#i-eye-off"/></svg></span><div><b>Never reads your contacts</b><span class="ps">You connect by a link you choose to share. Your contact list is stored encrypted — the server can't read it.</span></div></div>
       <button class="linkbtn" id="whyLink" type="button">How is this different from WhatsApp or Signal? →</button>
       <a class="linkbtn" href="/privacy.html" target="_blank" rel="noopener" style="text-align:center;display:block;margin-top:-4px">Privacy</a>
+      <a class="linkbtn" href="https://github.com/gizleme-app/gizleme" target="_blank" rel="noopener" style="text-align:center;display:block;margin-top:-4px">Source code</a>
     </div>
   </div>
 </div>
-<script src="/boot.js?v=46"></script>
+<script src="/boot.js?v=47"></script>
 
 <!-- CHAT -->
 <div class="screen" id="app">
@@ -1533,12 +1534,12 @@
         <tr><td>Disappearing messages</td><td class="g">On by default<span class="sub">24h, adjustable</span></td><td class="n">Off by default</td><td class="n">Off by default</td></tr>
         <tr><td>Auto-lock</td><td class="g">On by default</td><td class="n">Optional</td><td class="n">Optional</td></tr>
         <tr><td>Owned by</td><td class="g">Independent</td><td class="n">Meta</td><td class="y">Nonprofit</td></tr>
-        <tr><td>Open source and audited</td><td class="n">Not yet</td><td class="n">No</td><td class="y">Yes</td></tr>
+        <tr><td>Open source and audited</td><td class="g">Open source<span class="sub">independent audit: not yet</span></td><td class="n">No</td><td class="y">Yes</td></tr>
         <tr><td>Voice and video calls</td><td class="y">Yes<span class="sub">end-to-end; groups up to 4</span></td><td class="y">Yes</td><td class="y">Yes</td></tr>
       </tbody>
     </table>
-    <p class="set-note">Where they're ahead today: audited open-source code, and your friends are already there. Where Gizleme is different by design: nothing about you is required, and nothing has to stay on your device. Like any service, the relay sees connection times and encrypted traffic — never your messages, never your contact list (stored encrypted), and your username is never attached to a conversation.</p>
-    <p class="set-note" style="text-align:center;margin-top:4px"><a href="/privacy.html" target="_blank" rel="noopener">What the server keeps, and for how long →</a></p>
+    <p class="set-note">Where they're ahead today: an independent audit, and your friends are already there. Where Gizleme is different by design: nothing about you is required, and nothing has to stay on your device. Like any service, the relay sees connection times and encrypted traffic — never your messages, never your contact list (stored encrypted), and your username is never attached to a conversation.</p>
+    <p class="set-note" style="text-align:center;margin-top:4px"><a href="/privacy.html" target="_blank" rel="noopener">What the server keeps, and for how long →</a> · <a href="https://github.com/gizleme-app/gizleme" target="_blank" rel="noopener">Source code →</a></p>
     <button class="btn" id="whyClose" type="button">Got it</button>
   </div>
 </div>
@@ -1552,7 +1553,7 @@
 </div>
 
 <script src="/vendor/supabase-2.117.2.js"></script>
-<script src="/i18n.js?v=46"></script>
-<script src="/app.min.js?v=46"></script>
+<script src="/i18n.js?v=47"></script>
+<script src="/app.min.js?v=47"></script>
 </body>
 </html>

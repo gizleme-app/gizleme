@@ -3,6 +3,10 @@
 End-to-end encrypted messaging that runs in the browser. **No phone number. No app. No trace.**
 
 - Live: https://gizleme.com — open a friend's invite link, pick a name, reply.
+- Source: https://github.com/gizleme-app/gizleme (AGPL-3.0). What the site serves is what is here: `app.min.js` starts with the
+  SHA-256 of the `app.js` it was built from — `sha256sum app.js` at the tagged commit, then
+  `curl -s https://gizleme.com/app.min.js?v=NN | head -c 200` and compare (`tools/build.py` makes the bundle;
+  test59 refuses a stale one).
 - Languages: English, French, Turkish (picked from the browser's preferred languages, switchable in Settings).
 
 ## What it is
