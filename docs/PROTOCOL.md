@@ -23,7 +23,7 @@ implementation of any primitive. The Edge Functions use the same `crypto.subtle`
 
 | Name | Definition |
 |---|---|
-| ECDH | P-256, raw uncompressed public keys (65 bytes), 256-bit shared secret (`deriveBits`). Key pairs are extractable only where noted. |
+| ECDH | P-256, raw uncompressed public keys (65 bytes), 256-bit shared secret (`deriveBits`). Key pairs are generated extractable (`genKP`), including the live-session and ephemeral pairs. |
 | ECDSA | P-256 / SHA-256 (signatures in groups). |
 | HKDF(ikm, info, L=32) | HKDF-SHA-256, **salt = `utf8("vesper/v1")`** (a fixed legacy name from the project's first codename), `info = utf8(info)`, `L` bytes. |
 | AES-GCM | 256-bit key, **96-bit random IV** from `crypto.getRandomValues`, 128-bit tag, **no additional authenticated data**. Output is stored as `{iv: b64, ct: b64}` (`ct` includes the tag). |
@@ -127,7 +127,8 @@ first 16 bytes) for unknown names. The client recomputes `AK`, sends `av`. The s
 `SHA-256(av)` to the stored verifier and returns a **session token**: 32 random bytes (`b64`); the server
 stores only `SHA-256(token)` with a one-year expiry. The client keeps `{token, username, display}` in
 `localStorage` (`gz-session`) — **not** encrypted. The token authenticates `gizleme-vault`, `changepw`,
-`delete`, `rename`, `validate`, `gizleme-turn`, and the `putblob`, `delblob`, `ack` actions of `gizleme-mbox`.
+`delete`, `rename`, `validate`, `gizleme-turn`, and the `putblob`, `delblob`, `ack` actions of `gizleme-mbox` (the
+last three are tolerated without a token until 2026-12-15).
 
 `av` is a static value: it is replayable if captured (SECURITY.md, "Login proof is replayable").
 
@@ -201,12 +202,13 @@ check the code tag `m` (three wrong codes cancel the link: `dead`); check the ex
 ck  = HKDF(secret, "gz-contact/v3|" || ckLink)
 sv  = HKDF(secret, "gz-safety/v3", 16)            // the safety code
 kc  = HKDF(secret, "gz-chain/v1")                  // chain root, only if the opener offered fs
-kce = current week
+kce = current week     // the inviter instead takes the opener's offered `ke` when it is a number
+                       // not above the current week and within 1000 weeks of it (processHello)
 ```
 
 and discard `pk`. The opener derives the same values from `ECDH(e_priv, p)`. Any later hello for the same
-link is not bound: the inviter is warned once and the late opener receives a `used` note addressed to its
-ephemeral key. Nothing but hellos is ever written under `ckLink`; whatever the inviter writes before the link
+link is not bound: the inviter is warned (once per distinct foreign ephemeral key, at most three times) and the late opener receives a `used` note addressed to its
+ephemeral key. Under `ckLink` the inviter writes nothing but its notes to a late or wrong-code opener (`used`, `nopin`); whatever the inviter writes before the link
 is opened waits on the inviter's device and is sent under the agreed key afterwards.
 
 ### 5.3 Older invite generations
@@ -217,7 +219,7 @@ invitations created by older builds. New links are v3.
 
 ### 5.4 Safety codes
 
-`sv` (16 bytes) is shown as emoji and hex (`safetyEmoji`, `safetyHex`). It is bound to the v3 agreement, to
+`sv` (16 bytes) is shown as five emoji (from the first 5 bytes) and 12 bytes of hex (`safetyEmoji`, `safetyHex`). It is bound to the v3 agreement, to
 the first live meeting (`gz-safety/v2`) or to `ck` (`gz-safety/v1`, legacy), so someone who merely
 intercepted a link cannot produce a matching one. Users compare it in person; the app does not enforce it.
 
@@ -294,7 +296,7 @@ group key `gk` (groups). It is **stable for the life of the contact or key**.
 
 Deposit (`depositOne`): inner plaintext `JSON({…envelope, n: displayName, mid, a: _acct})`, encrypted with a
 fresh 96-bit IV under the mailbox key. A 1:1 message is deposited under every key the contact is reachable
-on (`depositCKSet`: the current `ck`, and the previous one while reconciling).
+on (`depositCKSet`: for a v3 contact only the current `ck`; for older contacts also the previous one while reconciling).
 
 Fetch (`fetchMailbox`, `fetchMailboxId`): the cursor `since` per mailbox lives in the encrypted local
 meta; items are skipped if their `mid` was already seen or if they are older than the chat's disappearing
@@ -324,7 +326,7 @@ the lexicographically smaller root at the same epoch (`mergeContacts`).
 
 ## 8. Groups
 
-**Link.** `https://gizleme.com/#g=<b64url(JSON{rid, gk, name, adm?, rot?})>`; `rid` is 8 random bytes (hex),
+**Link.** `https://gizleme.com/#g=<b64url(JSON{rid, gk, name, adm?, rot?})>`; `rid` is 16 random symbols of `0-9a-z` (`newRid`, about 82 bits; validators accept 8–32 such characters),
 `gk` 32 random bytes, `adm` the creator's ECDSA public key (88 chars of `b64`). The fragment is stripped from
 the address bar when consumed.
 
@@ -352,7 +354,8 @@ ephemeral ECDH pair `E`. For each remaining member with a known `ek` — and for
 it computes `k = HKDF(ECDH(E_priv, ek), "gz-gk2/v1")` and wraps `gk'` with AES-GCM into `w[pk]`. The signed
 envelope is `{t:"gk2", g: fp(gk'), e: E_pub, w, x:[removed pks], rc: rotationNumber, p: fp(previous gk)}`. A
 member applies it (`onGk2`) only if it is signed by `adm`, `g` is not a key the group has already used
-(`fpSeen`, kept in the vault), and `rc` exceeds the rotation count it holds. A member with no wrap in `w`
+(`fpSeen`, kept in the vault), and — when `rc` is a number — `rc` exceeds the rotation count it holds. (`p` is
+signed but receivers do not check it; a non-numeric `rc` skips the count check.) A member with no wrap in `w`
 concludes it was removed — but only when the message was read under the current key (`cur`), not from an old
 mailbox. The previous key stays readable for 14 days (`prevGk`, `rotAt`) so late writers are not lost.
 
@@ -367,8 +370,12 @@ mailbox. The previous key stays readable for 14 days (`prevGk`, `rotAt`) so late
 - With `MK` unlocked (`gHistKey`): the contacts/groups/meta blob (`gz-local`), the cached ABK (`gz-abk`),
   message history and kept media in IndexedDB `vesper` (v3; stores `msgs`, `media`). Database keys use the
   opaque ids `hk` derived from `ck` (`gz-hist/v1`), never `ck` itself.
-- In clear in `localStorage`: the session token and username (`gz-session`), the vault owner marker, UI
-  preferences (text size, language, theme…), the PIN/biometric wrapping records (which are ciphertext).
+- In clear in `localStorage`: the session token and username (`gz-session`), the vault owner marker, the push
+  device id (`gz-devid`) and push flag, the per-chat disappearing-timer maps and global default (`gz-exp-rooms`,
+  `gz-exp-ts`, `gz-exp-global` — keyed by the opaque `hk` for 1:1 chats but by the group's `rid` for groups;
+  since v48 the timer is also kept in the vault record), UI preferences (text size, language, theme…), and the
+  PIN/biometric wrapping records (which are ciphertext). Logout removes `gz-exp-rooms` but, as of v48, leaves
+  `gz-exp-ts`, `gz-exp-global` and `gz-devid` behind (listed as W14).
 - On lock, `MK`-derived keys leave memory and rendered chats are cleared; on logout or a revoked session the
   device is wiped.
 
@@ -377,11 +384,11 @@ mailbox. The previous key stays readable for 14 days (`prevGk`, `rotAt`) so late
 ## 10. Media and documents
 
 A photo, voice note or document piece is encrypted on the device with AES-256-GCM under a **fresh random
-256-bit key** and IV, then uploaded with `putblob` (≤ 2 000 000 bytes, session required). The server stores
+256-bit key** and IV, then uploaded with `putblob` (≤ 2 000 000 bytes; session required — until 2026-12-15 a request without a token is still served, see §7.1). The server stores
 the ciphertext under a random 48-hex-character name (`<48 hex>.bin`), in a bucket that is public-read by URL
-but closed to the anon API; it returns the path. The envelope carries `{path, k, iv, mime, …}` — the key
-travels only inside the encrypted message. A document is cut into pieces of at most 1 800 000 bytes (10 MB in
-all, ≤ 6 parts), each with its own IV and the same key. View-once photos are deleted from the relay after
+but closed to the anon API; it returns the path. A photo or voice envelope carries `{path, k, iv, mime, …}`; a document envelope carries
+`{name, size, mime, k, parts:[{p, iv}]}` — one key, one IV per part. The key travels only inside the encrypted
+message. A document is cut into pieces of at most 1 800 000 bytes (10 MB in all, ≤ 6 parts). View-once photos are deleted from the relay after
 being viewed (`delblob`); everything else is swept after 14 days.
 
 ---
@@ -390,7 +397,9 @@ being viewed (`delblob`); everything else is swept after 14 days.
 
 Signalling (`offer`, `answer`, `ice`, join/leave) is sent as `t:"call"` envelopes through the chat's own
 encrypted, authenticated channel (live path; groups use the group channel), so the SDP and its DTLS
-fingerprints are covered by the same keys as messages. Media uses WebRTC **DTLS-SRTP**, peer to peer; group
+fingerprints are covered by the same keys as messages. In a **group**, call signalling is accepted unless the
+signature verdict is `bad`: an `unsigned` or `changed` call envelope is still processed, so the SDP is
+authenticated to “a holder of `gk`”, not necessarily to the named signer. Media uses WebRTC **DTLS-SRTP**, peer to peer; group
 calls are a full mesh capped at 4. ICE servers: STUN, plus short-lived Cloudflare TURN credentials from
 `gizleme-turn` (session required; a 900 s credential minted from a server-held key and shared for two
 minutes). There is no application-layer end-to-end encryption on top of DTLS-SRTP; a TURN relay sees
@@ -408,7 +417,7 @@ Push whose body is fixed text (“New message”, “Incoming call”, “Missed
 tag, and a URL `https://gizleme.com/#n=<notify_key>`; the receiving device's service worker adds the contact's
 name from a local cache keyed by `SHA-256(notify_key)`. At most 8 devices per key; limits 12 per 10 min for
 messages and 40 for call alerts per key, 120 per IP; endpoints are restricted to the browser vendors' push
-services. `gz-notify/v1` (the pair's single key) is still registered until 2027-02-01 for older builds.
+services. `gz-notify/v1` (the pair's single key) is registered for contacts that have a role only until 2027-02-01; contacts without a role, and every open live room, register it regardless (and a sender falls back to it).
 
 ---
 
@@ -418,19 +427,21 @@ services. `gz-notify/v1` (the pair's single key) is still registered until 2027-
 |---|---|---|
 | `gizleme-auth` | `check`, `register`, `salt`, `login` | none (rate-limited) |
 | | `changepw`, `delete` | session token **and** `av` |
-| | `rename`, `validate`, `logout` | session token |
+| | `rename`, `validate` | session token |
+| | `logout` | deletes the presented token if any; always answers ok |
 | `gizleme-vault` | `pull`, `pushAbk`, `pushContacts` | session token |
 | | `rewrapAbk` | session token **and** `av` |
 | `gizleme-mbox` | `put`, `get`, `getmany` | none — knowledge of the mailbox id |
-| | `putblob`, `delblob`, `ack` | session token |
-| `gizleme-push` | `vapid`, `register`, `unregister`, `notify` | none — knowledge of the notification key |
+| | `putblob`, `delblob`, `ack` | session token (until 2026-12-15 a request with no token is still served, and the per-account blob limit is then skipped; an unknown token is never accepted) |
+| `gizleme-push` | `vapid`, `register`, `notify` | none — `notify` needs the notification key; `register` accepts any subscription for any keys |
+| | `unregister` | the device's `owner` id (no notification key needed) |
 | `gizleme-turn` | (default) | session token |
 
 All functions: `POST` JSON, CORS restricted to `https://gizleme.com` and `https://www.gizleme.com` (a
 browser-only control), service-role database access, RLS enabled on every table with no policies. Rate limits
 are a Postgres counter (`gz_rl_hit`); **if the counter itself errors the request is allowed** (fail-open).
 Tables: `gizleme_accounts`, `gizleme_sessions`, `gizleme_vault`, `gizleme_mbox`, `gizleme_push_subs`,
-`gizleme_config` (server secrets: `authsecret`, VAPID key, TURN key), `gizleme_rl`. The schema is in
+`gizleme_config` (server secrets: `authsecret`, the VAPID key, and the TURN key unless it is supplied through the function secrets `CF_TURN_KEY_ID`/`CF_TURN_KEY_TOKEN`, plus the media-sweep marker), `gizleme_rl`. The schema is in
 `supabase/migrations/`; the function tests are in `tests/edge/`.
 
 ---
@@ -438,14 +449,15 @@ Tables: `gizleme_accounts`, `gizleme_sessions`, `gizleme_vault`, `gizleme_mbox`,
 ## 14. Differences from established protocols — where to look hardest
 
 1. **No ratchet on the offline path.** A mailbox message is encrypted under a key that is static per contact
-   (legacy) or per week (v3 chain). There is no post-compromise security: a device that learns the current
-   chain root reads everything of the current week and later weeks until the two sides next meet live and
-   re-seed.
+   (legacy) or per week (v3 chain). There is no post-compromise security: a device that learns a chain root
+   (a device keeps the root of `current − 2`) reads the three weeks still on the relay and **every later
+   week**, because an existing chain is never re-seeded — only a contact with no chain gets one, at a live
+   meeting. Earlier weeks stay unreadable.
 2. **Live handshake is a bare ECDH.** `root = HKDF(secret, "root")` does not bind the two public keys, the
    room, or the identities into the KDF; authentication is the HMAC over the sender's own `pub` (§6).
 3. **The contact key `ck` is a long-lived symmetric secret** shared by both sides and replicated in the vault
-   of each. Compromise of either vault yields mailbox access for that contact (for v3 chains: the current
-   week onward).
+   of each. Compromise of either vault yields mailbox access for that contact (for v3 chains: the three weeks
+   still on the relay and everything after).
 4. **Groups use one static symmetric key** (no sender keys, no per-member ratchets). Rotation is
    admin-initiated and signed.
 5. **Account authentication is password-derived only** (PBKDF2-200k → `av` → verifier). A leak of the

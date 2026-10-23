@@ -14,7 +14,7 @@ Signal, and a reader should come away knowing exactly where it is weaker.
 
 ```
  ┌───────────── user device ─────────────┐        ┌──────────────── Cloudflare ───────────────┐
- │ browser / installed PWA               │  TLS   │ Workers static assets: index.html, app.js, │
+ │ browser / installed PWA               │  TLS   │ Workers static assets: index.html, app.min.js│
  │  • all cryptography (WebCrypto)       │◀───────│ i18n.js, sw.js …   (the code that runs     │
  │  • keys in memory while unlocked      │        │ on the device is delivered from here)      │
  │  • local data encrypted under MK      │        └────────────────────────────────────────────┘
@@ -35,8 +35,9 @@ Boundaries that matter:
 - **B2 — the code's origin.** The device runs whatever Cloudflare serves at load time. Everything below
   assumes that code is the published one (§6, W1).
 - **B3 — the relay (Supabase).** Treated as *fully untrusted for confidentiality*, and as *semi-trusted for
-  availability and metadata hygiene*. It holds only ciphertext, verifiers and hashes — but it can see who
-  connects when.
+  availability and metadata hygiene*. It holds ciphertext, password verifiers and salts, session-token hashes,
+  usernames and display names, the opaque account marker, push endpoints and keys, and delivery timestamps —
+  never a key or a plaintext — and it can see who connects when.
 - **B4 — the other party.** A contact is trusted with what you send them, and with nothing else.
 
 ## 2. Assets
@@ -50,7 +51,7 @@ Boundaries that matter:
 | A5 | **Device master key** MK | wrapped by password/PIN/biometric | unlocks local history and cached A3 |
 | A6 | **Session token** | `localStorage` (clear), hash on server | calls authenticated functions as the user |
 | A7 | **Social graph and activity metadata** | relay logs, presence, mailbox ids, push table | who talks to whom, when, how much |
-| A8 | **Server secrets** | `gizleme_config`: auth secret, VAPID private key, TURN token | impersonation of the push sender; relay-minute theft |
+| A8 | **Server secrets** | `gizleme_config`: auth secret, VAPID private key; the TURN token (function secrets, or `gizleme_config` as a fallback) | impersonation of the push sender; relay-minute theft |
 | A9 | **Integrity of the delivered code** | Cloudflare origin | compromises everything above |
 | A10 | **Availability** | all of it | an unreachable app delivers nothing |
 
@@ -102,17 +103,17 @@ Test references are to `tests/` scenarios and `tests/edge/`.
 |---|---|---|---|---|
 | T1 | Read message or photo content | R1, R2, N1 | E2E AES-GCM; keys never on server; blobs encrypted client-side with a per-blob key sent inside the message | Mitigated |
 | T2 | Replay, reflection or reorder of live messages | R2, N2 | `dir`, monotonic counter `i`, sealed `mid` equal to outer `mid`, `seen` set | Mitigated (live). Mailbox: dedupe by `mid`; ordering is by relay timestamp (Accepted) |
-| T3 | Replay of an old signed group message or old key rotation | C2, R2 | `sts` window 16 days; rotation number + previous-key fingerprint + `fpSeen` | Mitigated; clock-based (W11) |
+| T3 | Replay of an old signed group message or old key rotation | C2, R2 | `sts` window 16 days; rotation number + `fpSeen` (every key the group has used) | Mitigated; clock-based (W11). The previous-key fingerprint `p` in a rotation is signed but not checked by receivers |
 | T4 | Inject messages into a mailbox | R2, anyone with the mailbox id | writing needs the mailbox *key* to produce a message that decrypts; id alone lets one add junk rows | Partial: junk/DoS possible (120/min per mailbox), forged content not |
-| T5 | Man-in-the-middle at live pairing | R2, N2 | HMAC over `pub` under `HKDF(ck,…)`; unverified entries never paired | Mitigated for contacts. Not for manual rooms (§4 G2) |
+| T5 | Man-in-the-middle at live pairing | R2, N2 | HMAC over `pub` under `HKDF(ck,…)`; unverified entries are not paired with (a peer already paired in the session is kept if its tag later goes missing) | Mitigated for contacts. Not for manual rooms (§4 G2) |
 | T6 | Impostor opens an invite link first | L1 | link carries only a one-time public key; expiry (default 24 h); optional spoken 4-digit code (3 tries); first hello wins and later ones are reported; in-person QR; safety code bound to the agreement | Partial: an interceptor who is faster than the invitee and knows the code becomes the contact; only the safety-code comparison detects it |
-| T7 | Downgrade of the invite hello (strip forward-secrecy offer or code tag) | R2 | hello tag `h` binds `fs`, `ke`, `m` to the ECDH secret; enforced from 2026-12-15 | Mitigated (the grace window ends on that date) |
+| T7 | Downgrade of the invite hello (strip forward-secrecy offer or code tag) | R2 | hello tag `h` binds `fs`, `ke`, `m` to the ECDH secret; **enforced only from 2026-12-15** — until then a hello without `h` is accepted | Partial until that date, Mitigated after |
 | T8 | Username enumeration | U1 | `salt` returns deterministic fake salts; `check` is rate-limited (20/min/IP) | Partial: `check` reveals availability by design |
 | T9 | Online password guessing | U1 | 10 failed attempts / 15 min per account (success refunds), 60 logins / 15 min per IP | Mitigated (limits are per-IP/per-account, not distributed-guessing-proof) |
 | T10 | Spam wake-ups via push | U1 | notification key is a secret derived from `ck`; 12/10 min per key; fixed text; ≤ 8 devices per key; endpoint allow-list | Mitigated |
-| T11 | Storage abuse | U1 | blobs only through `putblob` with a session; 30/min/IP, 150/h/account; ≤ 2 MB; 14-day sweep | Partial: no per-account quota (Accepted) |
+| T11 | Storage abuse | U1 | blobs only through `putblob`; 30/min/IP, 150/h/account; ≤ 2 MB; 14-day sweep | Partial: until 2026-12-15 a request with no session token is still served and skips the per-account limit; no storage quota (Accepted) |
 | T12 | Join or inject on a Realtime channel | U1, R2 | none at the channel level (policy only checks `ratchet-%`); end-to-end tags and encryption | Partial: an attacker who learns a topic name can join presence and see names/markers; cannot pair or read (§6 W6) |
-| T13 | Call media interception | R2, T1 | DTLS-SRTP; fingerprints exchanged inside the E2E session | Mitigated; TURN and the peer see IPs |
+| T13 | Call media interception | R2, T1 | DTLS-SRTP; fingerprints exchanged inside the E2E session | Mitigated for 1:1; in groups an `unsigned` call envelope is still processed, so the SDP is authenticated to a holder of the group key; TURN and the peer see IPs |
 
 ### 5.2 Account and device
 
@@ -120,7 +121,7 @@ Test references are to `tests/` scenarios and `tests/edge/`.
 |---|---|---|---|---|
 | T14 | Offline cracking of the password from a DB leak, then reading the vault | R1, R2 | PBKDF2-200k; verifier = SHA-256(SHA-256(AK)) | **Open** (W2): a weak password falls; Argon2id/OPAQUE planned |
 | T15 | Replay of a captured login proof `av` | N2 with broken TLS | TLS only | **Open** (W3), with OPAQUE |
-| T16 | Steal the session token from the device | D2 | token is server-revocable (password change, sign-out everywhere, validate-at-unlock wipe) | Accepted: stored in clear in `localStorage`; it grants function access (vault ciphertext, TURN, blob upload, acks), **not** key material |
+| T16 | Steal the session token from the device | D2 | token is server-revocable (a password change or account deletion deletes the others; `logout` deletes the presented one; each unlock validates the session and wipes the device if it was revoked). There is no “sign out everywhere” action | Accepted: stored in clear in `localStorage`; it grants function access (vault ciphertext, TURN, blob upload, acks), **not** key material |
 | T17 | Read local data on a locked/found device | D1 | MK wraps all local data; unwrapped only by password/PIN (PBKDF2) or biometric PRF; keys out of memory on lock; opaque DB ids | Mitigated up to PIN/password strength; the PIN path is as weak as the PIN (200k PBKDF2) |
 | T18 | Malware or an unlocked-device thief | D2 | none beyond OS | Out of scope: keys are in memory while unlocked |
 | T19 | Cross-account leakage on a shared browser | — | vault-owner check, full wipe on logout | Mitigated |
@@ -131,7 +132,7 @@ Test references are to `tests/` scenarios and `tests/edge/`.
 | ID | Threat | Actor | Control | Residual / status |
 |---|---|---|---|---|
 | T21 | Removed member keeps reading | C2 | admin rotates `gk` and wraps it to the remaining members only; room and mailbox follow the key; old key readable 14 days for late writers | Mitigated for new messages; the removed member keeps what they already have |
-| T22 | Removed member forces the group back to an old key | C2 | rotation number, previous-key fingerprint, `fpSeen` | Mitigated |
+| T22 | Removed member forces the group back to an old key | C2 | rotation number (when numeric) and `fpSeen` | Mitigated |
 | T23 | Member impersonates another | C2 | ECDSA signatures over `rid` + object; name↔key binding learned on first use | Partial: TOFU; a member's first key is unverified |
 | T24 | Non-admin rotates or removes | C2 | `gk2` honoured only if signed by `adm` | Mitigated. Groups created before admin keys cannot rotate |
 | T25 | Malicious contact lies (fake read receipts, ignores deletes/timers) | C1 | disappearing/view-once/delete are advisory | Accepted: enforced by the recipient's client only |
@@ -142,9 +143,9 @@ Test references are to `tests/` scenarios and `tests/edge/`.
 | ID | Threat | Actor | Control | Residual / status |
 |---|---|---|---|---|
 | T27 | Malicious JavaScript served to users | H1 | CSP `script-src 'self'`, HSTS, no third-party scripts, public source, README procedure to compare the served bundle's hash with the source | **Open** (W1): a compromised origin can ship different code; no signed/reproducible build, no second-channel verification in the app |
-| T28 | Malicious dependency | — | no runtime third-party code except `qrcode.js` (vendored, 57 KB) | Mitigated by vendoring; see `THIRD_PARTY.md` |
+| T28 | Malicious dependency | — | the only third-party runtime code is vendored and version-pinned: supabase-js 2.117.2 (≈218 KB, all function, Realtime and storage calls) and `qrcode.js` 1.4.4 (57 KB, loaded on first QR) | Mitigated by vendoring, not eliminated: supabase-js sits on the path of every request; see `THIRD_PARTY.md` |
 | T29 | Service worker keeps an old, vulnerable version | — | cache name = version; update offer when a newer one is detected | Partial: users on a stale tab keep old code until reload |
-| T30 | Server secret leakage (VAPID key, TURN token, auth secret) | R1, R2 | secrets in a service-role-only table, never in source or client | Accepted: a Supabase compromise includes them (the VAPID key lets an attacker send fixed-looking pushes; the TURN token spends relay minutes) |
+| T30 | Server secret leakage (VAPID key, TURN token, auth secret) | R1, R2 | secrets in a service-role-only table or function secrets, never in source or client | Accepted: a Supabase compromise includes them (the VAPID key lets an attacker send fixed-looking pushes; the TURN token spends relay minutes) |
 
 ## 6. Known weaknesses, ranked
 
@@ -167,8 +168,9 @@ W3.
 **W3 — The login proof is replayable.** `av` is static. *Direction:* OPAQUE.
 
 **W4 — No post-compromise security, and only weekly forward secrecy offline.** See PROTOCOL §14. A device
-compromise reveals the current week of mailbox traffic and, for pre-chain contacts and all groups, the whole
-retained history and the future, until keys are rotated. *Direction:* per-device ephemeral keys and a real
+compromise reveals the three weeks of mailbox traffic still on the relay and **every later week** — an
+existing chain is never re-seeded — and, for pre-chain contacts and all groups, the whole retained history
+and the future, until keys are rotated. *Direction:* per-device ephemeral keys and a real
 ratchet for the mailbox (a separate project); rotating contact keys on password change.
 
 **W5 — The vault concentrates every secret.** One AES key (the ABK) protects all contact keys, group keys,
@@ -207,6 +209,11 @@ stated tolerances). A wrong clock causes refusals or, in the worst case, a longe
 **W13 — Advisory controls.** Disappearing messages, view-once, delete-for-everyone and edit windows are
 honoured by a *cooperating* client. They protect against accidents and the relay, not against a hostile
 recipient.
+
+**W14 — Leftovers after logout.** Logout clears `gz-exp-rooms` but leaves `gz-exp-ts`, `gz-exp-global` and
+`gz-devid` in `localStorage` (and account deletion leaves the first two). They hold per-chat timer choices
+(keyed by the opaque history id, or by the group id for groups) and the push device id — no keys or content.
+To be cleaned up.
 
 ## 7. What a reviewer should look at first
 

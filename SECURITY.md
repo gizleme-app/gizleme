@@ -87,8 +87,9 @@ rate-limit counters.
   mailbox for up to 48 h rather than skipped, so it is read once the vault converges. Until that meeting, such contacts keep the
   static key. What remains: a compromised device
   reads what is still waiting for it (inherent); a compromise of the current root reveals everything the
-  chain derives from it until the two devices next meet live and re-seed it (the chain is one-way: earlier
-  weeks stay unreadable, later ones are not protected until that meeting), and the root travels inside the
+  chain derives from it — the weeks still on the relay and every later week, because an existing chain is never
+  re-seeded (only a contact with no chain gets one, at a live meeting); the chain is one-way, so earlier
+  weeks stay unreadable — and the root travels inside the
   encrypted contacts backup, so a backup copy kept by the host matters as much as the device. Per-
   message forward secrecy with per-device ephemeral keys (the Signal model) would end "any device of the
   account reads the mailbox" and stays a separate project. Groups keep a static key (see below).
